@@ -61,6 +61,11 @@ $selector_count = static function ( string $content, string $selector ): int {
 
 $contains_selector = static fn ( string $content, string $selector ): bool => $selector_count( $content, $selector ) > 0;
 
+$pattern_blocks = static function ( string $pattern_file ): string {
+	$parts = explode( '?>', $pattern_file, 2 );
+	return trim( 2 === count( $parts ) ? $parts[1] : $pattern_file );
+};
+
 $fixture_dir = $plugin_root . '/tests/fixtures/wordpress-is-dead';
 $fixture     = $fixture_dir . '/index.html';
 $files       = array( 'index.html', 'manifesto.html', 'comparison.html', 'eulogy.html', 'proof.html', 'styles.css' );
@@ -98,9 +103,17 @@ if ( ! is_wp_error( $result ) ) {
 			$palette[ $color['slug'] ] = $color;
 		}
 	}
+	$home_tmpl  = $read( $theme_dir . '/templates/page-home.html' );
+	$proof_tmpl = $read( $theme_dir . '/templates/page-proof.html' );
+	$home_pat   = $read( $theme_dir . '/patterns/page-home.php' );
+	$proof_pat  = $read( $theme_dir . '/patterns/page-proof.php' );
 
-	$assert( str_contains( $front_page, 'wp:post-content' ), 'front-page-renders-imported-page-content' );
+	$assert( str_contains( $front_page, 'wp:pattern' ) && str_contains( $front_page, 'wordpress-is-dead-fixture/page-home' ), 'front-page-renders-imported-page-pattern' );
 	$assert( str_contains( $page, 'wp:post-content' ), 'page-template-renders-imported-page-content' );
+	$assert( str_contains( $home_tmpl, 'wp:pattern' ) && str_contains( $home_tmpl, 'wordpress-is-dead-fixture/page-home' ), 'home-page-template-renders-home-pattern' );
+	$assert( str_contains( $proof_tmpl, 'wp:pattern' ) && str_contains( $proof_tmpl, 'wordpress-is-dead-fixture/page-proof' ), 'proof-page-template-renders-proof-pattern' );
+	$assert( str_contains( $home_pat, 'Slug: wordpress-is-dead-fixture/page-home' ), 'home-pattern-has-theme-slug' );
+	$assert( str_contains( $proof_pat, 'Slug: wordpress-is-dead-fixture/page-proof' ), 'proof-pattern-has-theme-slug' );
 	$assert( ! str_contains( $front_page, 'layout":{"type":"constrained"' ), 'front-page-template-is-neutral' );
 	$assert( ! str_contains( $page, 'layout":{"type":"constrained"' ), 'page-template-is-neutral' );
 	$assert( str_contains( $header, 'WordPress' ) && str_contains( $header, 'Is' ) && str_contains( $header, 'Dead' ), 'header-preserves-site-brand' );
@@ -126,9 +139,13 @@ if ( ! is_wp_error( $result ) ) {
 		$post = isset( $result['pages'][ $filename ] ) ? get_post( $result['pages'][ $filename ] ) : null;
 		$assert( $post instanceof WP_Post, 'page-post-exists-' . $filename );
 		if ( $post instanceof WP_Post ) {
+			$slug         = 'index.html' === $filename ? 'home' : preg_replace( '/\.html?$/i', '', $filename );
+			$pattern_body = $pattern_blocks( $read( $theme_dir . '/patterns/page-' . $slug . '.php' ) );
+			$assert( str_contains( $post->post_content, 'Imported page layout lives in this page' ), 'page-post-content-is-shell-' . $filename );
+			$assert( ! $contains_selector( $post->post_content, '.hero' ), 'page-post-content-does-not-duplicate-layout-' . $filename );
 			$pages[ $filename ] = array(
-				'stored'   => $post->post_content,
-				'rendered' => do_blocks( $post->post_content ),
+				'stored'   => $pattern_body,
+				'rendered' => do_blocks( $pattern_body ),
 			);
 		}
 	}
