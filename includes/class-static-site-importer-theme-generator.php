@@ -72,7 +72,9 @@ class Static_Site_Importer_Theme_Generator {
 		$header_blocks     = self::convert_fragment( self::strip_active_classes( self::rewrite_internal_links( $fragments['header'], $permalinks ) ) );
 		$footer_blocks     = self::convert_fragment( self::rewrite_internal_links( $fragments['footer'], $permalinks ) );
 
-		$result = self::write_page_contents( $pages, $page_ids, $permalinks );
+		$page_artifacts = self::page_artifacts( $pages, $permalinks, $theme_slug );
+
+		$result = self::write_page_shell_contents( $pages, $page_ids );
 		if ( is_wp_error( $result ) ) {
 			return $result;
 		}
@@ -85,10 +87,20 @@ class Static_Site_Importer_Theme_Generator {
 			$theme_dir . '/theme.json'                 => self::theme_json( $theme_name, $site_css ),
 			$theme_dir . '/parts/header.html'          => $header_blocks,
 			$theme_dir . '/parts/footer.html'          => $footer_blocks,
-			$theme_dir . '/templates/front-page.html'  => self::content_template( $background_blocks ),
+			$theme_dir . '/templates/front-page.html'  => self::page_pattern_template( $background_blocks, $page_artifacts['patterns']['index.html'] ?? '' ),
 			$theme_dir . '/templates/page.html'        => self::content_template( $background_blocks ),
 			$theme_dir . '/templates/index.html'       => self::content_template( $background_blocks ),
 		);
+
+		foreach ( $page_artifacts['patterns'] as $filename => $pattern_slug ) {
+			$slug = self::page_slug( $filename );
+			if ( '' === $pattern_slug || '' === $slug ) {
+				continue;
+			}
+
+			$writes[ $theme_dir . '/templates/page-' . $slug . '.html' ] = self::page_pattern_template( $background_blocks, $pattern_slug );
+			$writes[ $theme_dir . '/patterns/page-' . $slug . '.php' ]   = $page_artifacts['files'][ $filename ] ?? '';
+		}
 
 		$inline_js = $document->inline_js();
 		if ( '' !== $inline_js ) {
@@ -174,7 +186,7 @@ class Static_Site_Importer_Theme_Generator {
 				'post_name'    => $slug,
 				'post_status'  => 'publish',
 				'post_type'    => 'page',
-				'post_content' => '',
+				'post_content' => self::page_shell_content(),
 			);
 
 			if ( $existing instanceof WP_Post ) {
@@ -193,23 +205,48 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Write converted page body content.
+	 * Build page-specific template and pattern artifacts.
 	 *
 	 * @param array<string, array{path:string,document:Static_Site_Importer_Document}> $pages      Pages.
-	 * @param array<string,int>                                                         $page_ids   Page IDs keyed by filename.
 	 * @param array<string,string>                                                      $permalinks Permalinks keyed by filename.
+	 * @param string                                                                    $theme_slug Theme slug.
+	 * @return array{patterns:array<string,string>,files:array<string,string>}
+	 */
+	private static function page_artifacts( array $pages, array $permalinks, string $theme_slug ): array {
+		$patterns = array();
+		$files    = array();
+
+		foreach ( $pages as $filename => $page ) {
+			$slug         = self::page_slug( $filename );
+			$pattern_slug = sanitize_key( $theme_slug ) . '/page-' . $slug;
+			$fragments    = $page['document']->fragments();
+			$content      = self::convert_fragment( self::rewrite_internal_links( $fragments['main'], $permalinks ) );
+
+			$patterns[ $filename ] = $pattern_slug;
+			$files[ $filename ]    = self::pattern_file( self::page_title( $filename, $page['document'] ), $pattern_slug, $content );
+		}
+
+		return array(
+			'patterns' => $patterns,
+			'files'    => $files,
+		);
+	}
+
+	/**
+	 * Keep imported pages as routing/editing shells; their visible layout lives in page templates.
+	 *
+	 * @param array<string, array{path:string,document:Static_Site_Importer_Document}> $pages    Pages.
+	 * @param array<string,int>                                                         $page_ids Page IDs keyed by filename.
 	 * @return true|WP_Error
 	 */
-	private static function write_page_contents( array $pages, array $page_ids, array $permalinks ) {
-		foreach ( $pages as $filename => $page ) {
-			$fragments = $page['document']->fragments();
-			$content   = self::convert_fragment( self::rewrite_internal_links( $fragments['main'], $permalinks ) );
-			$page_id   = $page_ids[ $filename ] ?? 0;
+	private static function write_page_shell_contents( array $pages, array $page_ids ) {
+		foreach ( array_keys( $pages ) as $filename ) {
+			$page_id = $page_ids[ $filename ] ?? 0;
 
 			$result = wp_update_post(
 				array(
 					'ID'           => $page_id,
-					'post_content' => $content,
+					'post_content' => self::page_shell_content(),
 				),
 				true
 			);
@@ -382,7 +419,7 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return true|WP_Error
 	 */
 	private static function ensure_dirs( string $theme_dir ) {
-		foreach ( array( $theme_dir, $theme_dir . '/templates', $theme_dir . '/parts', $theme_dir . '/assets' ) as $dir ) {
+		foreach ( array( $theme_dir, $theme_dir . '/templates', $theme_dir . '/parts', $theme_dir . '/patterns', $theme_dir . '/assets' ) as $dir ) {
 			if ( ! wp_mkdir_p( $dir ) ) {
 				return new WP_Error( 'static_site_importer_mkdir_failed', sprintf( 'Failed to create directory: %s', $dir ) );
 			}
@@ -565,5 +602,51 @@ class Static_Site_Importer_Theme_Generator {
 			'<!-- wp:post-content /-->' . "\n\n" .
 			'<!-- wp:template-part {"slug":"footer","tagName":"footer"} /-->'
 		) . "\n";
+	}
+
+	/**
+	 * Build a template that renders one imported page layout pattern.
+	 *
+	 * @param string $background_blocks Background decoration blocks.
+	 * @param string $pattern_slug      Pattern slug.
+	 * @return string
+	 */
+	private static function page_pattern_template( string $background_blocks, string $pattern_slug ): string {
+		$body = '' === $pattern_slug ? '<!-- wp:post-content /-->' : '<!-- wp:pattern {"slug":"' . esc_attr( $pattern_slug ) . '"} /-->';
+
+		return trim(
+			'<!-- wp:template-part {"slug":"header","tagName":"header"} /-->' . "\n\n" .
+			$background_blocks . "\n\n" .
+			$body . "\n\n" .
+			'<!-- wp:template-part {"slug":"footer","tagName":"footer"} /-->'
+		) . "\n";
+	}
+
+	/**
+	 * Build the placeholder stored on imported page posts.
+	 *
+	 * @return string
+	 */
+	private static function page_shell_content(): string {
+		return '<!-- wp:paragraph --><p>Imported page layout lives in this page\'s generated block theme template and pattern.</p><!-- /wp:paragraph -->';
+	}
+
+	/**
+	 * Build a theme pattern file for an imported page body.
+	 *
+	 * @param string $title        Pattern title.
+	 * @param string $pattern_slug Pattern slug.
+	 * @param string $content      Block markup.
+	 * @return string
+	 */
+	private static function pattern_file( string $title, string $pattern_slug, string $content ): string {
+		return "<?php\n" .
+			"/**\n" .
+			" * Title: " . $title . "\n" .
+			" * Slug: " . $pattern_slug . "\n" .
+			" * Categories: static-site-importer\n" .
+			" */\n" .
+			"?>\n" .
+			trim( $content ) . "\n";
 	}
 }
