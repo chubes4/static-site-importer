@@ -132,8 +132,13 @@ if ( ! is_wp_error( $result ) ) {
 		foreach ( array_unique( $selectors ) as $selector ) {
 			$stored   = $pages[ $filename ]['stored'] ?? '';
 			$rendered = $pages[ $filename ]['rendered'] ?? '';
-			$expect_failure( $contains_selector( $stored, $selector ), 'stored-preserves-selector-' . $filename . '-' . $selector, 'blocked by h2bc/BFB wrapper-class fidelity gaps' );
-			$expect_failure( $contains_selector( $rendered, $selector ), 'rendered-preserves-selector-' . $filename . '-' . $selector, 'blocked by h2bc/BFB wrapper-class fidelity gaps' );
+			$assert( $contains_selector( $stored, $selector ), 'stored-preserves-selector-' . $filename . '-' . $selector );
+			if ( 'proof.html' === $filename && '.prompt' === $selector ) {
+				$expect_failure( $contains_selector( $rendered, $selector ), 'rendered-preserves-selector-' . $filename . '-' . $selector, 'blocked by h2bc/BFB preformatted wrapper-class fidelity gap' );
+				continue;
+			}
+
+			$assert( $contains_selector( $rendered, $selector ), 'rendered-preserves-selector-' . $filename . '-' . $selector );
 		}
 	}
 
@@ -141,17 +146,17 @@ if ( ! is_wp_error( $result ) ) {
 	$eulogy     = $pages['eulogy.html']['stored'] ?? '';
 	$manifesto  = $pages['manifesto.html']['stored'] ?? '';
 
-	$expect_failure( 1 === $selector_count( $comparison, '.compare' ), 'comparison-compare-wrapper-not-duplicated', 'count=' . $selector_count( $comparison, '.compare' ) );
-	$expect_failure( 1 === $selector_count( $comparison, '.col-wp' ), 'comparison-col-wp-not-duplicated', 'count=' . $selector_count( $comparison, '.col-wp' ) );
-	$expect_failure( 1 === $selector_count( $comparison, '.col-claude' ), 'comparison-col-claude-not-duplicated', 'count=' . $selector_count( $comparison, '.col-claude' ) );
-	$expect_failure( 1 === substr_count( $comparison, 'WordPress <span class="tag">' ), 'comparison-wordpress-heading-not-duplicated', 'count=' . substr_count( $comparison, 'WordPress <span class="tag">' ) );
+	$assert( 1 === $selector_count( $comparison, '.compare' ), 'comparison-compare-wrapper-not-duplicated', 'count=' . $selector_count( $comparison, '.compare' ) );
+	$assert( 1 === $selector_count( $comparison, '.col-wp' ), 'comparison-col-wp-not-duplicated', 'count=' . $selector_count( $comparison, '.col-wp' ) );
+	$assert( 1 === $selector_count( $comparison, '.col-claude' ), 'comparison-col-claude-not-duplicated', 'count=' . $selector_count( $comparison, '.col-claude' ) );
+	$assert( 1 === substr_count( $comparison, 'WordPress <span class="tag">' ), 'comparison-wordpress-heading-not-duplicated', 'count=' . substr_count( $comparison, 'WordPress <span class="tag">' ) );
 
-	$expect_failure( 1 === $selector_count( $eulogy, '.eulogy-frame' ), 'eulogy-frame-not-duplicated', 'count=' . $selector_count( $eulogy, '.eulogy-frame' ) );
-	$expect_failure( 1 === $selector_count( $eulogy, '.dates' ), 'eulogy-dates-not-duplicated', 'count=' . $selector_count( $eulogy, '.dates' ) );
-	$expect_failure( 1 === substr_count( $eulogy, 'It is rare that a piece of software earns the right to be eulogized.' ), 'eulogy-key-paragraph-not-duplicated', 'count=' . substr_count( $eulogy, 'It is rare that a piece of software earns the right to be eulogized.' ) );
+	$assert( 1 === $selector_count( $eulogy, '.eulogy-frame' ), 'eulogy-frame-not-duplicated', 'count=' . $selector_count( $eulogy, '.eulogy-frame' ) );
+	$assert( 1 === $selector_count( $eulogy, '.dates' ), 'eulogy-dates-not-duplicated', 'count=' . $selector_count( $eulogy, '.dates' ) );
+	$assert( 1 === substr_count( $eulogy, 'It is rare that a piece of software earns the right to be eulogized.' ), 'eulogy-key-paragraph-not-duplicated', 'count=' . substr_count( $eulogy, 'It is rare that a piece of software earns the right to be eulogized.' ) );
 
 	$expect_failure( 1 === $selector_count( $manifesto, '.manifesto-list' ), 'manifesto-list-not-duplicated', 'count=' . $selector_count( $manifesto, '.manifesto-list' ) );
-	$expect_failure( 1 === substr_count( $manifesto, 'The CMS was a workaround for not being able to write HTML.' ), 'manifesto-key-heading-not-duplicated', 'count=' . substr_count( $manifesto, 'The CMS was a workaround for not being able to write HTML.' ) );
+	$assert( 1 === substr_count( $manifesto, 'The CMS was a workaround for not being able to write HTML.' ), 'manifesto-key-heading-not-duplicated', 'count=' . substr_count( $manifesto, 'The CMS was a workaround for not being able to write HTML.' ) );
 }
 
 if ( $expected_failures ) {
