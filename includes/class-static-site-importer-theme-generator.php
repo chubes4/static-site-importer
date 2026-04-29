@@ -423,17 +423,26 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return string
 	 */
 	private static function functions_php( string $theme_slug ): string {
-		$handle = sanitize_key( $theme_slug ) . '-style';
+		$style_handle = sanitize_key( $theme_slug ) . '-style';
+		$editor_handle = sanitize_key( $theme_slug ) . '-editor-style';
+		$script_handle = sanitize_key( $theme_slug ) . '-site';
 
 		return "<?php\n" .
 			"/**\n" .
 			" * Generated theme bootstrap.\n" .
 			" */\n\n" .
+			"add_action( 'after_setup_theme', static function (): void {\n" .
+			"\tadd_theme_support( 'editor-styles' );\n" .
+			"\tadd_editor_style( 'style.css' );\n" .
+			"} );\n\n" .
 			"add_action( 'wp_enqueue_scripts', static function (): void {\n" .
-			"\twp_enqueue_style( '" . $handle . "', get_stylesheet_uri(), array(), wp_get_theme()->get( 'Version' ) );\n" .
+			"\twp_enqueue_style( '" . $style_handle . "', get_stylesheet_uri(), array(), wp_get_theme()->get( 'Version' ) );\n" .
 			"\tif ( file_exists( get_template_directory() . '/assets/site.js' ) ) {\n" .
-			"\t\twp_enqueue_script( '" . sanitize_key( $theme_slug ) . "-site', get_template_directory_uri() . '/assets/site.js', array(), wp_get_theme()->get( 'Version' ), true );\n" .
+			"\t\twp_enqueue_script( '" . $script_handle . "', get_template_directory_uri() . '/assets/site.js', array(), wp_get_theme()->get( 'Version' ), true );\n" .
 			"\t}\n" .
+			"} );\n\n" .
+			"add_action( 'enqueue_block_editor_assets', static function (): void {\n" .
+			"\twp_enqueue_style( '" . $editor_handle . "', get_stylesheet_uri(), array(), wp_get_theme()->get( 'Version' ) );\n" .
 			"} );\n";
 	}
 
