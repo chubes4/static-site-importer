@@ -69,8 +69,8 @@ class Static_Site_Importer_Theme_Generator {
 		$fragments  = $document->fragments();
 
 		$background_blocks = self::convert_fragment( self::rewrite_internal_links( $fragments['background'], $permalinks ) );
-		$header_blocks     = self::convert_fragment( self::strip_active_classes( self::rewrite_internal_links( $fragments['header'], $permalinks ) ) );
-		$footer_blocks     = self::convert_fragment( self::rewrite_internal_links( $fragments['footer'], $permalinks ) );
+		$header_blocks     = self::convert_header_fragment( self::strip_active_classes( self::rewrite_internal_links( $fragments['header'], $permalinks ) ) );
+		$footer_blocks     = self::convert_footer_fragment( self::rewrite_internal_links( $fragments['footer'], $permalinks ) );
 
 		$result = self::write_page_contents( $pages, $page_ids, $permalinks );
 		if ( is_wp_error( $result ) ) {
@@ -297,6 +297,202 @@ class Static_Site_Importer_Theme_Generator {
 			},
 			$html
 		) ?? $html;
+	}
+
+	/**
+	 * Convert shared header chrome while preserving static navigation as native blocks.
+	 *
+	 * @param string $html Header HTML fragment.
+	 * @return string
+	 */
+	private static function convert_header_fragment( string $html ): string {
+		$doc    = self::load_fragment_document( $html );
+		$header = self::sole_child_element( $doc );
+		if ( ! $header instanceof DOMElement || 'header' !== strtolower( $header->tagName ) ) {
+			return self::convert_fragment( $html );
+		}
+
+		$header_children = self::direct_element_children( $header );
+		if ( 1 !== count( $header_children ) || 'div' !== strtolower( $header_children[0]->tagName ) ) {
+			return self::convert_fragment( $html );
+		}
+
+		$inner          = $header_children[0];
+		$inner_children = self::direct_element_children( $inner );
+		if ( 2 !== count( $inner_children ) || 'a' !== strtolower( $inner_children[0]->tagName ) || 'nav' !== strtolower( $inner_children[1]->tagName ) ) {
+			return self::convert_fragment( $html );
+		}
+
+		$navigation_blocks = self::convert_static_navigation_html( self::node_html( $doc, $inner_children[1] ) );
+		if ( null === $navigation_blocks ) {
+			return self::convert_fragment( $html );
+		}
+
+		$inner_blocks = self::html_block( self::node_html( $doc, $inner_children[0] ) ) . $navigation_blocks;
+		return self::group_block( self::group_block( $inner_blocks, $inner->getAttribute( 'class' ) ), $header->getAttribute( 'class' ), 'header' );
+	}
+
+	/**
+	 * Convert shared footer chrome while preserving simple footer links as native blocks.
+	 *
+	 * @param string $html Footer HTML fragment.
+	 * @return string
+	 */
+	private static function convert_footer_fragment( string $html ): string {
+		$doc    = self::load_fragment_document( $html );
+		$footer = self::sole_child_element( $doc );
+		if ( ! $footer instanceof DOMElement || 'footer' !== strtolower( $footer->tagName ) ) {
+			return self::convert_fragment( $html );
+		}
+
+		$footer_children = self::direct_element_children( $footer );
+		if ( 1 !== count( $footer_children ) || 'div' !== strtolower( $footer_children[0]->tagName ) ) {
+			return self::convert_fragment( $html );
+		}
+
+		$container          = $footer_children[0];
+		$container_children = self::direct_element_children( $container );
+		if ( 1 !== count( $container_children ) || 'div' !== strtolower( $container_children[0]->tagName ) ) {
+			return self::convert_fragment( $html );
+		}
+
+		$row          = $container_children[0];
+		$row_children = self::direct_element_children( $row );
+		if ( 2 !== count( $row_children ) || 'div' !== strtolower( $row_children[0]->tagName ) || 'ul' !== strtolower( $row_children[1]->tagName ) ) {
+			return self::convert_fragment( $html );
+		}
+
+		$navigation_blocks = self::convert_static_navigation_html( self::navigation_html_from_list( $doc, $row_children[1] ) );
+		if ( null === $navigation_blocks ) {
+			return self::convert_fragment( $html );
+		}
+
+		$row_blocks       = self::html_block( self::node_html( $doc, $row_children[0] ) ) . $navigation_blocks;
+		$container_blocks = self::group_block( $row_blocks, $row->getAttribute( 'class' ) );
+		return self::group_block( self::group_block( $container_blocks, $container->getAttribute( 'class' ) ), $footer->getAttribute( 'class' ), 'footer' );
+	}
+
+	/**
+	 * Convert static navigation markup through BFB, requiring native navigation output.
+	 *
+	 * @param string $html Navigation HTML.
+	 * @return string|null
+	 */
+	private static function convert_static_navigation_html( string $html ): ?string {
+		$blocks = self::convert_fragment( $html );
+		if ( ! str_contains( $blocks, '<!-- wp:navigation' ) || str_contains( $blocks, '<!-- wp:html' ) ) {
+			return null;
+		}
+
+		return $blocks;
+	}
+
+	/**
+	 * Wrap a static list in nav markup so BFB can emit native navigation blocks.
+	 *
+	 * @param DOMDocument $doc  DOM document.
+	 * @param DOMElement  $list List element.
+	 * @return string
+	 */
+	private static function navigation_html_from_list( DOMDocument $doc, DOMElement $list ): string {
+		$class = trim( $list->getAttribute( 'class' ) );
+		return '<nav' . ( '' !== $class ? ' class="' . esc_attr( $class ) . '"' : '' ) . '>' . self::node_html( $doc, $list ) . '</nav>';
+	}
+
+	/**
+	 * Build a group block wrapper.
+	 *
+	 * @param string $inner     Inner block markup.
+	 * @param string $class_name Source class attribute.
+	 * @param string $tag_name   Wrapper tag name.
+	 * @return string
+	 */
+	private static function group_block( string $inner, string $class_name = '', string $tag_name = 'div' ): string {
+		$class_name = trim( $class_name );
+		$tag_name   = strtolower( $tag_name );
+		$attrs     = array();
+		if ( '' !== $class_name ) {
+			$attrs['className'] = $class_name;
+		}
+		if ( 'div' !== $tag_name ) {
+			$attrs['tagName'] = $tag_name;
+		}
+
+		$comment_attrs = empty( $attrs ) ? '' : ' ' . wp_json_encode( $attrs, JSON_UNESCAPED_SLASHES );
+		$class_attr    = trim( 'wp-block-group ' . $class_name );
+
+		return '<!-- wp:group' . $comment_attrs . ' --><' . $tag_name . ' class="' . esc_attr( $class_attr ) . '">' . $inner . '</' . $tag_name . '><!-- /wp:group -->';
+	}
+
+	/**
+	 * Build an HTML block.
+	 *
+	 * @param string $html Raw HTML.
+	 * @return string
+	 */
+	private static function html_block( string $html ): string {
+		return '<!-- wp:html -->' . $html . '<!-- /wp:html -->';
+	}
+
+	/**
+	 * Parse an HTML fragment into a wrapper document.
+	 *
+	 * @param string $html HTML fragment.
+	 * @return DOMDocument
+	 */
+	private static function load_fragment_document( string $html ): DOMDocument {
+		$doc      = new DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$doc->loadHTML( '<?xml encoding="UTF-8"><div data-static-site-importer-root="1">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+
+		return $doc;
+	}
+
+	/**
+	 * Get the only direct child element from a wrapped fragment document.
+	 *
+	 * @param DOMDocument $doc DOM document.
+	 * @return DOMElement|null
+	 */
+	private static function sole_child_element( DOMDocument $doc ): ?DOMElement {
+		$root = $doc->documentElement;
+		if ( ! $root instanceof DOMElement ) {
+			return null;
+		}
+
+		$children = self::direct_element_children( $root );
+		return 1 === count( $children ) ? $children[0] : null;
+	}
+
+	/**
+	 * Get direct element children.
+	 *
+	 * @param DOMElement $element Element.
+	 * @return array<int, DOMElement>
+	 */
+	private static function direct_element_children( DOMElement $element ): array {
+		$children = array();
+		foreach ( $element->childNodes as $child ) {
+			if ( $child instanceof DOMElement ) {
+				$children[] = $child;
+			}
+		}
+
+		return $children;
+	}
+
+	/**
+	 * Serialize a DOM element.
+	 *
+	 * @param DOMDocument $doc  DOM document.
+	 * @param DOMElement  $node Element.
+	 * @return string
+	 */
+	private static function node_html( DOMDocument $doc, DOMElement $node ): string {
+		$html = $doc->saveHTML( $node );
+		return false === $html ? '' : $html;
 	}
 
 	/**
