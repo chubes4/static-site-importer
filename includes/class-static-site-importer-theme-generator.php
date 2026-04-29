@@ -69,7 +69,7 @@ class Static_Site_Importer_Theme_Generator {
 		$fragments  = $document->fragments();
 
 		$background_blocks = self::convert_fragment( self::rewrite_internal_links( $fragments['background'], $permalinks ) );
-		$header_blocks     = self::convert_fragment( self::rewrite_internal_links( $fragments['header'], $permalinks ) );
+		$header_blocks     = self::convert_fragment( self::strip_active_classes( self::rewrite_internal_links( $fragments['header'], $permalinks ) ) );
 		$footer_blocks     = self::convert_fragment( self::rewrite_internal_links( $fragments['footer'], $permalinks ) );
 
 		$result = self::write_page_contents( $pages, $page_ids, $permalinks );
@@ -268,6 +268,38 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Strip static active classes from shared chrome before every page reuses it.
+	 *
+	 * @param string $html HTML fragment.
+	 * @return string
+	 */
+	private static function strip_active_classes( string $html ): string {
+		if ( '' === trim( $html ) || ! str_contains( $html, 'active' ) ) {
+			return $html;
+		}
+
+		return preg_replace_callback(
+			'/\sclass=("|\')([^"\']*)(\1)/i',
+			static function ( array $matches ): string {
+				$classes = preg_split( '/\s+/', trim( $matches[2] ) ) ?: array();
+				$classes = array_values(
+					array_filter(
+						$classes,
+						static fn ( string $class ): bool => 'active' !== $class
+					)
+				);
+
+				if ( empty( $classes ) ) {
+					return '';
+				}
+
+				return ' class=' . $matches[1] . implode( ' ', $classes ) . $matches[3];
+			},
+			$html
+		) ?? $html;
+	}
+
+	/**
 	 * Build a WordPress page title from a source document.
 	 *
 	 * @param string                        $filename Source filename.
@@ -437,11 +469,7 @@ class Static_Site_Importer_Theme_Generator {
 		return trim(
 			'<!-- wp:template-part {"slug":"header","tagName":"header"} /-->' . "\n\n" .
 			$background_blocks . "\n\n" .
-			'<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" .
-			'<main class="wp-block-group">' . "\n" .
-			'<!-- wp:post-content {"layout":{"type":"constrained"}} /-->' . "\n" .
-			'</main>' . "\n" .
-			'<!-- /wp:group -->' . "\n\n" .
+			'<!-- wp:post-content /-->' . "\n\n" .
 			'<!-- wp:template-part {"slug":"footer","tagName":"footer"} /-->'
 		) . "\n";
 	}
