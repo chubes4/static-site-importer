@@ -1,698 +1,120 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WordPress is Dead — Long Live Static HTML</title>
-<meta name="description" content="WordPress had a great run. Now Claude writes the entire site in one prompt. No plugins, no databases, no PHP. Just HTML.">
-<style>
-  :root {
-    --bg: #0a0a0f;
-    --bg-2: #14141f;
-    --ink: #f5f5f7;
-    --ink-dim: #9a9aa8;
-    --accent: #ff3366;
-    --accent-2: #00e5ff;
-    --accent-3: #ffcc00;
-    --grid: rgba(255, 255, 255, 0.04);
-  }
-
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-
-  html { scroll-behavior: smooth; }
-
-  body {
-    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-    background: var(--bg);
-    color: var(--ink);
-    line-height: 1.5;
-    overflow-x: hidden;
-    -webkit-font-smoothing: antialiased;
-  }
-
-  a { color: inherit; text-decoration: none; }
-
-  /* ---------- Animated background ---------- */
-  .bg-orbs {
-    position: fixed;
-    inset: 0;
-    z-index: -2;
-    overflow: hidden;
-    pointer-events: none;
-  }
-  .orb {
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(80px);
-    opacity: 0.55;
-    animation: drift 22s ease-in-out infinite alternate;
-  }
-  .orb.a { width: 520px; height: 520px; background: var(--accent); top: -120px; left: -120px; }
-  .orb.b { width: 460px; height: 460px; background: var(--accent-2); top: 30%; right: -140px; animation-delay: -6s; }
-  .orb.c { width: 380px; height: 380px; background: var(--accent-3); bottom: -100px; left: 30%; animation-delay: -12s; }
-
-  @keyframes drift {
-    0%   { transform: translate(0, 0) scale(1); }
-    50%  { transform: translate(60px, -40px) scale(1.1); }
-    100% { transform: translate(-30px, 50px) scale(0.95); }
-  }
-
-  .grid-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    background-image:
-      linear-gradient(var(--grid) 1px, transparent 1px),
-      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-    background-size: 56px 56px;
-    mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
-    -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
-    pointer-events: none;
-  }
-
-  /* ---------- Layout ---------- */
-  .wrap { width: min(1100px, 92vw); margin-inline: auto; }
-
-  nav {
-    position: sticky;
-    top: 0;
-    z-index: 50;
-    padding: 18px 0;
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    background: rgba(10, 10, 15, 0.55);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  }
-  nav .wrap { display: flex; align-items: center; justify-content: space-between; }
-  .brand {
-    font-weight: 800;
-    letter-spacing: -0.02em;
-    font-size: 1.05rem;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .brand-dot {
-    width: 10px; height: 10px; border-radius: 50%;
-    background: var(--accent);
-    box-shadow: 0 0 14px var(--accent);
-    animation: pulse 1.6s ease-in-out infinite;
-  }
-  @keyframes pulse { 50% { transform: scale(1.4); opacity: 0.6; } }
-
-  nav ul { display: flex; gap: 28px; list-style: none; font-size: 0.92rem; color: var(--ink-dim); }
-  nav ul a:hover { color: var(--ink); }
-  @media (max-width: 640px) { nav ul { display: none; } }
-
-  /* ---------- Hero ---------- */
-  header.hero {
-    padding: 100px 0 120px;
-    position: relative;
-  }
-  .eyebrow {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 14px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.03);
-    font-size: 0.78rem;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--ink-dim);
-    margin-bottom: 28px;
-  }
-  .eyebrow .live {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: #2ecc71;
-    box-shadow: 0 0 10px #2ecc71;
-  }
-
-  h1.headline {
-    font-size: clamp(2.6rem, 7.5vw, 5.6rem);
-    line-height: 0.98;
-    letter-spacing: -0.035em;
-    font-weight: 800;
-    margin-bottom: 24px;
-  }
-  h1.headline .strike {
-    position: relative;
-    color: var(--ink-dim);
-    white-space: nowrap;
-  }
-  h1.headline .strike::after {
-    content: "";
-    position: absolute;
-    left: -2%;
-    right: -2%;
-    top: 52%;
-    height: 6px;
-    background: var(--accent);
-    transform: rotate(-3deg) scaleX(0);
-    transform-origin: left;
-    animation: strike 1.2s 0.6s cubic-bezier(.2,.8,.2,1) forwards;
-    border-radius: 4px;
-  }
-  @keyframes strike { to { transform: rotate(-3deg) scaleX(1); } }
-
-  .gradient-text {
-    background: linear-gradient(120deg, var(--accent), var(--accent-3) 50%, var(--accent-2));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-
-  .lede {
-    font-size: clamp(1.05rem, 1.6vw, 1.3rem);
-    color: var(--ink-dim);
-    max-width: 640px;
-    margin-bottom: 40px;
-  }
-
-  .cta-row { display: flex; gap: 14px; flex-wrap: wrap; }
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    padding: 14px 22px;
-    border-radius: 12px;
-    font-weight: 600;
-    font-size: 0.98rem;
-    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
-    border: 1px solid transparent;
-    cursor: pointer;
-  }
-  .btn-primary {
-    background: var(--ink);
-    color: var(--bg);
-    box-shadow: 0 8px 30px rgba(255, 51, 102, 0.25);
-  }
-  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 36px rgba(255, 51, 102, 0.4); }
-  .btn-ghost {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.12);
-    color: var(--ink);
-  }
-  .btn-ghost:hover { background: rgba(255, 255, 255, 0.08); }
-
-  /* ---------- Tombstone ---------- */
-  .tombstone-wrap {
-    margin-top: 80px;
-    display: flex;
-    justify-content: center;
-    perspective: 800px;
-  }
-  .tombstone {
-    width: min(360px, 80vw);
-    aspect-ratio: 3 / 4;
-    background: linear-gradient(180deg, #2a2a35, #14141f);
-    border-radius: 50% 50% 8px 8px / 24% 24% 4% 4%;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow:
-      inset 0 8px 28px rgba(255,255,255,0.05),
-      inset 0 -10px 40px rgba(0,0,0,0.6),
-      0 30px 80px rgba(0,0,0,0.6);
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    padding: 30px;
-    transform: rotateX(8deg);
-    transition: transform 0.4s ease;
-  }
-  .tombstone:hover { transform: rotateX(0deg) scale(1.02); }
-  .rip {
-    font-family: "Times New Roman", serif;
-    letter-spacing: 0.4em;
-    color: var(--ink-dim);
-    font-size: 0.95rem;
-    margin-bottom: 12px;
-  }
-  .tomb-name {
-    font-family: "Times New Roman", serif;
-    font-size: 2.3rem;
-    color: var(--ink);
-    margin-bottom: 8px;
-    letter-spacing: -0.01em;
-  }
-  .tomb-dates {
-    font-family: "Times New Roman", serif;
-    color: var(--ink-dim);
-    font-size: 1.05rem;
-    margin-bottom: 18px;
-  }
-  .epitaph {
-    font-style: italic;
-    color: var(--ink-dim);
-    font-size: 0.85rem;
-    max-width: 80%;
-  }
-
-  /* ---------- Sections ---------- */
-  section { padding: 100px 0; position: relative; }
-
-  .section-eyebrow {
-    color: var(--accent);
-    font-size: 0.82rem;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    font-weight: 600;
-    margin-bottom: 16px;
-  }
-  h2 {
-    font-size: clamp(2rem, 4vw, 3rem);
-    letter-spacing: -0.025em;
-    line-height: 1.05;
-    font-weight: 800;
-    margin-bottom: 18px;
-    max-width: 760px;
-  }
-  .section-lede {
-    color: var(--ink-dim);
-    max-width: 620px;
-    font-size: 1.05rem;
-    margin-bottom: 56px;
-  }
-
-  /* ---------- Compare table ---------- */
-  .compare {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 18px;
-  }
-  @media (max-width: 720px) { .compare { grid-template-columns: 1fr; } }
-
-  .col {
-    border-radius: 18px;
-    padding: 30px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.0));
-  }
-  .col h3 {
-    font-size: 1.25rem;
-    margin-bottom: 22px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .col.bad h3 { color: #ff7a90; }
-  .col.good h3 { color: #5cffd1; }
-
-  .col ul { list-style: none; display: flex; flex-direction: column; gap: 12px; }
-  .col li {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    color: var(--ink-dim);
-    font-size: 0.97rem;
-  }
-  .col li::before {
-    content: "";
-    flex-shrink: 0;
-    width: 18px; height: 18px;
-    border-radius: 50%;
-    background-position: center;
-    background-repeat: no-repeat;
-    background-size: 60%;
-    margin-top: 2px;
-  }
-  .col.bad li::before {
-    background-color: rgba(255, 51, 102, 0.18);
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff7a90' stroke-width='3' stroke-linecap='round'><path d='M6 6l12 12M18 6L6 18'/></svg>");
-  }
-  .col.good li::before {
-    background-color: rgba(0, 229, 255, 0.18);
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235cffd1' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><polyline points='4 12 10 18 20 6'/></svg>");
-  }
-
-  /* ---------- Features ---------- */
-  .features {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 18px;
-  }
-  @media (max-width: 900px) { .features { grid-template-columns: 1fr 1fr; } }
-  @media (max-width: 600px) { .features { grid-template-columns: 1fr; } }
-
-  .feature {
-    padding: 28px;
-    border-radius: 18px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.0));
-    transition: transform 0.2s ease, border-color 0.2s ease;
-  }
-  .feature:hover {
-    transform: translateY(-4px);
-    border-color: rgba(255, 255, 255, 0.18);
-  }
-  .feature .icon {
-    width: 44px; height: 44px;
-    border-radius: 12px;
-    display: grid; place-items: center;
-    background: linear-gradient(135deg, var(--accent), var(--accent-3));
-    color: var(--bg);
-    font-size: 1.3rem;
-    font-weight: 800;
-    margin-bottom: 18px;
-  }
-  .feature h3 { font-size: 1.1rem; margin-bottom: 8px; }
-  .feature p { color: var(--ink-dim); font-size: 0.95rem; }
-
-  /* ---------- Prompt block ---------- */
-  .prompt-section { padding-bottom: 60px; }
-  .prompt-card {
-    border-radius: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: linear-gradient(180deg, #14141f, #0c0c14);
-    overflow: hidden;
-    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
-  }
-  .prompt-bar {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 12px 18px;
-    background: rgba(255, 255, 255, 0.03);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  }
-  .dot { width: 12px; height: 12px; border-radius: 50%; }
-  .dot.r { background: #ff5f57; }
-  .dot.y { background: #ffbd2e; }
-  .dot.g { background: #28c941; }
-  .prompt-title {
-    margin-left: 14px;
-    font-size: 0.82rem;
-    color: var(--ink-dim);
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  }
-  .prompt-body {
-    padding: 28px 24px 30px;
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    font-size: 0.95rem;
-    line-height: 1.7;
-  }
-  .prompt-line { display: flex; gap: 12px; }
-  .prompt-line .you { color: var(--accent-3); flex-shrink: 0; }
-  .prompt-line .claude { color: var(--accent-2); flex-shrink: 0; }
-  .prompt-line .text { color: var(--ink); }
-  .typing::after {
-    content: "▋";
-    color: var(--accent-2);
-    animation: blink 1s steps(2) infinite;
-  }
-  @keyframes blink { 50% { opacity: 0; } }
-
-  /* ---------- Stats ---------- */
-  .stats {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 18px;
-    margin-top: 56px;
-  }
-  @media (max-width: 720px) { .stats { grid-template-columns: 1fr 1fr; } }
-  .stat {
-    padding: 26px;
-    border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.02);
-    text-align: center;
-  }
-  .stat-value {
-    font-size: 2.4rem;
-    font-weight: 800;
-    letter-spacing: -0.03em;
-    background: linear-gradient(135deg, var(--accent-2), var(--accent));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-  .stat-label {
-    color: var(--ink-dim);
-    font-size: 0.85rem;
-    margin-top: 6px;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-  }
-
-  /* ---------- Quote ---------- */
-  .quote-section { text-align: center; padding: 120px 0; }
-  blockquote {
-    font-size: clamp(1.4rem, 2.6vw, 2.1rem);
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    line-height: 1.25;
-    max-width: 820px;
-    margin: 0 auto 28px;
-  }
-  blockquote::before { content: "“"; color: var(--accent); font-size: 4rem; line-height: 0; vertical-align: -0.4em; margin-right: 6px; }
-  blockquote::after  { content: "”"; color: var(--accent); font-size: 4rem; line-height: 0; vertical-align: -0.4em; margin-left: 4px; }
-  .cite { color: var(--ink-dim); font-size: 0.95rem; }
-
-  /* ---------- Final CTA ---------- */
-  .final {
-    padding: 140px 0 100px;
-    text-align: center;
-  }
-  .final h2 { margin-inline: auto; }
-  .final p { color: var(--ink-dim); margin: 16px auto 36px; max-width: 520px; }
-
-  footer {
-    padding: 40px 0 60px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-    color: var(--ink-dim);
-    font-size: 0.85rem;
-    text-align: center;
-  }
-  footer p { margin-bottom: 6px; }
-
-  /* ---------- Reveal on scroll ---------- */
-  .reveal { opacity: 0; transform: translateY(24px); transition: opacity .7s ease, transform .7s ease; }
-  .reveal.shown { opacity: 1; transform: translateY(0); }
-
-  ::selection { background: var(--accent); color: white; }
-</style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WordPress Is Dead — Long Live The Prompt</title>
+<meta name="description" content="A 5-page static site built in a single Claude prompt. WordPress, we hardly knew ye." />
+<link rel="stylesheet" href="styles.css" />
 </head>
 <body>
 
-<div class="bg-orbs">
-  <div class="orb a"></div>
-  <div class="orb b"></div>
-  <div class="orb c"></div>
-</div>
-<div class="grid-overlay"></div>
-
-<nav>
-  <div class="wrap">
-    <div class="brand"><span class="brand-dot"></span> wordpress-is-dead.html</div>
-    <ul>
-      <li><a href="#why">Why</a></li>
-      <li><a href="#vs">vs WordPress</a></li>
-      <li><a href="#prompt">The Prompt</a></li>
-      <li><a href="#start">Start</a></li>
-    </ul>
-  </div>
-</nav>
-
-<header class="hero">
-  <div class="wrap">
-    <span class="eyebrow"><span class="live"></span> A moment of silence</span>
-    <h1 class="headline">
-      <span class="strike">WordPress</span><br>
-      is <span class="gradient-text">dead.</span>
-    </h1>
-    <p class="lede">
-      It had a 22-year run. Powered 43% of the web. Survived Gutenberg, Jetpack, and a thousand "Hello Dolly" jokes.
-      But Claude just generated this entire landing page in one prompt — no plugins, no databases, no PHP, no <code>wp-admin</code>.
-      Just HTML.
-    </p>
-    <div class="cta-row">
-      <a class="btn btn-primary" href="#prompt">See the prompt that built this →</a>
-      <a class="btn btn-ghost" href="#vs">Compare the corpses</a>
-    </div>
-
-    <div class="tombstone-wrap reveal">
-      <div class="tombstone" aria-label="WordPress tombstone">
-        <div class="rip">R · I · P</div>
-        <div class="tomb-name">WordPress</div>
-        <div class="tomb-dates">2003 — 2026</div>
-        <div class="epitaph">"Just one more plugin and it'll be fast."</div>
-      </div>
-    </div>
+<header class="site">
+  <div class="site-inner">
+    <a class="brand" href="index.html">WordPress<span class="dot">.</span>Is<span class="dot">.</span>Dead</a>
+    <nav class="primary">
+      <ul>
+        <li><a href="index.html" class="active">Home</a></li>
+        <li><a href="manifesto.html">Manifesto</a></li>
+        <li><a href="comparison.html">vs. WordPress</a></li>
+        <li><a href="eulogy.html">Eulogy</a></li>
+        <li><a href="proof.html">The Proof</a></li>
+      </ul>
+    </nav>
   </div>
 </header>
 
-<section id="why">
-  <div class="wrap">
-    <div class="section-eyebrow reveal">The verdict</div>
-    <h2 class="reveal">Static HTML didn't kill WordPress. Claude did.</h2>
-    <p class="section-lede reveal">
-      For two decades, the answer to "I need a website" was "spin up WordPress." Now the answer is "describe it."
-      One prompt produces a fully-styled, responsive, accessible site that loads in under a second and costs $0 to host.
+<section class="hero">
+  <div class="container">
+    <span class="eyebrow">A Public Service Announcement</span>
+    <h1>
+      <span class="strike">WordPress</span><br />
+      is officially dead.
+    </h1>
+    <p class="lede">
+      You are reading a 5-page static website that was generated, in its entirety,
+      from a <em>single sentence</em> typed into Claude. No themes. No plugins.
+      No <code>wp-admin</code>. No update nag. No PHP fatal error at 2am.
+    </p>
+    <div class="cta-row">
+      <a class="btn primary" href="manifesto.html">Read the Manifesto →</a>
+      <a class="btn ghost" href="proof.html">See The Proof</a>
+    </div>
+  </div>
+</section>
+
+<section class="block">
+  <div class="container">
+    <div class="note">The Three Laws Of The Post-CMS Era</div>
+    <h2>Themes are over.<br />Plugins are over.<br />Prompts are forever.</h2>
+    <p class="lead-text">
+      The 20-year reign of the bloated content management system has ended.
+      Not with a security patch, but with a chat box.
     </p>
 
-    <div class="features">
-      <div class="feature reveal">
-        <div class="icon">⚡</div>
-        <h3>Loads instantly</h3>
-        <p>No PHP roundtrip. No 87 database queries. No TTFB. The browser just reads the file.</p>
+    <div class="cards">
+      <div class="card">
+        <div class="num">01</div>
+        <h3>No database</h3>
+        <p>This site does not have a database. It does not need one. There is nothing to backup, nothing to migrate, nothing to optimize at midnight.</p>
       </div>
-      <div class="feature reveal">
-        <div class="icon">🛡</div>
-        <h3>Cannot be hacked</h3>
-        <p>There is no admin panel. There is no login. There is no MySQL. There is nothing to compromise.</p>
+      <div class="card">
+        <div class="num">02</div>
+        <h3>No login screen</h3>
+        <p>There is no <code>/wp-login.php</code> for bots to hammer. The admin panel is a text input, and it lives in your terminal.</p>
       </div>
-      <div class="feature reveal">
-        <div class="icon">🪶</div>
-        <h3>One file</h3>
-        <p>HTML, CSS, and a sprinkle of JS — all in a single document. Drop it on any server. Or no server.</p>
+      <div class="card">
+        <div class="num">03</div>
+        <h3>No update Tuesday</h3>
+        <p>You will not be paged because Yoast SEO and Elementor disagreed about a function name. They have both been retired.</p>
       </div>
-      <div class="feature reveal">
-        <div class="icon">∞</div>
-        <h3>Free forever</h3>
-        <p>No managed hosting. No "WordPress VIP" invoices. GitHub Pages, Netlify, S3 — pick a free tier.</p>
-      </div>
-      <div class="feature reveal">
-        <div class="icon">🧠</div>
-        <h3>Generated, not built</h3>
-        <p>You don't pick a theme. You don't install a page builder. You describe what you want, and it appears.</p>
-      </div>
-      <div class="feature reveal">
-        <div class="icon">🚫</div>
-        <h3>Zero plugins</h3>
-        <p>No "Yoast SEO Premium." No "WP Rocket." No mysterious updates that break your site at 2am.</p>
+      <div class="card">
+        <div class="num">04</div>
+        <h3>No theme shop</h3>
+        <p>You stopped paying $79 for a "premium" theme that ships 14 sliders and one CSS file written by a stranger in 2014.</p>
       </div>
     </div>
   </div>
 </section>
 
-<section id="vs">
-  <div class="wrap">
-    <div class="section-eyebrow reveal">Side by side</div>
-    <h2 class="reveal">A 30-second autopsy.</h2>
-    <p class="section-lede reveal">The same simple landing page, two completely different paths to ship it.</p>
-
-    <div class="compare">
-      <div class="col bad reveal">
-        <h3>The WordPress way</h3>
-        <ul>
-          <li>Provision a LAMP host. Or pay for managed hosting.</li>
-          <li>Install WordPress. Pick a theme. Pick a different theme.</li>
-          <li>Install a page builder. Install 14 plugins it depends on.</li>
-          <li>Configure caching. Configure a CDN. Configure security.</li>
-          <li>Update WordPress. Update plugins. Resolve conflicts.</li>
-          <li>Wait 4 seconds for the homepage to load.</li>
-          <li>Pay $29/month, forever, for the privilege.</li>
-        </ul>
-      </div>
-
-      <div class="col good reveal">
-        <h3>The Claude way</h3>
-        <ul>
-          <li>Describe the page in one sentence.</li>
-          <li>Receive a single <code>index.html</code> file.</li>
-          <li>Drag it into a browser. Done.</li>
-          <li>Drop it on Netlify. Live in 12 seconds.</li>
-          <li>It loads instantly because it is one file.</li>
-          <li>No updates. No maintenance. No CVEs.</li>
-          <li>Free.</li>
-        </ul>
-      </div>
-    </div>
-
-    <div class="stats">
-      <div class="stat reveal"><div class="stat-value">1</div><div class="stat-label">Prompt</div></div>
-      <div class="stat reveal"><div class="stat-value">0</div><div class="stat-label">Plugins</div></div>
-      <div class="stat reveal"><div class="stat-value">0ms</div><div class="stat-label">DB queries</div></div>
-      <div class="stat reveal"><div class="stat-value">∞</div><div class="stat-label">Uptime</div></div>
-    </div>
-  </div>
-</section>
-
-<section id="prompt" class="prompt-section">
-  <div class="wrap">
-    <div class="section-eyebrow reveal">Exhibit A</div>
-    <h2 class="reveal">The prompt that generated this site.</h2>
-    <p class="section-lede reveal">
-      No code editor open. No <code>npm install</code>. No "what theme should I use?" Just a sentence.
+<section class="block alt">
+  <div class="container">
+    <p class="pull">
+      "Why install a CMS to publish five pages<br />
+      when <span>five pages</span> is the entire job?"
     </p>
-
-    <div class="prompt-card reveal">
-      <div class="prompt-bar">
-        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-        <span class="prompt-title">~/wordpress-is-dead — claude</span>
-      </div>
-      <div class="prompt-body">
-        <div class="prompt-line">
-          <span class="you">you ▸</span>
-          <span class="text">Generate a static html landing page that is all about how WordPress is dead because Claude can now generate beautiful static html landing pages without wordpress.</span>
-        </div>
-        <br>
-        <div class="prompt-line">
-          <span class="claude">claude ▸</span>
-          <span class="text typing">Writing index.html</span>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section class="quote-section">
-  <div class="wrap reveal">
-    <blockquote>
-      The CMS was a workaround for the fact that humans couldn't write HTML at scale. Now they don't have to.
-    </blockquote>
-    <div class="cite">— probably someone, eventually</div>
-  </div>
-</section>
-
-<section id="start" class="final">
-  <div class="wrap">
-    <div class="section-eyebrow reveal">Get started</div>
-    <h2 class="reveal">Your next site is one prompt away.</h2>
-    <p class="reveal">
-      Open Claude. Describe the page. Save the file. Ship it. The hardest part is choosing a domain name —
-      and Claude can do that too.
+    <p class="center" style="color: var(--muted); font-size: 14px;">
+      — every developer, the moment they tried this once
     </p>
-    <div class="cta-row reveal" style="justify-content: center;">
-      <a class="btn btn-primary" href="https://claude.ai/" target="_blank" rel="noopener">Try it now →</a>
-      <a class="btn btn-ghost" href="https://www.claude.com/product/claude-code" target="_blank" rel="noopener">Get Claude Code</a>
-    </div>
   </div>
 </section>
 
-<footer>
-  <div class="wrap">
-    <p>This entire site is one HTML file. View source — it's all there.</p>
-    <p>Generated by Claude. No WordPress was harmed in the making (it was already dead).</p>
+<section class="block">
+  <div class="container">
+    <div class="note">What Just Happened</div>
+    <h2>One prompt. Five pages. Zero dependencies.</h2>
+    <p class="lead-text">
+      The user typed a single request. Claude returned every file you are
+      currently looking at — HTML, CSS, navigation, copy, tone of voice,
+      the works. It took less time than logging into a hosting dashboard.
+    </p>
+    <a class="btn primary" href="proof.html">View the receipt →</a>
+  </div>
+</section>
+
+<footer class="site">
+  <div class="container">
+    <div class="row">
+      <div>© 2026 The Prompt Liberation Front. Hand-served by your filesystem.</div>
+      <ul class="links">
+        <li><a href="manifesto.html">Manifesto</a></li>
+        <li><a href="comparison.html">vs. WordPress</a></li>
+        <li><a href="eulogy.html">Eulogy</a></li>
+        <li><a href="proof.html">Proof</a></li>
+      </ul>
+    </div>
   </div>
 </footer>
-
-<script>
-  // Reveal on scroll
-  const io = new IntersectionObserver((entries) => {
-    entries.forEach((e) => {
-      if (e.isIntersecting) {
-        e.target.classList.add('shown');
-        io.unobserve(e.target);
-      }
-    });
-  }, { threshold: 0.12 });
-  document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
-
-  // Subtle parallax on orbs
-  const orbs = document.querySelectorAll('.orb');
-  window.addEventListener('mousemove', (e) => {
-    const x = (e.clientX / window.innerWidth - 0.5) * 30;
-    const y = (e.clientY / window.innerHeight - 0.5) * 30;
-    orbs.forEach((orb, i) => {
-      const factor = (i + 1) * 0.6;
-      orb.style.translate = `${x * factor}px ${y * factor}px`;
-    });
-  });
-</script>
 
 </body>
 </html>
