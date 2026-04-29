@@ -119,8 +119,15 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( str_contains( $header, 'WordPress' ) && str_contains( $header, 'Is' ) && str_contains( $header, 'Dead' ), 'header-preserves-site-brand' );
 	$assert( ! preg_match( '/href=("|\')[^"\']+\.html(?:[#?][^"\']*)?\1/i', $header ), 'header-has-no-stale-html-links' );
 	$assert( ! $contains_selector( $header, '.active' ), 'shared-header-has-no-static-active-nav-class' );
-	$assert( 1 === substr_count( $header, 'Manifesto' ), 'header-does-not-duplicate-navigation' );
+	$assert( str_contains( $header, '<!-- wp:navigation ' ), 'header-uses-native-navigation-block' );
+	$assert( str_contains( $header, '<!-- wp:navigation-link ' ), 'header-uses-native-navigation-link-blocks' );
+	$assert( ! str_contains( $header, '"ref":' ), 'header-navigation-is-static-no-persistent-ref' );
+	$assert( 1 === substr_count( $header, '"label":"Manifesto"' ), 'header-does-not-duplicate-navigation-label' );
 	$assert( str_contains( $footer, 'Prompt Liberation Front' ), 'footer-preserves-footer-copy' );
+	$assert( str_contains( $footer, '<!-- wp:navigation ' ), 'footer-uses-native-navigation-block' );
+	$assert( str_contains( $footer, '<!-- wp:navigation-link ' ), 'footer-uses-native-navigation-link-blocks' );
+	$assert( ! str_contains( $footer, '"ref":' ), 'footer-navigation-is-static-no-persistent-ref' );
+	$assert( ! preg_match( '/href=("|\')[^"\']+\.html(?:[#?][^"\']*)?\1/i', $footer ), 'footer-has-no-stale-html-links' );
 	$assert( str_contains( $style, '--accent' ) && str_contains( $style, '.compare' ) && str_contains( $style, '.manifesto-list' ), 'style-preserves-source-css' );
 	$assert( str_contains( $functions, 'wp_enqueue_style' ), 'theme-enqueues-stylesheet' );
 	$assert( is_array( $theme_json ), 'theme-json-is-valid-json' );
