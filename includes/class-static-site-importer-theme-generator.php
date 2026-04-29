@@ -77,10 +77,12 @@ class Static_Site_Importer_Theme_Generator {
 			return $result;
 		}
 
+		$site_css = self::site_css( $site_dir, $document );
+
 		$writes = array(
-			$theme_dir . '/style.css'                  => self::style_css( $theme_name, self::site_css( $site_dir, $document ) ),
+			$theme_dir . '/style.css'                  => self::style_css( $theme_name, $site_css ),
 			$theme_dir . '/functions.php'              => self::functions_php( $theme_slug ),
-			$theme_dir . '/theme.json'                 => self::theme_json( $theme_name ),
+			$theme_dir . '/theme.json'                 => self::theme_json( $theme_name, $site_css ),
 			$theme_dir . '/parts/header.html'          => $header_blocks,
 			$theme_dir . '/parts/footer.html'          => $footer_blocks,
 			$theme_dir . '/templates/front-page.html'  => self::content_template( $background_blocks ),
@@ -450,9 +452,10 @@ class Static_Site_Importer_Theme_Generator {
 	 * Build theme.json.
 	 *
 	 * @param string $theme_name Theme name.
+	 * @param string $css        Source CSS.
 	 * @return string
 	 */
-	private static function theme_json( string $theme_name ): string {
+	private static function theme_json( string $theme_name, string $css ): string {
 		$data = array(
 			'$schema'  => 'https://schemas.wp.org/trunk/theme.json',
 			'version'  => 3,
@@ -465,7 +468,88 @@ class Static_Site_Importer_Theme_Generator {
 			),
 		);
 
+		$design_tokens = self::design_tokens_from_css( $css );
+		if ( ! empty( $design_tokens['palette'] ) ) {
+			$data['settings']['color']['palette'] = $design_tokens['palette'];
+		}
+
+		if ( ! empty( $design_tokens['styles'] ) ) {
+			$data['styles']['color'] = $design_tokens['styles'];
+		}
+
 		return wp_json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) . "\n";
+	}
+
+	/**
+	 * Extract conservative design tokens from obvious :root custom properties.
+	 *
+	 * @param string $css Source CSS.
+	 * @return array{palette:array<int,array{slug:string,name:string,color:string}>,styles:array<string,string>}
+	 */
+	private static function design_tokens_from_css( string $css ): array {
+		$palette = array();
+		$styles  = array();
+		$seen    = array();
+
+		if ( '' === trim( $css ) || ! preg_match_all( '/:root\s*\{([^}]*)\}/i', $css, $root_matches ) ) {
+			return array(
+				'palette' => $palette,
+				'styles'  => $styles,
+			);
+		}
+
+		foreach ( $root_matches[1] as $root_body ) {
+			$root_body = (string) preg_replace( '/\/\*.*?\*\//s', '', $root_body );
+			if ( ! preg_match_all( '/--([A-Za-z0-9_-]+)\s*:\s*([^;{}]+);/', $root_body, $property_matches, PREG_SET_ORDER ) ) {
+				continue;
+			}
+
+			foreach ( $property_matches as $property_match ) {
+				$token_name = strtolower( $property_match[1] );
+				$color      = trim( $property_match[2] );
+				$slug       = sanitize_title( $token_name );
+
+				if ( '' === $slug || isset( $seen[ $slug ] ) || ! self::is_safe_color_value( $color ) ) {
+					continue;
+				}
+
+				$seen[ $slug ] = true;
+				$palette[]     = array(
+					'slug'  => $slug,
+					'name'  => ucwords( str_replace( array( '-', '_' ), ' ', $token_name ) ),
+					'color' => $color,
+				);
+
+				if ( ! isset( $styles['background'] ) && in_array( $slug, array( 'bg', 'background' ), true ) ) {
+					$styles['background'] = 'var(--wp--preset--color--' . $slug . ')';
+				}
+
+				if ( ! isset( $styles['text'] ) && in_array( $slug, array( 'fg', 'foreground', 'text' ), true ) ) {
+					$styles['text'] = 'var(--wp--preset--color--' . $slug . ')';
+				}
+			}
+		}
+
+		return array(
+			'palette' => $palette,
+			'styles'  => $styles,
+		);
+	}
+
+	/**
+	 * Check whether a CSS value is safe to expose as a theme palette color.
+	 *
+	 * @param string $value CSS value.
+	 * @return bool
+	 */
+	private static function is_safe_color_value( string $value ): bool {
+		$value = trim( $value );
+
+		if ( preg_match( '/^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i', $value ) ) {
+			return true;
+		}
+
+		return (bool) preg_match( '/^(?:rgb|rgba|hsl|hsla)\(\s*[-+0-9.%\s,\/]+\s*\)$/i', $value );
 	}
 
 	/**

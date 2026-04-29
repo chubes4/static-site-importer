@@ -91,6 +91,13 @@ if ( ! is_wp_error( $result ) ) {
 	$footer     = $read( $theme_dir . '/parts/footer.html' );
 	$style      = $read( $theme_dir . '/style.css' );
 	$functions  = $read( $theme_dir . '/functions.php' );
+	$theme_json = json_decode( $read( $theme_dir . '/theme.json' ), true );
+	$palette    = array();
+	foreach ( $theme_json['settings']['color']['palette'] ?? array() as $color ) {
+		if ( isset( $color['slug'] ) ) {
+			$palette[ $color['slug'] ] = $color;
+		}
+	}
 
 	$assert( str_contains( $front_page, 'wp:post-content' ), 'front-page-renders-imported-page-content' );
 	$assert( str_contains( $page, 'wp:post-content' ), 'page-template-renders-imported-page-content' );
@@ -103,6 +110,14 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( str_contains( $footer, 'Prompt Liberation Front' ), 'footer-preserves-footer-copy' );
 	$assert( str_contains( $style, '--accent' ) && str_contains( $style, '.compare' ) && str_contains( $style, '.manifesto-list' ), 'style-preserves-source-css' );
 	$assert( str_contains( $functions, 'wp_enqueue_style' ), 'theme-enqueues-stylesheet' );
+	$assert( is_array( $theme_json ), 'theme-json-is-valid-json' );
+	$assert( isset( $palette['bg'] ) && '#0a0a0a' === $palette['bg']['color'], 'theme-json-exposes-bg-palette-token' );
+	$assert( isset( $palette['fg'] ) && '#f4f4f0' === $palette['fg']['color'], 'theme-json-exposes-fg-palette-token' );
+	$assert( isset( $palette['muted'] ) && '#8a8a82' === $palette['muted']['color'], 'theme-json-exposes-muted-palette-token' );
+	$assert( isset( $palette['accent'] ) && '#ff3b1f' === $palette['accent']['color'], 'theme-json-exposes-accent-palette-token' );
+	$assert( ! isset( $palette['max'] ), 'theme-json-ignores-non-color-custom-properties' );
+	$assert( 'var(--wp--preset--color--bg)' === ( $theme_json['styles']['color']['background'] ?? '' ), 'theme-json-sets-background-default-from-bg' );
+	$assert( 'var(--wp--preset--color--fg)' === ( $theme_json['styles']['color']['text'] ?? '' ), 'theme-json-sets-text-default-from-fg' );
 	$assert( ! str_contains( $front_page, '<!-- wp:html /-->' ), 'front-page-has-no-empty-html-fallbacks' );
 	$assert( isset( $result['pages']['index.html'], $result['pages']['manifesto.html'], $result['pages']['comparison.html'], $result['pages']['eulogy.html'], $result['pages']['proof.html'] ), 'imports-five-html-pages' );
 
