@@ -10,7 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Adds Appearance -> Import Static Site.
+ * Adds the Import HTML admin entry point.
  */
 class Static_Site_Importer_Admin {
 
@@ -21,6 +21,7 @@ class Static_Site_Importer_Admin {
 	 */
 	public static function register(): void {
 		add_action( 'admin_menu', array( __CLASS__, 'add_menu' ) );
+		add_action( 'admin_head-themes.php', array( __CLASS__, 'render_themes_screen_button' ) );
 		add_action( 'admin_post_static_site_importer_import', array( __CLASS__, 'handle_import' ) );
 	}
 
@@ -31,12 +32,48 @@ class Static_Site_Importer_Admin {
 	 */
 	public static function add_menu(): void {
 		add_theme_page(
-			'Import Static Site',
-			'Import Static Site',
+			'Import HTML',
+			'Import HTML',
 			'switch_themes',
 			'static-site-importer',
 			array( __CLASS__, 'render_page' )
 		);
+	}
+
+	/**
+	 * Add an Import HTML button beside Add Theme on Appearance -> Themes.
+	 *
+	 * @return void
+	 */
+	public static function render_themes_screen_button(): void {
+		if ( ! current_user_can( 'switch_themes' ) ) {
+			return;
+		}
+
+		$url   = admin_url( 'themes.php?page=static-site-importer' );
+		$label = __( 'Import HTML', 'static-site-importer' );
+		?>
+		<script>
+			document.addEventListener( 'DOMContentLoaded', function () {
+				var addThemeButton = document.querySelector( '.wrap .page-title-action[href*="theme-install.php"]' );
+				var heading = document.querySelector( '.wrap .wp-heading-inline' );
+				var button = document.createElement( 'a' );
+
+				button.href = <?php echo wp_json_encode( $url ); ?>;
+				button.className = 'page-title-action static-site-importer-import-html-action';
+				button.textContent = <?php echo wp_json_encode( $label ); ?>;
+
+				if ( addThemeButton && addThemeButton.parentNode ) {
+					addThemeButton.parentNode.insertBefore( button, addThemeButton.nextSibling );
+					return;
+				}
+
+				if ( heading && heading.parentNode ) {
+					heading.parentNode.insertBefore( button, heading.nextSibling );
+				}
+			} );
+		</script>
+		<?php
 	}
 
 	/**
@@ -46,14 +83,14 @@ class Static_Site_Importer_Admin {
 	 */
 	public static function render_page(): void {
 		if ( ! current_user_can( 'switch_themes' ) ) {
-			wp_die( esc_html__( 'You are not allowed to import static sites.', 'static-site-importer' ) );
+			wp_die( esc_html__( 'You are not allowed to import HTML.', 'static-site-importer' ) );
 		}
 
 		$result = isset( $_GET['static_site_imported'] ) ? sanitize_text_field( wp_unslash( $_GET['static_site_imported'] ) ) : '';
 		$error  = isset( $_GET['static_site_error'] ) ? sanitize_text_field( wp_unslash( $_GET['static_site_error'] ) ) : '';
 		?>
 		<div class="wrap">
-			<h1><?php echo esc_html__( 'Import Static HTML Site', 'static-site-importer' ); ?></h1>
+			<h1><?php echo esc_html__( 'Import HTML', 'static-site-importer' ); ?></h1>
 
 			<?php if ( '' !== $result ) : ?>
 				<div class="notice notice-success"><p>
@@ -69,7 +106,7 @@ class Static_Site_Importer_Admin {
 				<div class="notice notice-error"><p><?php echo esc_html( $error ); ?></p></div>
 			<?php endif; ?>
 
-			<p><?php echo esc_html__( 'Upload a static site ZIP containing an index.html file. The importer will convert the HTML into a WordPress block theme using Block Format Bridge.', 'static-site-importer' ); ?></p>
+			<p><?php echo esc_html__( 'Upload a ZIP containing an index.html file. The importer will convert the HTML into a WordPress block theme using Block Format Bridge.', 'static-site-importer' ); ?></p>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
 				<?php wp_nonce_field( 'static_site_importer_import' ); ?>
@@ -77,7 +114,7 @@ class Static_Site_Importer_Admin {
 
 				<table class="form-table" role="presentation">
 					<tr>
-						<th scope="row"><label for="static-site-zip"><?php echo esc_html__( 'Static site ZIP', 'static-site-importer' ); ?></label></th>
+						<th scope="row"><label for="static-site-zip"><?php echo esc_html__( 'HTML ZIP', 'static-site-importer' ); ?></label></th>
 						<td><input type="file" id="static-site-zip" name="static_site_zip" accept=".zip" required /></td>
 					</tr>
 					<tr>
@@ -94,7 +131,7 @@ class Static_Site_Importer_Admin {
 					</tr>
 				</table>
 
-				<?php submit_button( __( 'Import Static Site', 'static-site-importer' ) ); ?>
+				<?php submit_button( __( 'Import HTML', 'static-site-importer' ) ); ?>
 			</form>
 		</div>
 		<?php
@@ -107,7 +144,7 @@ class Static_Site_Importer_Admin {
 	 */
 	public static function handle_import(): void {
 		if ( ! current_user_can( 'switch_themes' ) ) {
-			wp_die( esc_html__( 'You are not allowed to import static sites.', 'static-site-importer' ) );
+			wp_die( esc_html__( 'You are not allowed to import HTML.', 'static-site-importer' ) );
 		}
 
 		check_admin_referer( 'static_site_importer_import' );
