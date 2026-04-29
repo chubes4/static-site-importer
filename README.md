@@ -23,4 +23,4 @@ wp static-site-importer import-theme /path/to/index.html \
 
 ## Boundary
 
-This plugin owns static-site import workflow. Block Format Bridge owns format conversion. Data Liberation Agent can later call this plugin as an import backend.
+This plugin owns static-site import workflow. Block Format Bridge owns format conversion.
