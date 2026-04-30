@@ -26,7 +26,10 @@ $assert = static function ( bool $condition, string $label, string $detail = '' 
 
 $assert( str_contains( $source, "add_action( 'admin_head-themes.php'" ), 'themes-screen-hook-registered' );
 $assert( str_contains( $source, 'render_themes_screen_button' ), 'themes-screen-button-method-exists' );
-$assert( str_contains( $source, "admin_url( 'themes.php?page=static-site-importer' )" ), 'button-targets-import-page' );
+$assert( str_contains( $source, 'add_submenu_page(' ), 'hidden-import-page-registered' );
+$assert( str_contains( $source, 'register_import_page' ), 'hidden-import-page-method-exists' );
+$assert( ! str_contains( $source, 'add_theme_page(' ), 'appearance-submenu-not-registered' );
+$assert( str_contains( $source, "admin_url( 'admin.php?page=static-site-importer' )" ), 'button-targets-hidden-import-page' );
 $assert( str_contains( $source, '.page-title-action[href*="theme-install.php"]' ), 'button-anchors-to-add-theme-action' );
 $assert( str_contains( $source, 'static-site-importer-import-html-action' ), 'button-has-plugin-specific-class' );
 $assert( ! str_contains( $source, 'Import Static Site' ), 'old-import-static-site-label-removed' );

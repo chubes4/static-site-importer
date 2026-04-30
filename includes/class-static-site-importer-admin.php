@@ -20,18 +20,19 @@ class Static_Site_Importer_Admin {
 	 * @return void
 	 */
 	public static function register(): void {
-		add_action( 'admin_menu', array( __CLASS__, 'add_menu' ) );
+		add_action( 'admin_menu', array( __CLASS__, 'register_import_page' ) );
 		add_action( 'admin_head-themes.php', array( __CLASS__, 'render_themes_screen_button' ) );
 		add_action( 'admin_post_static_site_importer_import', array( __CLASS__, 'handle_import' ) );
 	}
 
 	/**
-	 * Add admin page under Appearance.
+	 * Register the import page without adding a persistent Appearance submenu item.
 	 *
 	 * @return void
 	 */
-	public static function add_menu(): void {
-		add_theme_page(
+	public static function register_import_page(): void {
+		add_submenu_page(
+			null,
 			'Import HTML',
 			'Import HTML',
 			'switch_themes',
@@ -50,7 +51,7 @@ class Static_Site_Importer_Admin {
 			return;
 		}
 
-		$url   = admin_url( 'themes.php?page=static-site-importer' );
+		$url   = admin_url( 'admin.php?page=static-site-importer' );
 		$label = __( 'Import HTML', 'static-site-importer' );
 		?>
 		<script>
@@ -185,7 +186,7 @@ class Static_Site_Importer_Admin {
 			self::redirect_error( $result->get_error_message() );
 		}
 
-		wp_safe_redirect( add_query_arg( 'static_site_imported', rawurlencode( $result['theme_name'] ), admin_url( 'themes.php?page=static-site-importer' ) ) );
+		wp_safe_redirect( add_query_arg( 'static_site_imported', rawurlencode( $result['theme_name'] ), admin_url( 'admin.php?page=static-site-importer' ) ) );
 		exit;
 	}
 
@@ -213,7 +214,7 @@ class Static_Site_Importer_Admin {
 	 * @return never
 	 */
 	private static function redirect_error( string $message ) {
-		wp_safe_redirect( add_query_arg( 'static_site_error', rawurlencode( $message ), admin_url( 'themes.php?page=static-site-importer' ) ) );
+		wp_safe_redirect( add_query_arg( 'static_site_error', rawurlencode( $message ), admin_url( 'admin.php?page=static-site-importer' ) ) );
 		exit;
 	}
 }

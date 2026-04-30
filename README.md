@@ -1,12 +1,12 @@
 # Static Site Importer
 
-Import a static HTML site into WordPress as a block theme using the bundled Block Format Bridge converter.
+Import a static HTML site into WordPress as a block theme using the bundled [Block Format Bridge](https://github.com/chubes4/block-format-bridge) converter.
 
-Static Site Importer is a WordPress plugin. It does not require Data Machine at runtime. The plugin installs Block Format Bridge through Composer and loads its bundled converter directly from `vendor/`.
+Static Site Importer is a WordPress plugin. It installs [Block Format Bridge](https://github.com/chubes4/block-format-bridge) through Composer and loads its bundled converter directly from `vendor/`.
 
 ## What It Does
 
-- Adds an **Import HTML** entry under **Appearance** and an **Import HTML** button on the Themes screen.
+- Adds an **Import HTML** button on the **Appearance -> Themes** screen.
 - Accepts an admin ZIP upload containing an `index.html` file.
 - Provides a WP-CLI importer for a local HTML entry file.
 - Discovers sibling `*.html` files beside the entry file and imports them as WordPress pages.
@@ -24,11 +24,11 @@ Static Site Importer is a WordPress plugin. It does not require Data Machine at 
 - Composer dependencies installed for development/source checkouts.
 - Node dependencies installed only when running the JavaScript block-validation smoke tests.
 
-The current Composer dependency is `chubes4/block-format-bridge:^0.6.7`. That package includes the prefixed HTML-to-blocks converter used by the importer, so no separate Block Format Bridge or Data Machine plugin needs to be active.
+The current Composer dependency is [`chubes4/block-format-bridge:^0.6.7`](https://github.com/chubes4/block-format-bridge). That package includes the prefixed HTML-to-blocks converter used by the importer.
 
 ## Admin Usage
 
-1. Open **Appearance -> Import HTML** or use the **Import HTML** button on **Appearance -> Themes**.
+1. Open **Appearance -> Themes** and click **Import HTML** beside the standard **Add Theme** button.
 2. Upload a ZIP containing `index.html`.
 3. Optionally provide a theme name and slug.
 4. Leave **Activate imported theme** checked if the generated theme should become active immediately.
@@ -161,6 +161,6 @@ This repo is Homeboy-managed:
 
 ## Boundary
 
-This plugin owns the static-site import workflow and generated WordPress artifacts. Block Format Bridge owns content-format conversion.
+This plugin owns the static-site import workflow and generated WordPress artifacts. [Block Format Bridge](https://github.com/chubes4/block-format-bridge) owns content-format conversion.
 
 Imported pages remain WordPress pages for routing, titles, front-page assignment, and editor visibility. Their imported body layouts live in generated block-theme artifacts: `patterns/page-*.php` plus matching `templates/page-*.html` files. The generic `templates/page.html` stays a `wp:post-content` fallback for pages created after import.
