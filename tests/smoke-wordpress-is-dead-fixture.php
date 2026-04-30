@@ -107,6 +107,8 @@ if ( ! is_wp_error( $result ) ) {
 	$proof_tmpl = $read( $theme_dir . '/templates/page-proof.html' );
 	$home_pat   = $read( $theme_dir . '/patterns/page-home.php' );
 	$proof_pat  = $read( $theme_dir . '/patterns/page-proof.php' );
+	$header_nav = get_page_by_path( 'wordpress-is-dead-fixture-header-navigation', OBJECT, 'wp_navigation' );
+	$footer_nav = get_page_by_path( 'wordpress-is-dead-fixture-footer-navigation', OBJECT, 'wp_navigation' );
 
 	$assert( str_contains( $front_page, 'wp:pattern' ) && str_contains( $front_page, 'wordpress-is-dead-fixture/page-home' ), 'front-page-renders-imported-page-pattern' );
 	$assert( str_contains( $page, 'wp:post-content' ), 'page-template-renders-imported-page-content' );
@@ -120,14 +122,43 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( ! preg_match( '/href=("|\')[^"\']+\.html(?:[#?][^"\']*)?\1/i', $header ), 'header-has-no-stale-html-links' );
 	$assert( ! $contains_selector( $header, '.active' ), 'shared-header-has-no-static-active-nav-class' );
 	$assert( str_contains( $header, '<!-- wp:navigation ' ), 'header-uses-native-navigation-block' );
-	$assert( str_contains( $header, '<!-- wp:navigation-link ' ), 'header-uses-native-navigation-link-blocks' );
-	$assert( ! str_contains( $header, '"ref":' ), 'header-navigation-is-static-no-persistent-ref' );
-	$assert( 1 === substr_count( $header, '"label":"Manifesto"' ), 'header-does-not-duplicate-navigation-label' );
+	$assert( str_contains( $header, '"ref":' ), 'header-navigation-references-persistent-entity' );
+	$assert( ! str_contains( $header, '<!-- wp:navigation-link ' ), 'header-template-part-does-not-inline-navigation-links' );
+	$assert( $header_nav instanceof WP_Post, 'header-navigation-post-exists' );
+	if ( $header_nav instanceof WP_Post ) {
+		$assert( str_contains( $header, '"ref":' . $header_nav->ID ), 'header-navigation-ref-points-to-post' );
+		$assert( 1 === substr_count( $header_nav->post_content, '"label":"Manifesto"' ), 'header-navigation-post-does-not-duplicate-label' );
+		$assert( str_contains( $header_nav->post_content, '<!-- wp:navigation-link ' ), 'header-navigation-post-stores-navigation-link-blocks' );
+	}
 	$assert( str_contains( $footer, 'Prompt Liberation Front' ), 'footer-preserves-footer-copy' );
 	$assert( str_contains( $footer, '<!-- wp:navigation ' ), 'footer-uses-native-navigation-block' );
-	$assert( str_contains( $footer, '<!-- wp:navigation-link ' ), 'footer-uses-native-navigation-link-blocks' );
-	$assert( ! str_contains( $footer, '"ref":' ), 'footer-navigation-is-static-no-persistent-ref' );
+	$assert( str_contains( $footer, '"ref":' ), 'footer-navigation-references-persistent-entity' );
+	$assert( ! str_contains( $footer, '<!-- wp:navigation-link ' ), 'footer-template-part-does-not-inline-navigation-links' );
+	$assert( $footer_nav instanceof WP_Post, 'footer-navigation-post-exists' );
+	if ( $footer_nav instanceof WP_Post ) {
+		$assert( str_contains( $footer, '"ref":' . $footer_nav->ID ), 'footer-navigation-ref-points-to-post' );
+		$assert( str_contains( $footer_nav->post_content, '<!-- wp:navigation-link ' ), 'footer-navigation-post-stores-navigation-link-blocks' );
+	}
 	$assert( ! preg_match( '/href=("|\')[^"\']+\.html(?:[#?][^"\']*)?\1/i', $footer ), 'footer-has-no-stale-html-links' );
+
+	$second_result = Static_Site_Importer_Theme_Generator::import_theme(
+		$fixture,
+		array(
+			'name'      => 'WordPress Is Dead Fixture',
+			'slug'      => 'wordpress-is-dead-fixture',
+			'overwrite' => true,
+			'activate'  => false,
+		)
+	);
+	$assert( ! is_wp_error( $second_result ), 'second-import-succeeds', is_wp_error( $second_result ) ? $second_result->get_error_message() : '' );
+	$header_nav_after = get_page_by_path( 'wordpress-is-dead-fixture-header-navigation', OBJECT, 'wp_navigation' );
+	$footer_nav_after = get_page_by_path( 'wordpress-is-dead-fixture-footer-navigation', OBJECT, 'wp_navigation' );
+	if ( $header_nav instanceof WP_Post && $header_nav_after instanceof WP_Post ) {
+		$assert( $header_nav->ID === $header_nav_after->ID, 'second-import-reuses-header-navigation-post' );
+	}
+	if ( $footer_nav instanceof WP_Post && $footer_nav_after instanceof WP_Post ) {
+		$assert( $footer_nav->ID === $footer_nav_after->ID, 'second-import-reuses-footer-navigation-post' );
+	}
 	$assert( str_contains( $style, '--accent' ) && str_contains( $style, '.compare' ) && str_contains( $style, '.manifesto-list' ), 'style-preserves-source-css' );
 	$assert( str_contains( $functions, 'wp_enqueue_style' ), 'theme-enqueues-stylesheet' );
 	$assert( is_array( $theme_json ), 'theme-json-is-valid-json' );

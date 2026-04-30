@@ -69,8 +69,8 @@ class Static_Site_Importer_Theme_Generator {
 		$fragments  = $document->fragments();
 
 		$background_blocks = self::convert_fragment( self::rewrite_internal_links( $fragments['background'], $permalinks ) );
-		$header_blocks     = self::convert_header_fragment( self::strip_active_classes( self::rewrite_internal_links( $fragments['header'], $permalinks ) ) );
-		$footer_blocks     = self::convert_footer_fragment( self::rewrite_internal_links( $fragments['footer'], $permalinks ) );
+		$header_blocks     = self::convert_header_fragment( self::strip_active_classes( self::rewrite_internal_links( $fragments['header'], $permalinks ) ), $theme_slug );
+		$footer_blocks     = self::convert_footer_fragment( self::rewrite_internal_links( $fragments['footer'], $permalinks ), $theme_slug );
 
 		$page_artifacts = self::page_artifacts( $pages, $permalinks, $theme_slug );
 
@@ -339,12 +339,13 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Convert shared header chrome while preserving static navigation as native blocks.
+	 * Convert shared header chrome while preserving navigation as an editable entity.
 	 *
-	 * @param string $html Header HTML fragment.
+	 * @param string $html       Header HTML fragment.
+	 * @param string $theme_slug Imported theme slug.
 	 * @return string
 	 */
-	private static function convert_header_fragment( string $html ): string {
+	private static function convert_header_fragment( string $html, string $theme_slug ): string {
 		$doc    = self::load_fragment_document( $html );
 		$header = self::sole_child_element( $doc );
 		if ( ! $header instanceof DOMElement || 'header' !== strtolower( $header->tagName ) ) {
@@ -362,7 +363,7 @@ class Static_Site_Importer_Theme_Generator {
 			return self::convert_fragment( $html );
 		}
 
-		$navigation_blocks = self::convert_static_navigation_html( self::node_html( $doc, $inner_children[1] ) );
+		$navigation_blocks = self::navigation_ref_block( $inner_children[1], $theme_slug, 'header' );
 		if ( null === $navigation_blocks ) {
 			return self::convert_fragment( $html );
 		}
@@ -372,12 +373,13 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Convert shared footer chrome while preserving simple footer links as native blocks.
+	 * Convert shared footer chrome while preserving navigation as an editable entity.
 	 *
-	 * @param string $html Footer HTML fragment.
+	 * @param string $html       Footer HTML fragment.
+	 * @param string $theme_slug Imported theme slug.
 	 * @return string
 	 */
-	private static function convert_footer_fragment( string $html ): string {
+	private static function convert_footer_fragment( string $html, string $theme_slug ): string {
 		$doc    = self::load_fragment_document( $html );
 		$footer = self::sole_child_element( $doc );
 		if ( ! $footer instanceof DOMElement || 'footer' !== strtolower( $footer->tagName ) ) {
@@ -401,7 +403,7 @@ class Static_Site_Importer_Theme_Generator {
 			return self::convert_fragment( $html );
 		}
 
-		$navigation_blocks = self::convert_static_navigation_html( self::navigation_html_from_list( $doc, $row_children[1] ) );
+		$navigation_blocks = self::navigation_ref_block( $row_children[1], $theme_slug, 'footer' );
 		if ( null === $navigation_blocks ) {
 			return self::convert_fragment( $html );
 		}
@@ -412,30 +414,116 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Convert static navigation markup through BFB, requiring native navigation output.
+	 * Build a reference to a deterministic wp_navigation entity.
 	 *
-	 * @param string $html Navigation HTML.
+	 * @param DOMElement $element    Navigation source element.
+	 * @param string     $theme_slug Imported theme slug.
+	 * @param string     $location   Navigation location name.
 	 * @return string|null
 	 */
-	private static function convert_static_navigation_html( string $html ): ?string {
-		$blocks = self::convert_fragment( $html );
-		if ( ! str_contains( $blocks, '<!-- wp:navigation' ) || str_contains( $blocks, '<!-- wp:html' ) ) {
+	private static function navigation_ref_block( DOMElement $element, string $theme_slug, string $location ): ?string {
+		$links = self::navigation_links_from_element( $element );
+		if ( empty( $links ) ) {
 			return null;
 		}
 
-		return $blocks;
+		$navigation_id = self::upsert_navigation_post( $theme_slug, $location, $links );
+		if ( is_wp_error( $navigation_id ) ) {
+			return null;
+		}
+
+		$attrs = array( 'ref' => (int) $navigation_id );
+		$class = trim( $element->getAttribute( 'class' ) );
+		if ( '' !== $class ) {
+			$attrs['className'] = $class;
+		}
+
+		return '<!-- wp:navigation ' . wp_json_encode( $attrs, JSON_UNESCAPED_SLASHES ) . ' /-->';
 	}
 
 	/**
-	 * Wrap a static list in nav markup so BFB can emit native navigation blocks.
+	 * Extract top-level navigation links from a nav or list element.
 	 *
-	 * @param DOMDocument $doc  DOM document.
-	 * @param DOMElement  $list List element.
+	 * @param DOMElement $element Navigation source element.
+	 * @return array<int, array{label:string,url:string,className?:string}>
+	 */
+	private static function navigation_links_from_element( DOMElement $element ): array {
+		$links = array();
+		foreach ( $element->getElementsByTagName( 'a' ) as $anchor ) {
+			if ( ! $anchor instanceof DOMElement || '' === trim( $anchor->getAttribute( 'href' ) ) ) {
+				continue;
+			}
+
+			$link = array(
+				'label' => trim( $anchor->textContent ),
+				'url'   => esc_url_raw( $anchor->getAttribute( 'href' ) ),
+			);
+			$class = trim( $anchor->getAttribute( 'class' ) );
+			if ( '' !== $class ) {
+				$link['className'] = $class;
+			}
+
+			if ( '' !== $link['label'] && '' !== $link['url'] ) {
+				$links[] = $link;
+			}
+		}
+
+		return $links;
+	}
+
+	/**
+	 * Create or update a deterministic wp_navigation post.
+	 *
+	 * @param string                                                        $theme_slug Imported theme slug.
+	 * @param string                                                        $location   Navigation location name.
+	 * @param array<int, array{label:string,url:string,className?:string}> $links      Navigation links.
+	 * @return int|WP_Error
+	 */
+	private static function upsert_navigation_post( string $theme_slug, string $location, array $links ) {
+		if ( ! post_type_exists( 'wp_navigation' ) ) {
+			return new WP_Error( 'static_site_importer_missing_navigation_post_type', 'The wp_navigation post type is not available.' );
+		}
+
+		$slug     = sanitize_title( $theme_slug . '-' . $location . '-navigation' );
+		$existing = get_page_by_path( $slug, OBJECT, 'wp_navigation' );
+		$postarr  = array(
+			'post_title'   => ucwords( str_replace( '-', ' ', $theme_slug ) ) . ' ' . ucfirst( $location ) . ' Navigation',
+			'post_name'    => $slug,
+			'post_status'  => 'publish',
+			'post_type'    => 'wp_navigation',
+			'post_content' => self::navigation_post_content( $links ),
+		);
+
+		if ( $existing instanceof WP_Post ) {
+			$postarr['ID'] = $existing->ID;
+		}
+
+		return wp_insert_post( $postarr, true );
+	}
+
+	/**
+	 * Build wp_navigation entity content from link data.
+	 *
+	 * @param array<int, array{label:string,url:string,className?:string}> $links Navigation links.
 	 * @return string
 	 */
-	private static function navigation_html_from_list( DOMDocument $doc, DOMElement $list ): string {
-		$class = trim( $list->getAttribute( 'class' ) );
-		return '<nav' . ( '' !== $class ? ' class="' . esc_attr( $class ) . '"' : '' ) . '>' . self::node_html( $doc, $list ) . '</nav>';
+	private static function navigation_post_content( array $links ): string {
+		$blocks = array();
+		foreach ( $links as $link ) {
+			$attrs = array(
+				'label'          => $link['label'],
+				'url'            => $link['url'],
+				'kind'           => 'custom',
+				'isTopLevelLink' => true,
+			);
+			if ( ! empty( $link['className'] ) ) {
+				$attrs['className'] = $link['className'];
+			}
+
+			$blocks[] = '<!-- wp:navigation-link ' . wp_json_encode( $attrs, JSON_UNESCAPED_SLASHES ) . ' /-->';
+		}
+
+		return implode( "\n", $blocks );
 	}
 
 	/**
