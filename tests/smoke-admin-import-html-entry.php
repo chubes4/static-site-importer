@@ -49,6 +49,20 @@ $assert( str_contains( $source, "'index.html'" ), 'admin-intake-stores-index-htm
 $assert( str_contains( $source, 'prepare_uploaded_zip_file' ), 'zip-import-helper-present' );
 $assert( str_contains( $source, 'find_index_html' ), 'zip-index-discovery-preserved' );
 $assert( str_contains( $source, 'Paste HTML content, upload a single HTML file, or upload a ZIP containing index.html.' ), 'empty-intake-validation-message-present' );
+$assert( str_contains( $source, 'multi-page static site or bundled HTML export' ), 'zip-copy-explains-bundle-contract' );
+$assert( str_contains( $source, 'validate_zip_archive' ), 'zip-archive-validation-method-exists' );
+$assert( str_contains( $source, "class_exists( 'ZipArchive' )" ), 'ziparchive-inspection-is-conditional' );
+$assert( str_contains( $source, 'is_unsafe_archive_path' ), 'unsafe-archive-path-check-exists' );
+$assert( str_contains( $source, 'is_server_side_file' ), 'server-side-file-check-exists' );
+$assert( str_contains( $source, 'path_is_under' ), 'selected-index-path-boundary-check-exists' );
+$assert( str_contains( $source, '$root_candidates' ), 'root-index-candidates-win-before-nested' );
+$assert( str_contains( $source, 'str_contains( $normalized, "\0" )' ), 'nul-byte-archive-path-check-exists' );
+$assert( str_contains( $source, 'in_array( \'..\', explode( \'/\', $normalized ), true )' ), 'path-traversal-archive-entry-check-exists' );
+$assert( str_contains( $source, "preg_match( '/^[A-Za-z]:" ), 'windows-absolute-archive-path-check-exists' );
+$assert( str_contains( $source, "'php', 'phtml', 'phar'" ), 'server-side-extension-denylist-exists' );
+$assert( str_contains( $source, 'Root-level index.html wins' ), 'index-precedence-documented-in-source' );
+$assert( str_contains( $source, 'multiple nested index.html files' ), 'ambiguous-index-error-present' );
+$assert( str_contains( $source, 'needs an index.html entry point' ), 'missing-index-error-friendly' );
 
 if ( $failures ) {
 	fwrite( STDERR, implode( "\n", $failures ) . "\n" );
