@@ -6,6 +6,7 @@
  * Author: Chris Huber
  * Requires at least: 6.6
  * Requires PHP: 8.1
+ * Text Domain: static-site-importer
  *
  * @package StaticSiteImporter
  */
