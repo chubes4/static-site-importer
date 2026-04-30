@@ -1,0 +1,122 @@
+#!/usr/bin/env node
+/**
+ * End-to-end validation harness for the wordpress-is-dead fixture.
+ *
+ * Imports the fixture into the local Studio site, runs the PHP fidelity smokes,
+ * then validates generated theme artifacts through Gutenberg's JS block parser.
+ */
+
+const path = require( 'node:path' );
+const process = require( 'node:process' );
+const { spawnSync } = require( 'node:child_process' );
+
+const repoRoot = path.resolve( __dirname, '..' );
+const args = process.argv.slice( 2 );
+const skipImport = args.includes( '--skip-import' );
+const jsonMode = args.includes( '--json' );
+const sitePath = process.env.STATIC_SITE_IMPORTER_SITE_PATH || '/Users/chubes/Studio/intelligence-chubes4';
+const wpCli = process.env.STATIC_SITE_IMPORTER_WP_CLI
+  ? splitCommand( process.env.STATIC_SITE_IMPORTER_WP_CLI )
+  : [ 'studio', 'wp', '--path', sitePath ];
+const themeDir = path.resolve(
+  args.find( ( arg ) => ! arg.startsWith( '--' ) ) ||
+    process.env.STATIC_SITE_IMPORTER_THEME_DIR ||
+    '/Users/chubes/Studio/intelligence-chubes4/wp-content/themes/wordpress-is-dead'
+);
+const fixture = path.join( repoRoot, 'tests/fixtures/wordpress-is-dead/index.html' );
+
+const steps = [
+  ! skipImport && {
+    name: 'Import wordpress-is-dead fixture theme',
+    command: wpCli[ 0 ],
+    args: [
+      ...wpCli.slice( 1 ),
+      'static-site-importer',
+      'import-theme',
+      fixture,
+      '--slug=wordpress-is-dead',
+      '--name=WordPress Is Dead',
+      '--activate',
+      '--overwrite',
+    ],
+  },
+  {
+    name: 'Admin entry smoke',
+    command: wpCli[ 0 ],
+    args: [ ...wpCli.slice( 1 ), 'eval-file', path.join( repoRoot, 'tests/smoke-admin-import-html-entry.php' ) ],
+  },
+  {
+    name: 'Editor style smoke',
+    command: wpCli[ 0 ],
+    args: [ ...wpCli.slice( 1 ), 'eval-file', path.join( repoRoot, 'tests/smoke-editor-style-support.php' ) ],
+  },
+  {
+    name: 'Fixture fidelity smoke',
+    command: wpCli[ 0 ],
+    args: [ ...wpCli.slice( 1 ), 'eval-file', path.join( repoRoot, 'tests/smoke-wordpress-is-dead-fixture.php' ) ],
+  },
+  {
+    name: 'Generated theme JS block validation',
+    command: process.execPath,
+    args: [
+      path.join( repoRoot, 'tests/smoke-generated-theme-block-validation.cjs' ),
+      ...( jsonMode ? [ '--json' ] : [] ),
+      themeDir,
+    ],
+  },
+].filter( Boolean );
+
+const results = [];
+
+for ( const step of steps ) {
+  if ( ! jsonMode ) {
+    console.log( `\n==> ${ step.name }` );
+  }
+
+  const startedAt = Date.now();
+  const result = spawnSync( step.command, step.args, {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    stdio: jsonMode ? 'pipe' : 'inherit',
+    env: process.env,
+  } );
+  const stepResult = {
+    name: step.name,
+    command: [ step.command, ...step.args ],
+    status: result.status,
+    durationMs: Date.now() - startedAt,
+  };
+
+  if ( jsonMode ) {
+    stepResult.stdout = result.stdout || '';
+    stepResult.stderr = result.stderr || '';
+  }
+
+  results.push( stepResult );
+
+  if ( result.error || result.status !== 0 ) {
+    if ( result.error ) {
+      stepResult.error = result.error.message;
+    }
+    finish( false, results );
+  }
+}
+
+finish( true, results );
+
+function finish( ok, stepResults ) {
+  if ( jsonMode ) {
+    console.log( JSON.stringify( { ok, themeDir, steps: stepResults }, null, 2 ) );
+  } else if ( ok ) {
+    console.log( `\nOK: full validation harness passed (${ stepResults.length } steps)` );
+  } else {
+    const failed = stepResults[ stepResults.length - 1 ];
+    console.error( `\nFAIL: ${ failed.name } exited with status ${ failed.status }` );
+  }
+
+  process.exit( ok ? 0 : 1 );
+}
+
+function splitCommand( command ) {
+  return command.trim().split( /\s+/ ).filter( Boolean );
+}
