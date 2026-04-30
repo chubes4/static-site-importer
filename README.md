@@ -1,6 +1,6 @@
 # Static Site Importer
 
-Import a static HTML site into WordPress as a block theme using Block Format Bridge.
+Import a static HTML site into WordPress as a block theme using the bundled Block Format Bridge converter.
 
 ## MVP
 
@@ -56,7 +56,7 @@ npm run test:validation -- --json
 
 ## Individual Smokes
 
-PHP smokes run inside WordPress with Block Format Bridge active:
+PHP smokes run inside WordPress. Static Site Importer loads its bundled Block Format Bridge copy directly:
 
 ```bash
 wp eval-file tests/smoke-wordpress-is-dead-fixture.php
