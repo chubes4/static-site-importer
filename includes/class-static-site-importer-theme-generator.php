@@ -736,7 +736,53 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return string
 	 */
 	private static function style_css( string $theme_name, string $css ): string {
-		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Imported from static HTML using Block Format Bridge.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n";
+		$button_bridge = self::button_style_bridge_css( $css );
+
+		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Imported from static HTML using Block Format Bridge.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge;
+	}
+
+	/**
+	 * Build compatibility rules for source anchor classes moved onto core/button wrappers.
+	 *
+	 * @param string $css Source CSS.
+	 * @return string Additional CSS rules.
+	 */
+	private static function button_style_bridge_css( string $css ): string {
+		if ( '' === trim( $css ) || ! str_contains( $css, '.' ) ) {
+			return '';
+		}
+
+		$rules = array();
+		if ( ! preg_match_all( '/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER ) ) {
+			return '';
+		}
+
+		foreach ( $matches as $match ) {
+			$declarations = trim( $match[2] );
+			if ( '' === $declarations ) {
+				continue;
+			}
+
+			$selectors = array();
+			foreach ( explode( ',', $match[1] ) as $selector ) {
+				$selector = trim( $selector );
+				if ( ! preg_match( '/^((?:\.[A-Za-z0-9_-]+)+)(:(?:hover|focus|active|visited))?$/', $selector, $selector_match ) ) {
+					continue;
+				}
+
+				$selectors[] = '.wp-block-button' . $selector_match[1] . ' > .wp-block-button__link' . ( $selector_match[2] ?? '' );
+			}
+
+			if ( $selectors ) {
+				$rules[] = implode( ', ', array_unique( $selectors ) ) . ' { ' . $declarations . ' }';
+			}
+		}
+
+		if ( ! $rules ) {
+			return '';
+		}
+
+		return "\n/* Static Site Importer: preserve source anchor styles on core/button links. */\n" . implode( "\n", array_unique( $rules ) ) . "\n";
 	}
 
 	/**
