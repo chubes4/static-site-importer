@@ -1,0 +1,15 @@
+{
+  "auto_cleanup": false,
+  "changelog_target": "docs/CHANGELOG.md",
+  "extensions": {
+    "wordpress": {}
+  },
+  "id": "static-site-importer",
+  "remote_path": "wp-content/plugins/static-site-importer",
+  "version_targets": [
+    {
+      "file": "static-site-importer.php",
+      "pattern": "(?m)^\\s*\\*?\\s*Version:\\s*([0-9.]+)"
+    }
+  ]
+}
