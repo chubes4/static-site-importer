@@ -107,7 +107,7 @@ class Static_Site_Importer_Admin {
 				<div class="notice notice-error"><p><?php echo esc_html( $error ); ?></p></div>
 			<?php endif; ?>
 
-			<p><?php echo esc_html__( 'Paste HTML, upload a single HTML file, or upload a ZIP containing an index.html file. The importer will convert the HTML into a WordPress block theme using Block Format Bridge.', 'static-site-importer' ); ?></p>
+			<p><?php echo esc_html__( 'Paste HTML, upload a single HTML file, or upload a ZIP for a multi-page static site or bundled HTML export. The importer will convert the HTML into a WordPress block theme using Block Format Bridge.', 'static-site-importer' ); ?></p>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
 				<?php wp_nonce_field( 'static_site_importer_import' ); ?>
@@ -293,14 +293,23 @@ class Static_Site_Importer_Admin {
 			self::redirect_error( (string) $upload['error'] );
 		}
 
+		$archive_error = self::validate_zip_archive( $upload['file'] );
+		if ( is_wp_error( $archive_error ) ) {
+			self::redirect_error( $archive_error->get_error_message() );
+		}
+
 		$result = unzip_file( $upload['file'], $work_dir );
 		if ( is_wp_error( $result ) ) {
 			self::redirect_error( $result->get_error_message() );
 		}
 
 		$html_path = self::find_index_html( $work_dir );
+		if ( is_wp_error( $html_path ) ) {
+			self::redirect_error( $html_path->get_error_message() );
+		}
+
 		if ( ! $html_path ) {
-			self::redirect_error( 'The uploaded ZIP does not contain an index.html file.' );
+			self::redirect_error( 'The uploaded ZIP needs an index.html entry point. Add index.html at the archive root, or include exactly one nested index.html in the exported site folder.' );
 		}
 
 		return $html_path;
@@ -338,20 +347,139 @@ class Static_Site_Importer_Admin {
 	}
 
 	/**
-	 * Find index.html in an extracted ZIP.
+	 * Validate archive member names before extraction when ZipArchive is available.
 	 *
-	 * @param string $dir Directory.
-	 * @return string|null
+	 * WordPress' unzip_file() owns the actual extraction, but the importer can reject
+	 * archive shapes that are outside the static-site contract before anything lands
+	 * in the uploads work directory.
+	 *
+	 * @param string $zip_path Uploaded ZIP path.
+	 * @return WP_Error|null
 	 */
-	private static function find_index_html( string $dir ): ?string {
-		$iterator = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $dir, FilesystemIterator::SKIP_DOTS ) );
-		foreach ( $iterator as $file ) {
-			if ( $file instanceof SplFileInfo && 'index.html' === strtolower( $file->getFilename() ) ) {
-				return $file->getPathname();
+	private static function validate_zip_archive( string $zip_path ): ?WP_Error {
+		if ( ! class_exists( 'ZipArchive' ) ) {
+			return null;
+		}
+
+		$zip = new ZipArchive();
+		if ( true !== $zip->open( $zip_path ) ) {
+			return new WP_Error( 'static_site_importer_invalid_zip', 'The uploaded ZIP could not be opened. Try exporting the site again and upload a valid ZIP archive.' );
+		}
+
+		for ( $i = 0; $i < $zip->numFiles; $i++ ) {
+			$name = (string) $zip->getNameIndex( $i );
+			if ( '' === $name || self::is_unsafe_archive_path( $name ) ) {
+				$zip->close();
+				return new WP_Error( 'static_site_importer_unsafe_zip_path', 'The uploaded ZIP contains an unsafe file path. Re-export the static site without absolute paths or ../ segments.' );
+			}
+
+			if ( self::is_server_side_file( $name ) ) {
+				$zip->close();
+				return new WP_Error( 'static_site_importer_server_side_file', 'The uploaded ZIP contains server-side code. Static Site Importer only accepts static HTML, CSS, JavaScript, images, fonts, and related assets.' );
 			}
 		}
 
+		$zip->close();
+
 		return null;
+	}
+
+	/**
+	 * Find index.html in an extracted ZIP.
+	 *
+	 * Root-level index.html wins. If no root-level index exists, exactly one nested
+	 * index.html is accepted. Multiple nested index files are ambiguous because the
+	 * importer only imports sibling HTML files beside the selected entry point.
+	 *
+	 * @param string $dir Directory.
+	 * @return string|WP_Error|null
+	 */
+	private static function find_index_html( string $dir ): string|WP_Error|null {
+		$root = realpath( $dir );
+		if ( false === $root ) {
+			return new WP_Error( 'static_site_importer_missing_work_dir', 'The upload work directory could not be read. Please try the import again.' );
+		}
+
+		$root_candidates = array();
+		$candidates      = array();
+		$iterator        = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $dir, FilesystemIterator::SKIP_DOTS ) );
+		foreach ( $iterator as $file ) {
+			if ( $file instanceof SplFileInfo && 'index.html' === strtolower( $file->getFilename() ) ) {
+				$path = $file->getPathname();
+				if ( ! self::path_is_under( $path, $root ) ) {
+					return new WP_Error( 'static_site_importer_unsafe_index_path', 'The selected index.html resolved outside the upload work directory. Re-export the static site and try again.' );
+				}
+
+				if ( realpath( $file->getPath() ) === $root ) {
+					$root_candidates[] = $path;
+					continue;
+				}
+
+				$candidates[] = $path;
+			}
+		}
+
+		sort( $root_candidates, SORT_STRING );
+		sort( $candidates, SORT_STRING );
+
+		if ( $root_candidates ) {
+			return $root_candidates[0];
+		}
+
+		if ( 1 === count( $candidates ) ) {
+			return $candidates[0];
+		}
+
+		if ( count( $candidates ) > 1 ) {
+			return new WP_Error( 'static_site_importer_ambiguous_index', 'The uploaded ZIP contains multiple nested index.html files and no root index.html. Add an index.html at the ZIP root, or upload a ZIP with a single exported site folder.' );
+		}
+
+		return null;
+	}
+
+	/**
+	 * Determine whether an archive member name can escape the extraction root.
+	 *
+	 * @param string $path Archive member path.
+	 * @return bool
+	 */
+	private static function is_unsafe_archive_path( string $path ): bool {
+		$normalized = str_replace( '\\', '/', $path );
+
+		return str_starts_with( $normalized, '/' )
+			|| preg_match( '/^[A-Za-z]:\//', $normalized )
+			|| str_contains( $normalized, "\0" )
+			|| in_array( '..', explode( '/', $normalized ), true );
+	}
+
+	/**
+	 * Determine whether an archive member is server-side executable code.
+	 *
+	 * @param string $path Archive member path.
+	 * @return bool
+	 */
+	private static function is_server_side_file( string $path ): bool {
+		$extension = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
+
+		return in_array( $extension, array( 'php', 'phtml', 'phar', 'cgi', 'pl', 'py', 'rb', 'asp', 'aspx', 'jsp' ), true );
+	}
+
+	/**
+	 * Determine whether a path resolves inside a base directory.
+	 *
+	 * @param string $path Path to test.
+	 * @param string $base Base directory.
+	 * @return bool
+	 */
+	private static function path_is_under( string $path, string $base ): bool {
+		$real_path = realpath( $path );
+		$real_base = realpath( $base );
+
+		if ( false === $real_path || false === $real_base ) {
+			return false;
+		}
+
+		return 0 === strpos( trailingslashit( $real_path ), trailingslashit( $real_base ) );
 	}
 
 	/**

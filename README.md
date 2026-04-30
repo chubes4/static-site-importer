@@ -33,7 +33,14 @@ The current Composer dependency is [`chubes4/block-format-bridge:^0.6.7`](https:
 3. Optionally provide a theme name and slug.
 4. Leave **Activate imported theme** checked if the generated theme should become active immediately.
 
-The admin path always overwrites an existing generated theme with the same slug. Pasted HTML and direct HTML uploads are copied into a generated upload work directory as `index.html` and imported as a single-page site. ZIP uploads are extracted to an upload work directory, the first `index.html` is used as the entry file, and sibling HTML files from that extracted site directory are imported.
+The admin path always overwrites an existing generated theme with the same slug. Pasted HTML and direct HTML uploads are copied into a generated upload work directory as `index.html` and imported as a single-page site. ZIP uploads are for multi-page static sites or bundled HTML exports; they are extracted to an upload work directory, the selected `index.html` is used as the entry file, and sibling HTML files from that extracted site directory are imported.
+
+ZIP intake rules:
+
+- A root-level `index.html` wins when present.
+- If there is no root-level `index.html`, the ZIP may contain exactly one nested `index.html`, such as `site-export/index.html`.
+- If there are multiple nested `index.html` files and no root `index.html`, the import fails so the entry point is not guessed.
+- Archive entries with absolute paths, `../` traversal segments, or server-side executable extensions are rejected before extraction when PHP's `ZipArchive` inspection is available.
 
 ## CLI Usage
 
