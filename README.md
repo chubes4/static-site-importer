@@ -7,7 +7,7 @@ Static Site Importer is a WordPress plugin. It installs [Block Format Bridge](ht
 ## What It Does
 
 - Adds an **Import HTML** button on the **Appearance -> Themes** screen.
-- Accepts an admin ZIP upload containing an `index.html` file.
+- Accepts pasted HTML or an admin ZIP upload containing an `index.html` file.
 - Provides a WP-CLI importer for a local HTML entry file.
 - Discovers sibling `*.html` files beside the entry file and imports them as WordPress pages.
 - Converts static HTML fragments through `bfb_convert( $html, 'html', 'blocks' )`.
@@ -29,11 +29,11 @@ The current Composer dependency is [`chubes4/block-format-bridge:^0.6.7`](https:
 ## Admin Usage
 
 1. Open **Appearance -> Themes** and click **Import HTML** beside the standard **Add Theme** button.
-2. Upload a ZIP containing `index.html`.
+2. Paste a single HTML document, or upload a ZIP containing `index.html`.
 3. Optionally provide a theme name and slug.
 4. Leave **Activate imported theme** checked if the generated theme should become active immediately.
 
-The admin path always overwrites an existing generated theme with the same slug. It extracts the ZIP to an upload work directory, finds the first `index.html`, and imports the sibling HTML files from that extracted site directory.
+The pasted HTML path writes the submitted content to a generated upload work directory as `index.html` and imports it as a one-page block theme. The ZIP path extracts the upload to a generated work directory, finds the first `index.html`, and imports sibling HTML files from that extracted site directory. The admin path always overwrites an existing generated theme with the same slug.
 
 ## CLI Usage
 
@@ -154,7 +154,7 @@ This repo is Homeboy-managed:
 
 - The importer is intentionally static-site-to-block-theme glue. Block Format Bridge owns format conversion; HTML-to-block transform fidelity belongs upstream in BFB/h2bc.
 - The importer currently discovers flat sibling `*.html` files beside the entry file; it does not crawl arbitrary nested routes.
-- Admin imports require a ZIP with an `index.html`; CLI imports take a direct HTML file path.
+- Admin imports accept pasted HTML for one-page imports or a ZIP with an `index.html`; CLI imports take a direct HTML file path.
 - Linked local stylesheets and inline styles are copied into `style.css`; inline scripts are copied into `assets/site.js`. Other asset copying is not a general-purpose crawler yet.
 - Navigation persistence is limited to supported header/footer shapes that can be converted into deterministic `wp_navigation` entities without guessing.
 - External live triage has exercised additional static sites, but the committed first-party fixture is `tests/fixtures/wordpress-is-dead/`.
