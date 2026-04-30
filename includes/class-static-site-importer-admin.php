@@ -107,7 +107,7 @@ class Static_Site_Importer_Admin {
 				<div class="notice notice-error"><p><?php echo esc_html( $error ); ?></p></div>
 			<?php endif; ?>
 
-			<p><?php echo esc_html__( 'Upload a ZIP containing an index.html file. The importer will convert the HTML into a WordPress block theme using Block Format Bridge.', 'static-site-importer' ); ?></p>
+			<p><?php echo esc_html__( 'Paste a single HTML document or upload a ZIP containing an index.html file. The importer will convert the HTML into a WordPress block theme using Block Format Bridge.', 'static-site-importer' ); ?></p>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
 				<?php wp_nonce_field( 'static_site_importer_import' ); ?>
@@ -115,8 +115,18 @@ class Static_Site_Importer_Admin {
 
 				<table class="form-table" role="presentation">
 					<tr>
+						<th scope="row"><label for="static-site-html"><?php echo esc_html__( 'Paste HTML', 'static-site-importer' ); ?></label></th>
+						<td>
+							<textarea id="static-site-html" name="static_site_html" class="large-text code" rows="14" placeholder="<!doctype html>"></textarea>
+							<p class="description"><?php echo esc_html__( 'Use this for one-page HTML copied from an AI builder or template source. Leave empty to import a ZIP instead.', 'static-site-importer' ); ?></p>
+						</td>
+					</tr>
+					<tr>
 						<th scope="row"><label for="static-site-zip"><?php echo esc_html__( 'HTML ZIP', 'static-site-importer' ); ?></label></th>
-						<td><input type="file" id="static-site-zip" name="static_site_zip" accept=".zip" required /></td>
+						<td>
+							<input type="file" id="static-site-zip" name="static_site_zip" accept=".zip" />
+							<p class="description"><?php echo esc_html__( 'Upload a ZIP when importing a multi-page static site. Pasted HTML takes precedence when both fields are filled.', 'static-site-importer' ); ?></p>
+						</td>
 					</tr>
 					<tr>
 						<th scope="row"><label for="theme-name"><?php echo esc_html__( 'Theme name', 'static-site-importer' ); ?></label></th>
@@ -150,27 +160,8 @@ class Static_Site_Importer_Admin {
 
 		check_admin_referer( 'static_site_importer_import' );
 
-		if ( empty( $_FILES['static_site_zip']['tmp_name'] ) ) {
-			self::redirect_error( 'No ZIP file uploaded.' );
-		}
-
-		$upload = wp_handle_upload( $_FILES['static_site_zip'], array( 'test_form' => false, 'mimes' => array( 'zip' => 'application/zip' ) ) );
-		if ( isset( $upload['error'] ) ) {
-			self::redirect_error( (string) $upload['error'] );
-		}
-
-		$work_dir = trailingslashit( wp_upload_dir()['basedir'] ) . 'static-site-importer/' . wp_generate_uuid4();
-		wp_mkdir_p( $work_dir );
-
-		$result = unzip_file( $upload['file'], $work_dir );
-		if ( is_wp_error( $result ) ) {
-			self::redirect_error( $result->get_error_message() );
-		}
-
-		$html_path = self::find_index_html( $work_dir );
-		if ( ! $html_path ) {
-			self::redirect_error( 'The uploaded ZIP does not contain an index.html file.' );
-		}
+		$pasted_html = isset( $_POST['static_site_html'] ) ? trim( (string) wp_unslash( $_POST['static_site_html'] ) ) : '';
+		$html_path   = '' !== $pasted_html ? self::write_pasted_html( $pasted_html ) : self::html_path_from_zip_upload();
 
 		$result = Static_Site_Importer_Theme_Generator::import_theme(
 			$html_path,
@@ -188,6 +179,70 @@ class Static_Site_Importer_Admin {
 
 		wp_safe_redirect( add_query_arg( 'static_site_imported', rawurlencode( $result['theme_name'] ), admin_url( 'admin.php?page=static-site-importer' ) ) );
 		exit;
+	}
+
+	/**
+	 * Write pasted HTML to a generated import work directory.
+	 *
+	 * @param string $html Raw pasted HTML.
+	 * @return string
+	 */
+	private static function write_pasted_html( string $html ): string {
+		if ( '' === trim( $html ) ) {
+			self::redirect_error( 'Paste HTML content or upload a ZIP containing an index.html file.' );
+		}
+
+		$work_dir  = self::create_work_dir();
+		$html_path = trailingslashit( $work_dir ) . 'index.html';
+		$result    = file_put_contents( $html_path, $html ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Writes a generated upload work file for the existing importer.
+
+		if ( false === $result ) {
+			self::redirect_error( 'Failed to write pasted HTML to the import work directory.' );
+		}
+
+		return $html_path;
+	}
+
+	/**
+	 * Extract the uploaded ZIP and return its index.html path.
+	 *
+	 * @return string
+	 */
+	private static function html_path_from_zip_upload(): string {
+		if ( empty( $_FILES['static_site_zip']['tmp_name'] ) ) {
+			self::redirect_error( 'Paste HTML content or upload a ZIP containing an index.html file.' );
+		}
+
+		$upload = wp_handle_upload( $_FILES['static_site_zip'], array( 'test_form' => false, 'mimes' => array( 'zip' => 'application/zip' ) ) );
+		if ( isset( $upload['error'] ) ) {
+			self::redirect_error( (string) $upload['error'] );
+		}
+
+		$work_dir = self::create_work_dir();
+		$result   = unzip_file( $upload['file'], $work_dir );
+		if ( is_wp_error( $result ) ) {
+			self::redirect_error( $result->get_error_message() );
+		}
+
+		$html_path = self::find_index_html( $work_dir );
+		if ( ! $html_path ) {
+			self::redirect_error( 'The uploaded ZIP does not contain an index.html file.' );
+		}
+
+		return $html_path;
+	}
+
+	/**
+	 * Create an upload work directory for an import request.
+	 *
+	 * @return string
+	 */
+	private static function create_work_dir(): string {
+		$upload_dir = wp_upload_dir();
+		$work_dir   = trailingslashit( $upload_dir['basedir'] ) . 'static-site-importer/' . wp_generate_uuid4();
+		wp_mkdir_p( $work_dir );
+
+		return $work_dir;
 	}
 
 	/**
