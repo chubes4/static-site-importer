@@ -36,18 +36,35 @@ const { parse, validateBlock } = require( '@wordpress/blocks' );
 registerCoreBlocks();
 
 const repoRoot = path.resolve( __dirname, '..' );
+const args = process.argv.slice( 2 );
+const jsonMode = args.includes( '--json' );
+const pathArg = args.find( ( arg ) => ! arg.startsWith( '--' ) );
 const defaultThemeDir = process.env.WP_CONTENT_DIR
   ? path.join( process.env.WP_CONTENT_DIR, 'themes', 'wordpress-is-dead' )
   : path.join( repoRoot, 'wordpress-is-dead' );
 const themeDir = path.resolve(
-  process.argv[ 2 ] ||
+  pathArg ||
     process.env.STATIC_SITE_IMPORTER_THEME_DIR ||
     defaultThemeDir
 );
 
 if ( ! fs.existsSync( themeDir ) ) {
-  console.error( `Theme directory does not exist: ${ themeDir }` );
-  console.error( 'Import the fixture first or pass a theme path as the first argument.' );
+  reportResult( {
+    ok: false,
+    themeDir,
+    filesChecked: 0,
+    blocksChecked: 0,
+    invalidBlocks: 1,
+    failures: [ {
+      file: '(theme)',
+      path: '(theme)',
+      blockName: '(theme)',
+      reasons: [
+        `Theme directory does not exist: ${ themeDir }`,
+        'Import the fixture first or pass a theme path as the first argument.',
+      ],
+    } ],
+  } );
   process.exit( 1 );
 }
 
@@ -67,6 +84,7 @@ for ( const relativePath of targetFiles ) {
     failures.push( {
       file: relativePath,
       path: '(file)',
+      blockName: '(file)',
       reasons: [ `Missing generated artifact: ${ relativePath }` ],
     } );
     continue;
@@ -79,17 +97,11 @@ for ( const relativePath of targetFiles ) {
 }
 
 if ( failures.length ) {
-  for ( const failure of failures ) {
-    console.error( `FAIL ${ failure.file } ${ failure.path }` );
-    for ( const reason of failure.reasons ) {
-      console.error( `  - ${ reason }` );
-    }
-  }
-  console.error( `Block validation failed: ${ failures.length } invalid block(s) in ${ targetFiles.length } file(s).` );
+  reportResult( buildResult( false ) );
   process.exit( 1 );
 }
 
-console.log( `OK: JS block validation smoke passed (${ blockCount } blocks across ${ targetFiles.length } files)` );
+reportResult( buildResult( true ) );
 
 function listFiles( directory, extension ) {
   if ( ! fs.existsSync( directory ) ) {
@@ -115,6 +127,7 @@ function validateBlocks( blocks, file, trail = [] ) {
       failures.push( {
         file,
         path: blockPath.join( ' > ' ),
+        blockName: block.name || 'unknown',
         reasons: normalizeIssues( validationIssues ),
       } );
     }
@@ -193,6 +206,65 @@ function truncate( value, length = 180 ) {
 
 function countBlocks( blocks ) {
   return blocks.reduce( ( total, block ) => total + 1 + countBlocks( block.innerBlocks || [] ), 0 );
+}
+
+function buildResult( ok ) {
+  return {
+    ok,
+    themeDir,
+    filesChecked: targetFiles.length,
+    blocksChecked: blockCount,
+    invalidBlocks: failures.length,
+    failures,
+    byBlockName: summarizeFailures( 'blockName' ),
+    byFile: summarizeFailures( 'file' ),
+  };
+}
+
+function summarizeFailures( key ) {
+  const summary = {};
+  for ( const failure of failures ) {
+    const value = failure[ key ] || 'unknown';
+    summary[ value ] = ( summary[ value ] || 0 ) + 1;
+  }
+  return Object.fromEntries(
+    Object.entries( summary ).sort( ( left, right ) => right[ 1 ] - left[ 1 ] || left[ 0 ].localeCompare( right[ 0 ] ) )
+  );
+}
+
+function reportResult( result ) {
+  if ( jsonMode ) {
+    console.log( JSON.stringify( result, null, 2 ) );
+    return;
+  }
+
+  if ( result.ok ) {
+    console.log( `OK: JS block validation smoke passed (${ result.blocksChecked } blocks across ${ result.filesChecked } files)` );
+    return;
+  }
+
+  console.error( `Block validation failed: ${ result.invalidBlocks } invalid block(s) in ${ result.filesChecked } file(s).` );
+  printSummary( 'By block', result.byBlockName );
+  printSummary( 'By file', result.byFile );
+
+  for ( const failure of result.failures ) {
+    console.error( `FAIL ${ failure.file } ${ failure.path }` );
+    for ( const reason of failure.reasons ) {
+      console.error( `  - ${ reason }` );
+    }
+  }
+}
+
+function printSummary( label, summary ) {
+  const entries = Object.entries( summary );
+  if ( ! entries.length ) {
+    return;
+  }
+
+  console.error( `${ label }:` );
+  for ( const [ name, count ] of entries ) {
+    console.error( `  - ${ name }: ${ count }` );
+  }
 }
 
 function withConsoleSilenced( callback ) {

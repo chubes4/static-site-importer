@@ -2,7 +2,8 @@
   "name": "static-site-importer",
   "private": true,
   "scripts": {
-    "test:js-block-validation": "node tests/smoke-generated-theme-block-validation.cjs"
+    "test:js-block-validation": "node tests/smoke-generated-theme-block-validation.cjs",
+    "test:validation": "node tests/run-validation-harness.cjs"
   },
   "devDependencies": {
     "@wordpress/block-library": "^9.45.0",
