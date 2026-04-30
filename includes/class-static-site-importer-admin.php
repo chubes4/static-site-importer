@@ -107,7 +107,7 @@ class Static_Site_Importer_Admin {
 				<div class="notice notice-error"><p><?php echo esc_html( $error ); ?></p></div>
 			<?php endif; ?>
 
-			<p><?php echo esc_html__( 'Paste a single HTML document or upload a ZIP containing an index.html file. The importer will convert the HTML into a WordPress block theme using Block Format Bridge.', 'static-site-importer' ); ?></p>
+			<p><?php echo esc_html__( 'Paste HTML, upload a single HTML file, or upload a ZIP containing an index.html file. The importer will convert the HTML into a WordPress block theme using Block Format Bridge.', 'static-site-importer' ); ?></p>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
 				<?php wp_nonce_field( 'static_site_importer_import' ); ?>
@@ -115,17 +115,24 @@ class Static_Site_Importer_Admin {
 
 				<table class="form-table" role="presentation">
 					<tr>
-						<th scope="row"><label for="static-site-html"><?php echo esc_html__( 'Paste HTML', 'static-site-importer' ); ?></label></th>
+						<th scope="row"><label for="static-site-pasted-html"><?php echo esc_html__( 'Paste HTML', 'static-site-importer' ); ?></label></th>
 						<td>
-							<textarea id="static-site-html" name="static_site_html" class="large-text code" rows="14" placeholder="<!doctype html>"></textarea>
-							<p class="description"><?php echo esc_html__( 'Use this for one-page HTML copied from an AI builder or template source. Leave empty to import a ZIP instead.', 'static-site-importer' ); ?></p>
+							<textarea id="static-site-pasted-html" name="static_site_pasted_html" class="large-text code" rows="14" placeholder="<!doctype html>"></textarea>
+							<p class="description"><?php echo esc_html__( 'Use this for one-page HTML copied from an AI builder or template source. Leave empty to import an HTML file or ZIP instead.', 'static-site-importer' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="static-site-html"><?php echo esc_html__( 'Single HTML file', 'static-site-importer' ); ?></label></th>
+						<td>
+							<input type="file" id="static-site-html" name="static_site_html" accept=".html,.htm" />
+							<p class="description"><?php echo esc_html__( 'Use this for a standalone .html or .htm file. Pasted HTML takes precedence when both are provided.', 'static-site-importer' ); ?></p>
 						</td>
 					</tr>
 					<tr>
 						<th scope="row"><label for="static-site-zip"><?php echo esc_html__( 'HTML ZIP', 'static-site-importer' ); ?></label></th>
 						<td>
 							<input type="file" id="static-site-zip" name="static_site_zip" accept=".zip" />
-							<p class="description"><?php echo esc_html__( 'Upload a ZIP when importing a multi-page static site. Pasted HTML takes precedence when both fields are filled.', 'static-site-importer' ); ?></p>
+							<p class="description"><?php echo esc_html__( 'Use this for a site folder packaged as a ZIP with an index.html file and sibling HTML pages. Pasted HTML and single HTML uploads take precedence when provided.', 'static-site-importer' ); ?></p>
 						</td>
 					</tr>
 					<tr>
@@ -160,8 +167,8 @@ class Static_Site_Importer_Admin {
 
 		check_admin_referer( 'static_site_importer_import' );
 
-		$pasted_html = isset( $_POST['static_site_html'] ) ? trim( (string) wp_unslash( $_POST['static_site_html'] ) ) : '';
-		$html_path   = '' !== $pasted_html ? self::write_pasted_html( $pasted_html ) : self::html_path_from_zip_upload();
+		$pasted_html = isset( $_POST['static_site_pasted_html'] ) ? trim( (string) wp_unslash( $_POST['static_site_pasted_html'] ) ) : '';
+		$html_path   = '' !== $pasted_html ? self::write_pasted_html( $pasted_html ) : self::prepare_uploaded_entry_file();
 
 		$result = Static_Site_Importer_Theme_Generator::import_theme(
 			$html_path,
@@ -185,11 +192,11 @@ class Static_Site_Importer_Admin {
 	 * Write pasted HTML to a generated import work directory.
 	 *
 	 * @param string $html Raw pasted HTML.
-	 * @return string
+	 * @return string HTML entry path.
 	 */
 	private static function write_pasted_html( string $html ): string {
 		if ( '' === trim( $html ) ) {
-			self::redirect_error( 'Paste HTML content or upload a ZIP containing an index.html file.' );
+			self::redirect_error( 'Paste HTML content, upload a single HTML file, or upload a ZIP containing index.html.' );
 		}
 
 		$work_dir  = self::create_work_dir();
@@ -204,22 +211,89 @@ class Static_Site_Importer_Admin {
 	}
 
 	/**
-	 * Extract the uploaded ZIP and return its index.html path.
+	 * Prepare the uploaded HTML entry file.
 	 *
-	 * @return string
+	 * @return string HTML entry path.
 	 */
-	private static function html_path_from_zip_upload(): string {
-		if ( empty( $_FILES['static_site_zip']['tmp_name'] ) ) {
-			self::redirect_error( 'Paste HTML content or upload a ZIP containing an index.html file.' );
+	private static function prepare_uploaded_entry_file(): string {
+		$work_dir = self::create_work_dir();
+
+		if ( self::has_uploaded_file( 'static_site_html' ) ) {
+			return self::prepare_uploaded_html_file( $work_dir );
 		}
 
-		$upload = wp_handle_upload( $_FILES['static_site_zip'], array( 'test_form' => false, 'mimes' => array( 'zip' => 'application/zip' ) ) );
+		if ( self::has_uploaded_file( 'static_site_zip' ) ) {
+			return self::prepare_uploaded_zip_file( $work_dir );
+		}
+
+		self::redirect_error( 'Paste HTML content, upload a single HTML file, or upload a ZIP containing index.html.' );
+	}
+
+	/**
+	 * Store a direct HTML upload in an importer work directory.
+	 *
+	 * @param string $work_dir Importer work directory.
+	 * @return string HTML entry path.
+	 */
+	private static function prepare_uploaded_html_file( string $work_dir ): string {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Upload nonce verified in handle_import().
+		$file = $_FILES['static_site_html'];
+		$name = isset( $file['name'] ) ? (string) $file['name'] : '';
+		$ext  = strtolower( pathinfo( $name, PATHINFO_EXTENSION ) );
+
+		if ( ! in_array( $ext, array( 'html', 'htm' ), true ) ) {
+			self::redirect_error( 'Upload an .html or .htm file.' );
+		}
+
+		if ( empty( $file['size'] ) || empty( $file['tmp_name'] ) || ! is_readable( (string) $file['tmp_name'] ) ) {
+			self::redirect_error( 'The uploaded HTML file is empty or unreadable.' );
+		}
+
+		$upload = wp_handle_upload(
+			$file,
+			array(
+				'test_form' => false,
+				'mimes'     => array(
+					'html' => 'text/html',
+					'htm'  => 'text/html',
+				),
+			)
+		);
 		if ( isset( $upload['error'] ) ) {
 			self::redirect_error( (string) $upload['error'] );
 		}
 
-		$work_dir = self::create_work_dir();
-		$result   = unzip_file( $upload['file'], $work_dir );
+		$target = trailingslashit( $work_dir ) . 'index.html';
+		if ( ! copy( $upload['file'], $target ) ) {
+			self::redirect_error( 'Could not store the uploaded HTML file.' );
+		}
+
+		return $target;
+	}
+
+	/**
+	 * Extract an uploaded ZIP and return its index.html path.
+	 *
+	 * @param string $work_dir Importer work directory.
+	 * @return string HTML entry path.
+	 */
+	private static function prepare_uploaded_zip_file( string $work_dir ): string {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Upload nonce verified in handle_import().
+		$zip_file = $_FILES['static_site_zip'];
+		$upload   = wp_handle_upload(
+			$zip_file,
+			array(
+				'test_form' => false,
+				'mimes'     => array(
+					'zip' => 'application/zip',
+				),
+			)
+		);
+		if ( isset( $upload['error'] ) ) {
+			self::redirect_error( (string) $upload['error'] );
+		}
+
+		$result = unzip_file( $upload['file'], $work_dir );
 		if ( is_wp_error( $result ) ) {
 			self::redirect_error( $result->get_error_message() );
 		}
@@ -233,16 +307,34 @@ class Static_Site_Importer_Admin {
 	}
 
 	/**
-	 * Create an upload work directory for an import request.
+	 * Create an importer work directory.
 	 *
-	 * @return string
+	 * @return string Directory path.
 	 */
 	private static function create_work_dir(): string {
-		$upload_dir = wp_upload_dir();
-		$work_dir   = trailingslashit( $upload_dir['basedir'] ) . 'static-site-importer/' . wp_generate_uuid4();
+		$work_dir = trailingslashit( wp_upload_dir()['basedir'] ) . 'static-site-importer/' . wp_generate_uuid4();
 		wp_mkdir_p( $work_dir );
 
 		return $work_dir;
+	}
+
+	/**
+	 * Determine whether a named upload field has a file.
+	 *
+	 * @param string $field Upload field name.
+	 * @return bool
+	 */
+	private static function has_uploaded_file( string $field ): bool {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Upload nonce verified in handle_import().
+		if ( ! isset( $_FILES[ $field ] ) || ! is_array( $_FILES[ $field ] ) ) {
+			return false;
+		}
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Upload nonce verified in handle_import().
+		$error = $_FILES[ $field ]['error'] ?? UPLOAD_ERR_NO_FILE;
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Upload nonce verified in handle_import().
+		return UPLOAD_ERR_NO_FILE !== $error && ! empty( $_FILES[ $field ]['tmp_name'] );
 	}
 
 	/**
