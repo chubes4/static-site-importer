@@ -6,7 +6,6 @@
  * Author: Chris Huber
  * Requires at least: 6.6
  * Requires PHP: 8.1
- * Requires Plugins: data-machine
  *
  * @package StaticSiteImporter
  */
@@ -17,6 +16,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 define( 'STATIC_SITE_IMPORTER_PATH', plugin_dir_path( __FILE__ ) );
 define( 'STATIC_SITE_IMPORTER_URL', plugin_dir_url( __FILE__ ) );
+
+if ( is_readable( STATIC_SITE_IMPORTER_PATH . 'vendor/autoload.php' ) ) {
+	require_once STATIC_SITE_IMPORTER_PATH . 'vendor/autoload.php';
+}
 
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-document.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-theme-generator.php';

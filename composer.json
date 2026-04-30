@@ -1,0 +1,22 @@
+{
+  "name": "chubes4/static-site-importer",
+  "type": "wordpress-plugin",
+  "description": "Import static HTML sites into WordPress pages or block themes using Block Format Bridge.",
+  "license": "GPL-2.0-or-later",
+  "require": {
+    "php": "^8.1",
+    "chubes4/block-format-bridge": "^0.6.7"
+  },
+  "repositories": [
+    {
+      "type": "vcs",
+      "url": "https://github.com/chubes4/block-format-bridge"
+    }
+  ],
+  "config": {
+    "platform": {
+      "php": "8.2.0"
+    },
+    "sort-packages": true
+  }
+}
