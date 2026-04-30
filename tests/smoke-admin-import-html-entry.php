@@ -35,12 +35,20 @@ $assert( str_contains( $source, 'static-site-importer-import-html-action' ), 'bu
 $assert( ! str_contains( $source, 'Import Static Site' ), 'old-import-static-site-label-removed' );
 $assert( str_contains( $source, 'Import HTML' ), 'import-html-label-present' );
 $assert( str_contains( $source, 'HTML ZIP' ), 'zip-field-label-renamed' );
-$assert( str_contains( $source, 'name="static_site_html"' ), 'paste-html-textarea-present' );
+$assert( str_contains( $source, 'name="static_site_pasted_html"' ), 'paste-html-textarea-present' );
 $assert( str_contains( $source, 'write_pasted_html' ), 'paste-html-write-helper-present' );
-$assert( str_contains( $source, "'index.html'" ), 'paste-html-writes-index-html' );
-$assert( str_contains( $source, 'html_path_from_zip_upload' ), 'zip-import-helper-present' );
-$assert( str_contains( $source, 'Paste HTML content or upload a ZIP containing an index.html file.' ), 'empty-intake-validation-message-present' );
-$assert( ! str_contains( $source, 'name="static_site_zip" accept=".zip" required' ), 'zip-field-not-required' );
+$assert( str_contains( $source, 'name="static_site_html"' ), 'single-html-upload-field-present' );
+$assert( str_contains( $source, 'accept=".html,.htm"' ), 'single-html-upload-accepts-html' );
+$assert( str_contains( $source, 'name="static_site_zip"' ), 'zip-upload-field-present' );
+$assert( ! str_contains( $source, 'name="static_site_zip" accept=".zip" required' ), 'zip-upload-not-required' );
+$assert( str_contains( $source, "has_uploaded_file( 'static_site_html' )" ), 'html-upload-preferred-before-zip' );
+$assert( str_contains( $source, "has_uploaded_file( 'static_site_zip' )" ), 'zip-upload-fallback-present' );
+$assert( strpos( $source, "has_uploaded_file( 'static_site_html' )" ) < strpos( $source, "has_uploaded_file( 'static_site_zip' )" ), 'html-upload-precedes-zip-fallback' );
+$assert( str_contains( $source, "in_array( $" . "ext, array( 'html', 'htm' ), true )" ), 'html-extension-validation-present' );
+$assert( str_contains( $source, "'index.html'" ), 'admin-intake-stores-index-html' );
+$assert( str_contains( $source, 'prepare_uploaded_zip_file' ), 'zip-import-helper-present' );
+$assert( str_contains( $source, 'find_index_html' ), 'zip-index-discovery-preserved' );
+$assert( str_contains( $source, 'Paste HTML content, upload a single HTML file, or upload a ZIP containing index.html.' ), 'empty-intake-validation-message-present' );
 
 if ( $failures ) {
 	fwrite( STDERR, implode( "\n", $failures ) . "\n" );
