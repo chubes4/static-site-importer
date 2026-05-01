@@ -42,6 +42,12 @@ class Static_Site_Importer_CLI_Command {
 	 * [--max-fallbacks=<count>]
 	 * : Exit non-zero when unsupported HTML fallback count exceeds this threshold.
 	 *
+	 * [--report=<path>]
+	 * : Copy the generated import report JSON to an external archive path.
+	 *
+	 * [--format=<format>]
+	 * : Output format. Use json for machine-readable command output.
+	 *
 	 * @param array<int, string>   $args       Positional args.
 	 * @param array<string, mixed> $assoc_args Associative args.
 	 * @return void
@@ -62,6 +68,7 @@ class Static_Site_Importer_CLI_Command {
 				'overwrite'       => isset( $assoc_args['overwrite'] ),
 				'fail_on_quality' => isset( $assoc_args['fail-on-quality'] ),
 				'max_fallbacks'   => isset( $assoc_args['max-fallbacks'] ) ? (int) $assoc_args['max-fallbacks'] : null,
+				'report'          => isset( $assoc_args['report'] ) ? (string) $assoc_args['report'] : '',
 			)
 		);
 
@@ -70,9 +77,17 @@ class Static_Site_Importer_CLI_Command {
 			return;
 		}
 
+		if ( isset( $assoc_args['format'] ) && 'json' === (string) $assoc_args['format'] ) {
+			WP_CLI::line( (string) wp_json_encode( $result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
+			return;
+		}
+
 		WP_CLI::success( sprintf( 'Imported static site as block theme "%s" (%s).', $result['theme_name'], $result['theme_slug'] ) );
 		WP_CLI::line( sprintf( 'Theme directory: %s', $result['theme_dir'] ) );
 		WP_CLI::line( sprintf( 'Import report: %s', $result['report_path'] ) );
+		if ( ! empty( $result['external_report_path'] ) ) {
+			WP_CLI::line( sprintf( 'External import report: %s', $result['external_report_path'] ) );
+		}
 		WP_CLI::line( sprintf( 'Conversion quality: %s (%d unsupported HTML fallbacks, %d content-loss aborts).', $result['quality']['pass'] ? 'pass' : 'needs review', $result['quality']['fallback_count'], $result['quality']['content_loss_count'] ) );
 
 		if ( ! $result['quality']['pass'] ) {
