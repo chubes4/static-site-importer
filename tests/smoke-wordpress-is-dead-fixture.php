@@ -13,6 +13,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 $plugin_root = dirname( __DIR__ );
+
+if ( ! defined( 'STATIC_SITE_IMPORTER_PATH' ) && is_readable( $plugin_root . '/static-site-importer.php' ) ) {
+	require_once $plugin_root . '/static-site-importer.php';
+}
 if ( ! class_exists( 'Static_Site_Importer_Document', false ) ) {
 	require_once $plugin_root . '/includes/class-static-site-importer-document.php';
 }
@@ -97,6 +101,7 @@ if ( ! is_wp_error( $result ) ) {
 	$style      = $read( $theme_dir . '/style.css' );
 	$functions  = $read( $theme_dir . '/functions.php' );
 	$theme_json = json_decode( $read( $theme_dir . '/theme.json' ), true );
+	$report     = json_decode( $read( $result['report_path'] ?? '' ), true );
 	$palette    = array();
 	foreach ( $theme_json['settings']['color']['palette'] ?? array() as $color ) {
 		if ( isset( $color['slug'] ) ) {
@@ -111,6 +116,10 @@ if ( ! is_wp_error( $result ) ) {
 	$footer_nav = get_page_by_path( 'wordpress-is-dead-fixture-footer-navigation', OBJECT, 'wp_navigation' );
 
 	$assert( str_contains( $front_page, 'wp:pattern' ) && str_contains( $front_page, 'wordpress-is-dead-fixture/page-home' ), 'front-page-renders-imported-page-pattern' );
+	$assert( is_array( $report ), 'import-report-is-valid-json' );
+	$assert( isset( $report['quality']['fallback_count'] ), 'import-report-includes-fallback-count' );
+	$assert( isset( $report['conversion_fragments']['main:index.html'] ), 'import-report-groups-fragments-by-source' );
+	$assert( isset( $result['quality']['pass'] ), 'import-result-includes-quality-summary' );
 	$assert( str_contains( $page, 'wp:post-content' ), 'page-template-renders-imported-page-content' );
 	$assert( str_contains( $home_tmpl, 'wp:pattern' ) && str_contains( $home_tmpl, 'wordpress-is-dead-fixture/page-home' ), 'home-page-template-renders-home-pattern' );
 	$assert( str_contains( $proof_tmpl, 'wp:pattern' ) && str_contains( $proof_tmpl, 'wordpress-is-dead-fixture/page-proof' ), 'proof-page-template-renders-proof-pattern' );
@@ -230,6 +239,68 @@ if ( ! is_wp_error( $result ) ) {
 
 	$expect_failure( 1 === $selector_count( $manifesto, '.manifesto-list' ), 'manifesto-list-not-duplicated', 'count=' . $selector_count( $manifesto, '.manifesto-list' ) );
 	$assert( 1 === substr_count( $manifesto, 'The CMS was a workaround for not being able to write HTML.' ), 'manifesto-key-heading-not-duplicated', 'count=' . substr_count( $manifesto, 'The CMS was a workaround for not being able to write HTML.' ) );
+}
+
+$theme_part_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-theme-parts.html';
+$wrote_fixture      = file_put_contents(
+	$theme_part_fixture,
+	'<!doctype html><html><head><title>Theme Parts</title></head><body>' .
+	'<nav class="nav"><div class="nav-logo"><span class="mark">*</span>Studio Code</div><a href="#get-started" class="nav-pill"><span>Get Early Access</span></a></nav>' .
+	'<main><section><h1>Theme part smoke</h1><p>Body copy.</p></section></main>' .
+	'<footer class="footer"><div class="footer-brand">Studio Code by Automattic</div><div class="footer-copy">Copyright 2026 Automattic Inc.</div></footer>' .
+	'</body></html>'
+);
+$assert( false !== $wrote_fixture, 'theme-part-fixture-written' );
+
+if ( false !== $wrote_fixture ) {
+	$theme_part_result = Static_Site_Importer_Theme_Generator::import_theme(
+		$theme_part_fixture,
+		array(
+			'name'      => 'Theme Part Fixture',
+			'slug'      => 'theme-part-fixture',
+			'overwrite' => true,
+			'activate'  => false,
+		)
+	);
+	$assert( ! is_wp_error( $theme_part_result ), 'theme-part-import-succeeds', is_wp_error( $theme_part_result ) ? $theme_part_result->get_error_message() : '' );
+	if ( ! is_wp_error( $theme_part_result ) ) {
+		$theme_part_header = $read( $theme_part_result['theme_dir'] . '/parts/header.html' );
+		$theme_part_footer = $read( $theme_part_result['theme_dir'] . '/parts/footer.html' );
+		$assert( str_contains( $theme_part_header, 'Studio Code' ), 'nav-only-header-preserves-brand-text' );
+		$assert( str_contains( $theme_part_header, 'Get Early Access' ), 'nav-only-header-preserves-cta-text' );
+		$assert( ! str_starts_with( trim( $theme_part_header ), '<!-- wp:html -->' ), 'nav-only-header-does-not-become-whole-html-island' );
+		$assert( str_contains( $theme_part_footer, 'Studio Code by Automattic' ), 'simple-footer-preserves-brand-text' );
+		$assert( str_contains( $theme_part_footer, 'Copyright 2026 Automattic Inc.' ), 'simple-footer-preserves-copy-text' );
+		$assert( ! str_contains( $theme_part_footer, '<!-- wp:group {"className":"footer-brand"} /-->' ), 'simple-footer-does-not-emit-empty-brand-group' );
+	}
+}
+
+$quality_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-quality.html';
+$wrote_quality   = file_put_contents(
+	$quality_fixture,
+	'<!doctype html><html><head><title>Quality</title></head><body><main><section><h1>Quality smoke</h1><iframe src="https://example.com/widget"></iframe></section></main></body></html>'
+);
+$assert( false !== $wrote_quality, 'quality-fixture-written' );
+
+if ( false !== $wrote_quality ) {
+	$quality_result = Static_Site_Importer_Theme_Generator::import_theme(
+		$quality_fixture,
+		array(
+			'name'            => 'Quality Fixture',
+			'slug'            => 'quality-fixture',
+			'overwrite'       => true,
+			'activate'        => false,
+			'max_fallbacks'   => 0,
+		)
+	);
+	$assert( ! is_wp_error( $quality_result ), 'quality-import-writes-theme-for-inspection', is_wp_error( $quality_result ) ? $quality_result->get_error_message() : '' );
+	if ( ! is_wp_error( $quality_result ) ) {
+		$quality_report = json_decode( $read( $quality_result['report_path'] ), true );
+		$assert( 1 === ( $quality_result['quality']['fallback_count'] ?? 0 ), 'quality-result-counts-fallbacks' );
+		$assert( false === ( $quality_result['quality']['pass'] ?? true ), 'quality-result-fails-when-fallbacks-exist' );
+		$assert( true === ( $quality_result['quality']['fail_import'] ?? false ), 'quality-gate-fails-when-max-fallbacks-exceeded' );
+		$assert( is_array( $quality_report ) && 'unsupported_html_fallback' === ( $quality_report['diagnostics'][0]['type'] ?? '' ), 'quality-report-records-fallback-diagnostic' );
+	}
 }
 
 if ( $expected_failures ) {
