@@ -15,11 +15,18 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Static_Site_Importer_Theme_Generator {
 
 	/**
+	 * Scoped conversion quality report for the active import.
+	 *
+	 * @var array<string, mixed>
+	 */
+	private static array $conversion_report = array();
+
+	/**
 	 * Import an HTML file as a block theme.
 	 *
 	 * @param string $html_path  HTML file path.
 	 * @param array  $args       Import args.
-	 * @return array{theme_slug:string,theme_name:string,theme_dir:string,pages:array<string,int>}|WP_Error
+	 * @return array{theme_slug:string,theme_name:string,theme_dir:string,report_path:string,pages:array<string,int>,quality:array<string,mixed>}|WP_Error
 	 */
 	public static function import_theme( string $html_path, array $args = array() ) {
 		if ( ! function_exists( 'bfb_convert' ) ) {
@@ -65,10 +72,11 @@ class Static_Site_Importer_Theme_Generator {
 			return $page_ids;
 		}
 
-		$permalinks = self::page_permalinks( $page_ids );
-		$fragments  = $document->fragments();
+		$permalinks              = self::page_permalinks( $page_ids );
+		$fragments               = $document->fragments();
+		self::$conversion_report = self::new_conversion_report( $html_path );
 
-		$background_blocks = self::convert_fragment( self::rewrite_internal_links( $fragments['background'], $permalinks ) );
+		$background_blocks = self::convert_fragment( self::rewrite_internal_links( $fragments['background'], $permalinks ), 'background:index.html' );
 		$header_blocks     = self::convert_header_fragment( self::strip_active_classes( self::rewrite_internal_links( $fragments['header'], $permalinks ) ), $theme_slug );
 		$footer_blocks     = self::convert_footer_fragment( self::rewrite_internal_links( $fragments['footer'], $permalinks ), $theme_slug );
 
@@ -80,16 +88,18 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		$site_css = self::site_css( $site_dir, $document );
+		$quality  = self::finalize_quality_report( $args );
 
 		$writes = array(
-			$theme_dir . '/style.css'                  => self::style_css( $theme_name, $site_css ),
-			$theme_dir . '/functions.php'              => self::functions_php( $theme_slug ),
-			$theme_dir . '/theme.json'                 => self::theme_json( $theme_name, $site_css ),
-			$theme_dir . '/parts/header.html'          => $header_blocks,
-			$theme_dir . '/parts/footer.html'          => $footer_blocks,
-			$theme_dir . '/templates/front-page.html'  => self::page_pattern_template( $background_blocks, $page_artifacts['patterns']['index.html'] ?? '' ),
-			$theme_dir . '/templates/page.html'        => self::content_template( $background_blocks ),
-			$theme_dir . '/templates/index.html'       => self::content_template( $background_blocks ),
+			$theme_dir . '/style.css'                 => self::style_css( $theme_name, $site_css ),
+			$theme_dir . '/functions.php'             => self::functions_php( $theme_slug ),
+			$theme_dir . '/theme.json'                => self::theme_json( $theme_name, $site_css ),
+			$theme_dir . '/import-report.json'        => wp_json_encode( self::$conversion_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) . "\n",
+			$theme_dir . '/parts/header.html'         => $header_blocks,
+			$theme_dir . '/parts/footer.html'         => $footer_blocks,
+			$theme_dir . '/templates/front-page.html' => self::page_pattern_template( $background_blocks, $page_artifacts['patterns']['index.html'] ?? '' ),
+			$theme_dir . '/templates/page.html'       => self::content_template( $background_blocks ),
+			$theme_dir . '/templates/index.html'      => self::content_template( $background_blocks ),
 		);
 
 		foreach ( $page_artifacts['patterns'] as $filename => $pattern_slug ) {
@@ -124,10 +134,12 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return array(
-			'theme_slug' => $theme_slug,
-			'theme_name' => $theme_name,
-			'theme_dir'  => $theme_dir,
-			'pages'      => $page_ids,
+			'theme_slug'  => $theme_slug,
+			'theme_name'  => $theme_name,
+			'theme_dir'   => $theme_dir,
+			'report_path' => $theme_dir . '/import-report.json',
+			'pages'       => $page_ids,
+			'quality'     => $quality,
 		);
 	}
 
@@ -139,7 +151,8 @@ class Static_Site_Importer_Theme_Generator {
 	 */
 	private static function collect_pages( string $site_dir ): array {
 		$pages = array();
-		foreach ( glob( trailingslashit( $site_dir ) . '*.html' ) ?: array() as $path ) {
+		$paths = glob( trailingslashit( $site_dir ) . '*.html' );
+		foreach ( false === $paths ? array() : $paths as $path ) {
 			$document = Static_Site_Importer_Document::from_file( $path );
 			if ( is_wp_error( $document ) ) {
 				continue;
@@ -220,7 +233,7 @@ class Static_Site_Importer_Theme_Generator {
 			$slug         = self::page_slug( $filename );
 			$pattern_slug = sanitize_key( $theme_slug ) . '/page-' . $slug;
 			$fragments    = $page['document']->fragments();
-			$content      = self::convert_fragment( self::rewrite_internal_links( $fragments['main'], $permalinks ) );
+			$content      = self::convert_fragment( self::rewrite_internal_links( $fragments['main'], $permalinks ), 'main:' . $filename );
 
 			$patterns[ $filename ] = $pattern_slug;
 			$files[ $filename ]    = self::pattern_file( self::page_title( $filename, $page['document'] ), $pattern_slug, $content );
@@ -267,7 +280,10 @@ class Static_Site_Importer_Theme_Generator {
 	private static function page_permalinks( array $page_ids ): array {
 		$permalinks = array();
 		foreach ( $page_ids as $filename => $page_id ) {
-			$permalinks[ $filename ] = get_permalink( $page_id );
+			$permalink = get_permalink( $page_id );
+			if ( false !== $permalink ) {
+				$permalinks[ $filename ] = $permalink;
+			}
 		}
 
 		return $permalinks;
@@ -288,9 +304,10 @@ class Static_Site_Importer_Theme_Generator {
 		return preg_replace_callback(
 			'/\bhref=("|\')([^"\']+)(\1)/i',
 			static function ( array $matches ) use ( $permalinks ): string {
-				$href     = html_entity_decode( $matches[2], ENT_QUOTES );
-				$parts    = explode( '#', $href, 2 );
-				$filename = basename( strtok( $parts[0], '?' ) ?: $parts[0] );
+				$href               = html_entity_decode( $matches[2], ENT_QUOTES );
+				$parts              = explode( '#', $href, 2 );
+				$path_without_query = strtok( $parts[0], '?' );
+				$filename           = basename( false === $path_without_query ? $parts[0] : $path_without_query );
 				if ( ! isset( $permalinks[ $filename ] ) ) {
 					return $matches[0];
 				}
@@ -320,11 +337,12 @@ class Static_Site_Importer_Theme_Generator {
 		return preg_replace_callback(
 			'/\sclass=("|\')([^"\']*)(\1)/i',
 			static function ( array $matches ): string {
-				$classes = preg_split( '/\s+/', trim( $matches[2] ) ) ?: array();
+				$classes = preg_split( '/\s+/', trim( $matches[2] ) );
+				$classes = false === $classes ? array() : $classes;
 				$classes = array_values(
 					array_filter(
 						$classes,
-						static fn ( string $class ): bool => 'active' !== $class
+						static fn ( string $class_name ): bool => 'active' !== $class_name
 					)
 				);
 
@@ -348,24 +366,27 @@ class Static_Site_Importer_Theme_Generator {
 	private static function convert_header_fragment( string $html, string $theme_slug ): string {
 		$doc    = self::load_fragment_document( $html );
 		$header = self::sole_child_element( $doc );
+		if ( $header instanceof DOMElement && 'nav' === strtolower( $header->tagName ) ) {
+			return self::theme_part_element_block( $doc, $header, $theme_slug, 'header' );
+		}
 		if ( ! $header instanceof DOMElement || 'header' !== strtolower( $header->tagName ) ) {
-			return self::convert_fragment( $html );
+			return self::convert_fragment( $html, 'theme-part:header' );
 		}
 
 		$header_children = self::direct_element_children( $header );
 		if ( 1 !== count( $header_children ) || 'div' !== strtolower( $header_children[0]->tagName ) ) {
-			return self::convert_fragment( $html );
+			return self::theme_part_element_block( $doc, $header, $theme_slug, 'header' );
 		}
 
 		$inner          = $header_children[0];
 		$inner_children = self::direct_element_children( $inner );
 		if ( 2 !== count( $inner_children ) || 'a' !== strtolower( $inner_children[0]->tagName ) || 'nav' !== strtolower( $inner_children[1]->tagName ) ) {
-			return self::convert_fragment( $html );
+			return self::theme_part_element_block( $doc, $header, $theme_slug, 'header' );
 		}
 
 		$navigation_blocks = self::navigation_ref_block( $inner_children[1], $theme_slug, 'header' );
 		if ( null === $navigation_blocks ) {
-			return self::convert_fragment( $html );
+			return self::theme_part_element_block( $doc, $header, $theme_slug, 'header' );
 		}
 
 		$inner_blocks = self::html_block( self::node_html( $doc, $inner_children[0] ) ) . $navigation_blocks;
@@ -383,34 +404,189 @@ class Static_Site_Importer_Theme_Generator {
 		$doc    = self::load_fragment_document( $html );
 		$footer = self::sole_child_element( $doc );
 		if ( ! $footer instanceof DOMElement || 'footer' !== strtolower( $footer->tagName ) ) {
-			return self::convert_fragment( $html );
+			return self::convert_fragment( $html, 'theme-part:footer' );
 		}
 
 		$footer_children = self::direct_element_children( $footer );
 		if ( 1 !== count( $footer_children ) || 'div' !== strtolower( $footer_children[0]->tagName ) ) {
-			return self::convert_fragment( $html );
+			return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
 		}
 
 		$container          = $footer_children[0];
 		$container_children = self::direct_element_children( $container );
 		if ( 1 !== count( $container_children ) || 'div' !== strtolower( $container_children[0]->tagName ) ) {
-			return self::convert_fragment( $html );
+			return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
 		}
 
 		$row          = $container_children[0];
 		$row_children = self::direct_element_children( $row );
 		if ( 2 !== count( $row_children ) || 'div' !== strtolower( $row_children[0]->tagName ) || 'ul' !== strtolower( $row_children[1]->tagName ) ) {
-			return self::convert_fragment( $html );
+			return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
 		}
 
 		$navigation_blocks = self::navigation_ref_block( $row_children[1], $theme_slug, 'footer' );
 		if ( null === $navigation_blocks ) {
-			return self::convert_fragment( $html );
+			return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
 		}
 
 		$row_blocks       = self::html_block( self::node_html( $doc, $row_children[0] ) ) . $navigation_blocks;
 		$container_blocks = self::group_block( $row_blocks, $row->getAttribute( 'class' ) );
 		return self::group_block( self::group_block( $container_blocks, $container->getAttribute( 'class' ) ), $footer->getAttribute( 'class' ), 'footer' );
+	}
+
+	/**
+	 * Build editable-enough block markup for shared theme chrome without delegating the whole part to core/html.
+	 *
+	 * @param DOMDocument $doc        Source DOM document.
+	 * @param DOMElement  $element    Source element.
+	 * @param string      $theme_slug Imported theme slug.
+	 * @param string      $location   Theme part location.
+	 * @return string
+	 */
+	private static function theme_part_element_block( DOMDocument $doc, DOMElement $element, string $theme_slug, string $location ): string {
+		$tag = strtolower( $element->tagName );
+		if ( self::can_convert_element_to_navigation( $element ) ) {
+			$navigation = self::navigation_ref_block( $element, $theme_slug, $location );
+			if ( null !== $navigation ) {
+				return self::group_block( $navigation, $element->getAttribute( 'class' ), 'nav' === $tag ? 'nav' : 'div' );
+			}
+		}
+
+		if ( 'a' === $tag ) {
+			return self::link_element_block( $doc, $element );
+		}
+
+		$children = self::theme_part_child_blocks( $doc, $element, $theme_slug, $location );
+		if ( '' === trim( $children ) ) {
+			$text = trim( $element->textContent );
+			if ( '' !== $text ) {
+				return self::paragraph_block( esc_html( $text ), $element->getAttribute( 'class' ) );
+			}
+
+			return self::html_block( self::node_html( $doc, $element ) );
+		}
+
+		$wrapper_tag = in_array( $tag, array( 'header', 'footer', 'nav' ), true ) ? $tag : 'div';
+		return self::group_block( $children, $element->getAttribute( 'class' ), $wrapper_tag );
+	}
+
+	/**
+	 * Convert direct child nodes for a shared theme part.
+	 *
+	 * @param DOMDocument $doc        Source DOM document.
+	 * @param DOMElement  $element    Source element.
+	 * @param string      $theme_slug Imported theme slug.
+	 * @param string      $location   Theme part location.
+	 * @return string
+	 */
+	private static function theme_part_child_blocks( DOMDocument $doc, DOMElement $element, string $theme_slug, string $location ): string {
+		$blocks = array();
+		foreach ( $element->childNodes as $child ) {
+			if ( $child instanceof DOMText && '' !== trim( $child->textContent ) ) {
+				$blocks[] = self::paragraph_block( esc_html( trim( $child->textContent ) ) );
+				continue;
+			}
+
+			if ( ! $child instanceof DOMElement ) {
+				continue;
+			}
+
+			if ( self::element_contains_svg_or_form( $child ) ) {
+				$blocks[] = self::html_block( self::node_html( $doc, $child ) );
+				continue;
+			}
+
+			$blocks[] = self::theme_part_element_block( $doc, $child, $theme_slug, $location );
+		}
+
+		return implode( '', array_filter( $blocks ) );
+	}
+
+	/**
+	 * Check whether direct text exists outside child elements.
+	 *
+	 * @param DOMElement $element Source element.
+	 * @return bool
+	 */
+	private static function element_has_direct_non_whitespace_text( DOMElement $element ): bool {
+		foreach ( $element->childNodes as $child ) {
+			if ( $child instanceof DOMText && '' !== trim( $child->textContent ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Check whether an element is pure navigation rather than branded chrome containing links.
+	 *
+	 * @param DOMElement $element Source element.
+	 * @return bool
+	 */
+	private static function can_convert_element_to_navigation( DOMElement $element ): bool {
+		$tag = strtolower( $element->tagName );
+		if ( ! in_array( $tag, array( 'nav', 'ul', 'ol' ), true ) || self::element_has_direct_non_whitespace_text( $element ) ) {
+			return false;
+		}
+
+		foreach ( self::direct_element_children( $element ) as $child ) {
+			$child_tag = strtolower( $child->tagName );
+			if ( 'nav' === $tag && in_array( $child_tag, array( 'a', 'ul', 'ol' ), true ) ) {
+				continue;
+			}
+
+			if ( in_array( $tag, array( 'ul', 'ol' ), true ) && 'li' === $child_tag ) {
+				continue;
+			}
+
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
+	 * Detect decorative or interactive markup better preserved as raw HTML inside a smaller island.
+	 *
+	 * @param DOMElement $element Source element.
+	 * @return bool
+	 */
+	private static function element_contains_svg_or_form( DOMElement $element ): bool {
+		foreach ( array( 'svg', 'canvas', 'form', 'input', 'button', 'select', 'textarea' ) as $tag ) {
+			if ( $element->getElementsByTagName( $tag )->length > 0 ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Convert an anchor in shared chrome to a button block when it visually acts like a CTA.
+	 *
+	 * @param DOMDocument $doc     Source DOM document.
+	 * @param DOMElement  $element Anchor element.
+	 * @return string
+	 */
+	private static function link_element_block( DOMDocument $doc, DOMElement $element ): string {
+		$href  = trim( $element->getAttribute( 'href' ) );
+		$label = trim( $element->textContent );
+		if ( '' === $href || '' === $label ) {
+			return self::html_block( self::node_html( $doc, $element ) );
+		}
+
+		$class = trim( $element->getAttribute( 'class' ) );
+		if ( preg_match( '/(^|[-_\s])(btn|button|cta|pill)([-_\s]|$)/i', $class ) ) {
+			$attrs = array( 'url' => esc_url_raw( $href ) );
+			if ( '' !== $class ) {
+				$attrs['className'] = $class;
+			}
+
+			return '<!-- wp:buttons --><div class="wp-block-buttons"><!-- wp:button ' . wp_json_encode( $attrs, JSON_UNESCAPED_SLASHES ) . ' --><div class="wp-block-button ' . esc_attr( $class ) . '"><a class="wp-block-button__link wp-element-button" href="' . esc_url( $href ) . '">' . esc_html( $label ) . '</a></div><!-- /wp:button --></div><!-- /wp:buttons -->';
+		}
+
+		return self::paragraph_block( '<a href="' . esc_url( $href ) . '"' . ( '' !== $class ? ' class="' . esc_attr( $class ) . '"' : '' ) . '>' . esc_html( $label ) . '</a>' );
 	}
 
 	/**
@@ -450,11 +626,11 @@ class Static_Site_Importer_Theme_Generator {
 	private static function navigation_links_from_element( DOMElement $element ): array {
 		$links = array();
 		foreach ( $element->getElementsByTagName( 'a' ) as $anchor ) {
-			if ( ! $anchor instanceof DOMElement || '' === trim( $anchor->getAttribute( 'href' ) ) ) {
+			if ( '' === trim( $anchor->getAttribute( 'href' ) ) ) {
 				continue;
 			}
 
-			$link = array(
+			$link  = array(
 				'label' => trim( $anchor->textContent ),
 				'url'   => esc_url_raw( $anchor->getAttribute( 'href' ) ),
 			);
@@ -537,7 +713,7 @@ class Static_Site_Importer_Theme_Generator {
 	private static function group_block( string $inner, string $class_name = '', string $tag_name = 'div' ): string {
 		$class_name = trim( $class_name );
 		$tag_name   = strtolower( $tag_name );
-		$attrs     = array();
+		$attrs      = array();
 		if ( '' !== $class_name ) {
 			$attrs['className'] = $class_name;
 		}
@@ -559,6 +735,21 @@ class Static_Site_Importer_Theme_Generator {
 	 */
 	private static function html_block( string $html ): string {
 		return '<!-- wp:html -->' . $html . '<!-- /wp:html -->';
+	}
+
+	/**
+	 * Build a paragraph block.
+	 *
+	 * @param string $inner_html  Paragraph inner HTML.
+	 * @param string $class_name  Source class attribute.
+	 * @return string
+	 */
+	private static function paragraph_block( string $inner_html, string $class_name = '' ): string {
+		$class_name = trim( $class_name );
+		$attrs      = '' === $class_name ? '' : ' ' . wp_json_encode( array( 'className' => $class_name ), JSON_UNESCAPED_SLASHES );
+		$class_attr = '' === $class_name ? '' : ' class="' . esc_attr( $class_name ) . '"';
+
+		return '<!-- wp:paragraph' . $attrs . ' --><p' . $class_attr . '>' . $inner_html . '</p><!-- /wp:paragraph -->';
 	}
 
 	/**
@@ -660,13 +851,17 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return string
 	 */
 	private static function site_css( string $site_dir, Static_Site_Importer_Document $document ): string {
-		$css = array();
+		$css           = array();
+		$real_site_dir = realpath( $site_dir );
+		$real_site_dir = false === $real_site_dir ? $site_dir : $real_site_dir;
 		foreach ( $document->stylesheet_hrefs() as $href ) {
-			$path = realpath( trailingslashit( $site_dir ) . ltrim( strtok( $href, '?' ) ?: $href, '/' ) );
-			if ( false === $path || ! str_starts_with( $path, realpath( $site_dir ) ?: $site_dir ) || ! is_readable( $path ) ) {
+			$href_path = strtok( $href, '?' );
+			$path      = realpath( trailingslashit( $site_dir ) . ltrim( false === $href_path ? $href : $href_path, '/' ) );
+			if ( false === $path || ! str_starts_with( $path, $real_site_dir ) || ! is_readable( $path ) ) {
 				continue;
 			}
 
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads local static-site stylesheet files from the import directory.
 			$contents = file_get_contents( $path );
 			if ( false !== $contents ) {
 				$css[] = trim( $contents );
@@ -687,13 +882,198 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param string $html HTML fragment.
 	 * @return string
 	 */
-	private static function convert_fragment( string $html ): string {
+	private static function convert_fragment( string $html, string $source = 'fragment' ): string {
 		if ( '' === trim( $html ) ) {
 			return '';
 		}
 
+		self::start_conversion_fragment( $source, $html );
+		$fallback_listener     = static function ( string $element_html, array $context, array $block ) use ( $source ): void {
+			self::record_unsupported_fallback( $source, $element_html, $context, $block );
+		};
+		$content_loss_listener = static function ( int $original_text_length, int $serialized_text_length ) use ( $source ): void {
+			self::record_content_loss( $source, $original_text_length, $serialized_text_length );
+		};
+
+		add_action( 'html_to_blocks_unsupported_html_fallback', $fallback_listener, 10, 3 );
+		add_action( 'html_to_blocks_conversion_aborted_content_loss', $content_loss_listener, 10, 2 );
+		// @phpstan-ignore-next-line function.notFound -- Loaded by the bundled Block Format Bridge runtime.
 		$blocks = bfb_convert( $html, 'html', 'blocks' );
+		remove_action( 'html_to_blocks_unsupported_html_fallback', $fallback_listener, 10 );
+		remove_action( 'html_to_blocks_conversion_aborted_content_loss', $content_loss_listener, 10 );
+
+		if ( '' === $blocks ) {
+			self::record_conversion_empty( $source, $html );
+		}
+		self::finish_conversion_fragment( $source, $blocks );
+
 		return '' === $blocks ? '<!-- wp:html -->' . "\n" . $html . "\n" . '<!-- /wp:html -->' : $blocks;
+	}
+
+	/**
+	 * Initialize a conversion report.
+	 *
+	 * @param string $html_path Imported entry file.
+	 * @return array<string, mixed>
+	 */
+	private static function new_conversion_report( string $html_path ): array {
+		return array(
+			'version'              => 1,
+			'entry_file'           => $html_path,
+			'quality'              => array(
+				'pass'                   => true,
+				'fallback_count'         => 0,
+				'content_loss_count'     => 0,
+				'empty_conversion_count' => 0,
+				'failure_reasons'        => array(),
+			),
+			'conversion_fragments' => array(),
+			'diagnostics'          => array(),
+			'notes'                => array(
+				'Block Format Bridge owns HTML-to-block transform fidelity; Static Site Importer records converter diagnostics and quality gates the generated theme.',
+			),
+		);
+	}
+
+	/**
+	 * Record the start of one conversion fragment.
+	 *
+	 * @param string $source Source fragment label.
+	 * @param string $html   Source HTML.
+	 * @return void
+	 */
+	private static function start_conversion_fragment( string $source, string $html ): void {
+		self::$conversion_report['conversion_fragments'][ $source ] = array(
+			'source'             => $source,
+			'input_length'       => strlen( $html ),
+			'input_text_length'  => strlen( wp_strip_all_tags( $html ) ),
+			'output_length'      => 0,
+			'fallback_count'     => 0,
+			'content_loss_count' => 0,
+			'empty_conversion'   => false,
+		);
+	}
+
+	/**
+	 * Record the end of one conversion fragment.
+	 *
+	 * @param string $source Source fragment label.
+	 * @param string $blocks Converted block markup.
+	 * @return void
+	 */
+	private static function finish_conversion_fragment( string $source, string $blocks ): void {
+		if ( ! isset( self::$conversion_report['conversion_fragments'][ $source ] ) ) {
+			return;
+		}
+
+		self::$conversion_report['conversion_fragments'][ $source ]['output_length']      = strlen( $blocks );
+		self::$conversion_report['conversion_fragments'][ $source ]['output_text_length'] = strlen( wp_strip_all_tags( $blocks ) );
+	}
+
+	/**
+	 * Record an unsupported HTML fallback emitted by h2bc.
+	 *
+	 * @param string $source       Source fragment label.
+	 * @param string $element_html Unsupported HTML.
+	 * @param array  $context      Fallback context.
+	 * @param array  $block        Generated block.
+	 * @return void
+	 */
+	private static function record_unsupported_fallback( string $source, string $element_html, array $context, array $block ): void {
+		++self::$conversion_report['quality']['fallback_count'];
+		++self::$conversion_report['conversion_fragments'][ $source ]['fallback_count'];
+		self::$conversion_report['diagnostics'][] = array(
+			'type'         => 'unsupported_html_fallback',
+			'source'       => $source,
+			'reason'       => isset( $context['reason'] ) ? (string) $context['reason'] : 'unknown',
+			'tag_name'     => isset( $context['tag_name'] ) ? (string) $context['tag_name'] : null,
+			'block_name'   => isset( $block['blockName'] ) ? (string) $block['blockName'] : null,
+			'html_length'  => strlen( $element_html ),
+			'html_excerpt' => self::diagnostic_excerpt( $element_html ),
+		);
+	}
+
+	/**
+	 * Record a content-loss abort emitted by h2bc.
+	 *
+	 * @param string $source                 Source fragment label.
+	 * @param int    $original_text_length   Original text length.
+	 * @param int    $serialized_text_length Serialized text length.
+	 * @return void
+	 */
+	private static function record_content_loss( string $source, int $original_text_length, int $serialized_text_length ): void {
+		++self::$conversion_report['quality']['content_loss_count'];
+		++self::$conversion_report['conversion_fragments'][ $source ]['content_loss_count'];
+		self::$conversion_report['diagnostics'][] = array(
+			'type'                   => 'content_loss_abort',
+			'source'                 => $source,
+			'original_text_length'   => $original_text_length,
+			'serialized_text_length' => $serialized_text_length,
+		);
+	}
+
+	/**
+	 * Record an empty conversion result for a non-empty fragment.
+	 *
+	 * @param string $source Source fragment label.
+	 * @param string $html   Source HTML.
+	 * @return void
+	 */
+	private static function record_conversion_empty( string $source, string $html ): void {
+		++self::$conversion_report['quality']['empty_conversion_count'];
+		self::$conversion_report['conversion_fragments'][ $source ]['empty_conversion'] = true;
+
+		self::$conversion_report['diagnostics'][] = array(
+			'type'         => 'empty_conversion',
+			'source'       => $source,
+			'html_length'  => strlen( $html ),
+			'html_excerpt' => self::diagnostic_excerpt( $html ),
+		);
+	}
+
+	/**
+	 * Finalize quality summary and gate status.
+	 *
+	 * @param array $args Import args.
+	 * @return array<string, mixed>
+	 */
+	private static function finalize_quality_report( array $args ): array {
+		$quality = self::$conversion_report['quality'];
+		$reasons = array();
+		if ( $quality['fallback_count'] > 0 ) {
+			$reasons[] = 'unsupported_html_fallback';
+		}
+		if ( $quality['content_loss_count'] > 0 ) {
+			$reasons[] = 'content_loss_abort';
+		}
+		if ( $quality['empty_conversion_count'] > 0 ) {
+			$reasons[] = 'empty_conversion';
+		}
+
+		$quality['pass']            = empty( $reasons );
+		$quality['failure_reasons'] = $reasons;
+		$quality['fail_import']     = false;
+		if ( ! empty( $args['fail_on_quality'] ) && ! $quality['pass'] ) {
+			$quality['fail_import'] = true;
+		}
+		if ( array_key_exists( 'max_fallbacks', $args ) && null !== $args['max_fallbacks'] && $quality['fallback_count'] > (int) $args['max_fallbacks'] ) {
+			$quality['fail_import'] = true;
+		}
+
+		self::$conversion_report['quality'] = $quality;
+		return $quality;
+	}
+
+	/**
+	 * Build a compact diagnostic excerpt.
+	 *
+	 * @param string $html Source HTML.
+	 * @return string
+	 */
+	private static function diagnostic_excerpt( string $html ): string {
+		$excerpt = preg_replace( '/\s+/', ' ', trim( $html ) );
+		$excerpt = is_string( $excerpt ) ? $excerpt : trim( $html );
+		return substr( $excerpt, 0, 300 );
 	}
 
 	/**
@@ -720,6 +1100,7 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return true|WP_Error
 	 */
 	private static function write_file( string $path, string $content ) {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Writes generated block-theme files to the selected theme directory.
 		$result = file_put_contents( $path, $content );
 		if ( false === $result ) {
 			return new WP_Error( 'static_site_importer_write_failed', sprintf( 'Failed to write file: %s', $path ) );
@@ -792,7 +1173,7 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return string
 	 */
 	private static function functions_php( string $theme_slug ): string {
-		$style_handle = sanitize_key( $theme_slug ) . '-style';
+		$style_handle  = sanitize_key( $theme_slug ) . '-style';
 		$editor_handle = sanitize_key( $theme_slug ) . '-editor-style';
 		$script_handle = sanitize_key( $theme_slug ) . '-site';
 
@@ -972,8 +1353,8 @@ class Static_Site_Importer_Theme_Generator {
 	private static function pattern_file( string $title, string $pattern_slug, string $content ): string {
 		return "<?php\n" .
 			"/**\n" .
-			" * Title: " . $title . "\n" .
-			" * Slug: " . $pattern_slug . "\n" .
+			' * Title: ' . $title . "\n" .
+			' * Slug: ' . $pattern_slug . "\n" .
 			" * Categories: static-site-importer\n" .
 			" */\n" .
 			"?>\n" .
