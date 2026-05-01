@@ -29,6 +29,7 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 				'slug'      => 'wordpress-is-dead-fixture',
 				'overwrite' => true,
 				'activate'  => false,
+				'report'    => trailingslashit( get_temp_dir() ) . 'static-site-importer-fixture-report.json',
 			)
 		);
 
@@ -95,6 +96,19 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'comparison.html', $result['pages'] );
 		$this->assertArrayHasKey( 'eulogy.html', $result['pages'] );
 		$this->assertArrayHasKey( 'proof.html', $result['pages'] );
+		$this->assertNotEmpty( $result['report_path'] );
+		$this->assertFileExists( $result['report_path'] );
+		$this->assertSame( trailingslashit( get_temp_dir() ) . 'static-site-importer-fixture-report.json', $result['external_report_path'] );
+		$this->assertFileExists( $result['external_report_path'] );
+
+		$report          = json_decode( $this->read_file( $result['report_path'] ), true );
+		$external_report = json_decode( $this->read_file( $result['external_report_path'] ), true );
+		$this->assertIsArray( $report );
+		$this->assertSame( $report, $external_report );
+		$this->assertSame( 1, $report['version'] ?? 0 );
+		$this->assertArrayHasKey( 'quality', $report );
+		$this->assertArrayHasKey( 'conversion_fragments', $report );
+		$this->assertArrayHasKey( 'diagnostics', $report );
 
 		$pages = array();
 		foreach ( array( 'index.html', 'manifesto.html', 'comparison.html', 'eulogy.html', 'proof.html' ) as $filename ) {

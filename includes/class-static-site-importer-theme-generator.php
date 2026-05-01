@@ -26,7 +26,7 @@ class Static_Site_Importer_Theme_Generator {
 	 *
 	 * @param string $html_path  HTML file path.
 	 * @param array  $args       Import args.
-	 * @return array{theme_slug:string,theme_name:string,theme_dir:string,report_path:string,pages:array<string,int>,quality:array<string,mixed>}|WP_Error
+		 * @return array{theme_slug:string,theme_name:string,theme_dir:string,report_path:string,external_report_path:string,pages:array<string,int>,quality:array<string,mixed>}|WP_Error
 	 */
 	public static function import_theme( string $html_path, array $args = array() ) {
 		if ( ! function_exists( 'bfb_convert' ) ) {
@@ -88,13 +88,17 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		$site_css = self::site_css( $site_dir, $document );
-		$quality  = self::finalize_quality_report( $args );
+		$quality     = self::finalize_quality_report( $args );
+		$report_json = wp_json_encode( self::$conversion_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+		if ( false === $report_json ) {
+			return new WP_Error( 'static_site_importer_report_encode_failed', 'Failed to encode import report JSON.' );
+		}
 
 		$writes = array(
 			$theme_dir . '/style.css'                 => self::style_css( $theme_name, $site_css ),
 			$theme_dir . '/functions.php'             => self::functions_php( $theme_slug ),
 			$theme_dir . '/theme.json'                => self::theme_json( $theme_name, $site_css ),
-			$theme_dir . '/import-report.json'        => wp_json_encode( self::$conversion_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) . "\n",
+			$theme_dir . '/import-report.json'        => $report_json . "\n",
 			$theme_dir . '/parts/header.html'         => $header_blocks,
 			$theme_dir . '/parts/footer.html'         => $footer_blocks,
 			$theme_dir . '/templates/front-page.html' => self::page_pattern_template( $background_blocks, $page_artifacts['patterns']['index.html'] ?? '' ),
@@ -124,6 +128,15 @@ class Static_Site_Importer_Theme_Generator {
 			}
 		}
 
+		$external_report_path = '';
+		if ( isset( $args['report'] ) && '' !== trim( (string) $args['report'] ) ) {
+			$external_report_path = (string) $args['report'];
+			$result               = self::write_external_report( $external_report_path, $report_json . "\n" );
+			if ( is_wp_error( $result ) ) {
+				return $result;
+			}
+		}
+
 		if ( ! empty( $args['activate'] ) ) {
 			switch_theme( $theme_slug );
 
@@ -134,12 +147,13 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return array(
-			'theme_slug'  => $theme_slug,
-			'theme_name'  => $theme_name,
-			'theme_dir'   => $theme_dir,
-			'report_path' => $theme_dir . '/import-report.json',
-			'pages'       => $page_ids,
-			'quality'     => $quality,
+			'theme_slug'           => $theme_slug,
+			'theme_name'           => $theme_name,
+			'theme_dir'            => $theme_dir,
+			'report_path'          => $theme_dir . '/import-report.json',
+			'external_report_path' => $external_report_path,
+			'pages'                => $page_ids,
+			'quality'              => $quality,
 		);
 	}
 
@@ -1107,6 +1121,22 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Write a copy of the import report to a caller-selected path.
+	 *
+	 * @param string $path    Report path.
+	 * @param string $content Report JSON.
+	 * @return true|WP_Error
+	 */
+	private static function write_external_report( string $path, string $content ) {
+		$dir = dirname( $path );
+		if ( ! wp_mkdir_p( $dir ) ) {
+			return new WP_Error( 'static_site_importer_report_mkdir_failed', sprintf( 'Failed to create report directory: %s', $dir ) );
+		}
+
+		return self::write_file( $path, $content );
 	}
 
 	/**
