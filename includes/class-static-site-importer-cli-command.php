@@ -39,14 +39,14 @@ class Static_Site_Importer_CLI_Command {
 	 * [--fail-on-quality]
 	 * : Exit non-zero when conversion quality checks report fallbacks or content loss.
 	 *
-		 * [--max-fallbacks=<count>]
-		 * : Exit non-zero when unsupported HTML fallback count exceeds this threshold.
-		 *
-		 * [--report=<path>]
-		 * : Copy the generated import report JSON to an external archive path.
-		 *
-		 * [--format=<format>]
-		 * : Output format. Use json for machine-readable command output.
+	 * [--max-fallbacks=<count>]
+	 * : Exit non-zero when unsupported HTML fallback count exceeds this threshold.
+	 *
+	 * [--report=<path>]
+	 * : Copy the generated import report JSON to an external archive path.
+	 *
+	 * [--format=<format>]
+	 * : Output format. Use json for machine-readable command output.
 	 *
 	 * @param array<int, string>   $args       Positional args.
 	 * @param array<string, mixed> $assoc_args Associative args.

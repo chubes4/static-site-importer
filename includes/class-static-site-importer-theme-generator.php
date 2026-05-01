@@ -26,7 +26,7 @@ class Static_Site_Importer_Theme_Generator {
 	 *
 	 * @param string $html_path  HTML file path.
 	 * @param array  $args       Import args.
-		 * @return array{theme_slug:string,theme_name:string,theme_dir:string,report_path:string,external_report_path:string,pages:array<string,int>,quality:array<string,mixed>}|WP_Error
+	 * @return array{theme_slug:string,theme_name:string,theme_dir:string,report_path:string,external_report_path:string,pages:array<string,int>,quality:array<string,mixed>}|WP_Error
 	 */
 	public static function import_theme( string $html_path, array $args = array() ) {
 		if ( ! function_exists( 'bfb_convert' ) ) {
@@ -87,7 +87,7 @@ class Static_Site_Importer_Theme_Generator {
 			return $result;
 		}
 
-		$site_css = self::site_css( $site_dir, $document );
+		$site_css    = self::site_css( $site_dir, $document );
 		$quality     = self::finalize_quality_report( $args );
 		$report_json = wp_json_encode( self::$conversion_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 		if ( false === $report_json ) {
