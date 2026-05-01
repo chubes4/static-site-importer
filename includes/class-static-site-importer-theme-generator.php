@@ -22,6 +22,27 @@ class Static_Site_Importer_Theme_Generator {
 	private static array $conversion_report = array();
 
 	/**
+	 * Generated theme directory for import-scoped asset writes.
+	 *
+	 * @var string
+	 */
+	private static string $active_theme_dir = '';
+
+	/**
+	 * Generated theme URI for import-scoped asset references.
+	 *
+	 * @var string
+	 */
+	private static string $active_theme_uri = '';
+
+	/**
+	 * Materialized inline SVG assets keyed by SVG content hash.
+	 *
+	 * @var array<string, array<string, string>>
+	 */
+	private static array $materialized_svg_assets = array();
+
+	/**
 	 * Import an HTML file as a block theme.
 	 *
 	 * @param string $html_path  HTML file path.
@@ -75,6 +96,10 @@ class Static_Site_Importer_Theme_Generator {
 		$permalinks              = self::page_permalinks( $page_ids );
 		$fragments               = $document->fragments();
 		self::$conversion_report = self::new_conversion_report( $html_path );
+
+		self::$active_theme_dir        = $theme_dir;
+		self::$active_theme_uri        = trailingslashit( get_theme_root_uri( $theme_slug ) ) . $theme_slug;
+		self::$materialized_svg_assets = array();
 
 		$background_blocks = self::convert_fragment( self::rewrite_internal_links( $fragments['background'], $permalinks ), 'background:index.html' );
 		$header_blocks     = self::convert_header_fragment( self::strip_active_classes( self::rewrite_internal_links( $fragments['header'], $permalinks ) ), $theme_slug );
@@ -378,6 +403,7 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return string
 	 */
 	private static function convert_header_fragment( string $html, string $theme_slug ): string {
+		$html   = self::materialize_inline_svg_icons( $html, 'theme-part:header' );
 		$doc    = self::load_fragment_document( $html );
 		$header = self::sole_child_element( $doc );
 		if ( $header instanceof DOMElement && 'nav' === strtolower( $header->tagName ) ) {
@@ -415,6 +441,7 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return string
 	 */
 	private static function convert_footer_fragment( string $html, string $theme_slug ): string {
+		$html   = self::materialize_inline_svg_icons( $html, 'theme-part:footer' );
 		$doc    = self::load_fragment_document( $html );
 		$footer = self::sole_child_element( $doc );
 		if ( ! $footer instanceof DOMElement || 'footer' !== strtolower( $footer->tagName ) ) {
@@ -891,6 +918,286 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Materialize safe inline SVG elements as generated theme assets.
+	 *
+	 * @param string $html   HTML fragment.
+	 * @param string $source Source fragment label.
+	 * @return string
+	 */
+	private static function materialize_inline_svg_icons( string $html, string $source ): string {
+		if ( '' === trim( $html ) || ! str_contains( strtolower( $html ), '<svg' ) || '' === self::$active_theme_dir ) {
+			return $html;
+		}
+
+		$doc      = self::load_fragment_document( $html );
+		$svgs     = iterator_to_array( $doc->getElementsByTagName( 'svg' ) );
+		$changed  = false;
+		$sequence = 0;
+
+		foreach ( $svgs as $svg ) {
+			++$sequence;
+			$svg_html = self::node_html( $doc, $svg );
+			$safe_svg = self::sanitize_inline_svg( $svg_html );
+			if ( null === $safe_svg ) {
+				self::record_unsafe_inline_svg( $source, $svg_html );
+				continue;
+			}
+
+			$asset = self::write_svg_icon_asset( $safe_svg, $source, $sequence );
+			if ( is_wp_error( $asset ) ) {
+				self::record_svg_materialization_failure( $source, $svg_html, $asset );
+				continue;
+			}
+
+			$img = $doc->createElement( 'img' );
+			$img->setAttribute( 'src', $asset['url'] );
+			$img->setAttribute( 'alt', self::svg_accessible_label( $svg ) );
+			$img->setAttribute( 'decoding', 'async' );
+			if ( $svg->hasAttribute( 'class' ) ) {
+				$img->setAttribute( 'class', $svg->getAttribute( 'class' ) );
+			}
+			foreach ( array( 'width', 'height', 'aria-hidden', 'role' ) as $attribute ) {
+				if ( $svg->hasAttribute( $attribute ) ) {
+					$img->setAttribute( $attribute, $svg->getAttribute( $attribute ) );
+				}
+			}
+
+			if ( $svg->parentNode instanceof DOMNode ) {
+				$svg->parentNode->replaceChild( $img, $svg );
+				$changed = true;
+			}
+		}
+
+		if ( ! $changed ) {
+			return $html;
+		}
+
+		$root = $doc->documentElement;
+		if ( ! $root instanceof DOMElement ) {
+			return $html;
+		}
+
+		$output = '';
+		foreach ( $root->childNodes as $child ) {
+			$fragment = $doc->saveHTML( $child );
+			if ( false !== $fragment ) {
+				$output .= $fragment;
+			}
+		}
+
+		return '' === trim( $output ) ? $html : $output;
+	}
+
+	/**
+	 * Validate an inline SVG against a conservative icon-safe subset.
+	 *
+	 * @param string $svg_html SVG markup.
+	 * @return string|null
+	 */
+	private static function sanitize_inline_svg( string $svg_html ): ?string {
+		$doc      = new DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$loaded   = $doc->loadXML( trim( $svg_html ) );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+		if ( ! $loaded || ! $doc->documentElement instanceof DOMElement || 'svg' !== strtolower( $doc->documentElement->tagName ) ) {
+			return null;
+		}
+
+		$allowed_tags       = array_fill_keys(
+			array(
+				'svg',
+				'g',
+				'path',
+				'circle',
+				'rect',
+				'line',
+				'polyline',
+				'polygon',
+				'ellipse',
+				'title',
+				'desc',
+				'defs',
+				'clipPath',
+				'linearGradient',
+				'radialGradient',
+				'stop',
+			),
+			true
+		);
+		$allowed_attributes = array_fill_keys(
+			array(
+				'xmlns',
+				'viewBox',
+				'viewbox',
+				'width',
+				'height',
+				'fill',
+				'stroke',
+				'stroke-width',
+				'stroke-linecap',
+				'stroke-linejoin',
+				'stroke-miterlimit',
+				'stroke-dasharray',
+				'stroke-dashoffset',
+				'd',
+				'cx',
+				'cy',
+				'r',
+				'rx',
+				'ry',
+				'x',
+				'y',
+				'x1',
+				'y1',
+				'x2',
+				'y2',
+				'points',
+				'transform',
+				'opacity',
+				'fill-rule',
+				'clip-rule',
+				'clip-path',
+				'class',
+				'role',
+				'aria-hidden',
+				'aria-label',
+				'focusable',
+				'id',
+				'offset',
+				'stop-color',
+				'stop-opacity',
+				'gradientUnits',
+				'gradientTransform',
+			),
+			true
+		);
+
+		foreach ( $doc->getElementsByTagName( '*' ) as $node ) {
+			if ( ! isset( $allowed_tags[ $node->tagName ] ) ) {
+				return null;
+			}
+
+			foreach ( iterator_to_array( $node->attributes ) as $attribute ) {
+				$name  = $attribute->name;
+				$value = $attribute->value;
+				if ( str_starts_with( strtolower( $name ), 'on' ) || ! isset( $allowed_attributes[ $name ] ) || preg_match( '/(?:javascript:|data:|url\s*\()/i', $value ) ) {
+					return null;
+				}
+			}
+		}
+
+		if ( ! $doc->documentElement->hasAttribute( 'xmlns' ) ) {
+			$doc->documentElement->setAttribute( 'xmlns', 'http://www.w3.org/2000/svg' );
+		}
+		if ( $doc->documentElement->hasAttribute( 'viewbox' ) && ! $doc->documentElement->hasAttribute( 'viewBox' ) ) {
+			$doc->documentElement->setAttribute( 'viewBox', $doc->documentElement->getAttribute( 'viewbox' ) );
+			$doc->documentElement->removeAttribute( 'viewbox' );
+		}
+
+		$svg = $doc->saveXML( $doc->documentElement );
+		return false === $svg ? null : $svg;
+	}
+
+	/**
+	 * Write one sanitized SVG icon asset and return its generated metadata.
+	 *
+	 * @param string $svg      Sanitized SVG markup.
+	 * @param string $source   Source fragment label.
+	 * @param int    $sequence Sequence within the fragment.
+	 * @return array<string, string>|WP_Error
+	 */
+	private static function write_svg_icon_asset( string $svg, string $source, int $sequence ) {
+		$hash = substr( hash( 'sha256', $svg ), 0, 16 );
+		if ( isset( self::$materialized_svg_assets[ $hash ] ) ) {
+			return self::$materialized_svg_assets[ $hash ];
+		}
+
+		$name     = sanitize_title( preg_replace( '/[^A-Za-z0-9_-]+/', '-', $source ) . '-' . $sequence );
+		$name     = '' === $name ? 'icon-' . $sequence : $name;
+		$relative = 'assets/icons/' . $name . '-' . $hash . '.svg';
+		$path     = trailingslashit( self::$active_theme_dir ) . $relative;
+		$dir      = dirname( $path );
+		if ( ! wp_mkdir_p( $dir ) ) {
+			return new WP_Error( 'static_site_importer_svg_icon_mkdir_failed', sprintf( 'Failed to create SVG icon directory: %s', $dir ) );
+		}
+
+		$result = self::write_file( $path, $svg . "\n" );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		// phpcs:ignore Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- Keep the compact local variable readable beside the longer static writes below.
+		$asset = array(
+			'name'   => basename( $relative ),
+			'path'   => $relative,
+			'url'    => trailingslashit( self::$active_theme_uri ) . $relative,
+			'hash'   => $hash,
+			'source' => $source,
+			'block'  => 'core/image',
+		);
+		self::$materialized_svg_assets[ $hash ] = $asset;
+		self::$conversion_report['assets']['svg_icons'][] = $asset;
+
+		return $asset;
+	}
+
+	/**
+	 * Extract a safe alt label from SVG accessibility nodes/attributes.
+	 *
+	 * @param DOMElement $svg SVG element.
+	 * @return string
+	 */
+	private static function svg_accessible_label( DOMElement $svg ): string {
+		foreach ( array( 'aria-label', 'title' ) as $attribute ) {
+			$label = trim( $svg->getAttribute( $attribute ) );
+			if ( '' !== $label ) {
+				return $label;
+			}
+		}
+
+		$title = $svg->getElementsByTagName( 'title' )->item( 0 );
+		return $title instanceof DOMElement ? trim( $title->textContent ) : '';
+	}
+
+	/**
+	 * Record an unsafe inline SVG that could not be materialized.
+	 *
+	 * @param string $source   Source fragment label.
+	 * @param string $svg_html SVG markup.
+	 * @return void
+	 */
+	private static function record_unsafe_inline_svg( string $source, string $svg_html ): void {
+		++self::$conversion_report['quality']['unsafe_svg_count'];
+		self::$conversion_report['diagnostics'][] = array(
+			'type'         => 'unsafe_inline_svg',
+			'source'       => $source,
+			'html_length'  => strlen( $svg_html ),
+			'html_excerpt' => self::diagnostic_excerpt( $svg_html ),
+		);
+	}
+
+	/**
+	 * Record a filesystem failure while materializing a safe inline SVG.
+	 *
+	 * @param string   $source   Source fragment label.
+	 * @param string   $svg_html SVG markup.
+	 * @param WP_Error $error    Write error.
+	 * @return void
+	 */
+	private static function record_svg_materialization_failure( string $source, string $svg_html, WP_Error $error ): void {
+		++self::$conversion_report['quality']['svg_materialization_failure_count'];
+		self::$conversion_report['diagnostics'][] = array(
+			'type'          => 'svg_materialization_failure',
+			'source'        => $source,
+			'error_code'    => $error->get_error_code(),
+			'error_message' => $error->get_error_message(),
+			'html_length'   => strlen( $svg_html ),
+			'html_excerpt'  => self::diagnostic_excerpt( $svg_html ),
+		);
+	}
+
+	/**
 	 * Convert HTML to block markup.
 	 *
 	 * @param string $html HTML fragment.
@@ -900,6 +1207,8 @@ class Static_Site_Importer_Theme_Generator {
 		if ( '' === trim( $html ) ) {
 			return '';
 		}
+
+		$html = self::materialize_inline_svg_icons( $html, $source );
 
 		self::start_conversion_fragment( $source, $html );
 		$fallback_listener     = static function ( string $element_html, array $context, array $block ) use ( $source ): void {
@@ -935,13 +1244,18 @@ class Static_Site_Importer_Theme_Generator {
 			'version'              => 1,
 			'entry_file'           => $html_path,
 			'quality'              => array(
-				'pass'                   => true,
-				'fallback_count'         => 0,
-				'content_loss_count'     => 0,
-				'empty_conversion_count' => 0,
-				'failure_reasons'        => array(),
+				'pass'                              => true,
+				'fallback_count'                    => 0,
+				'content_loss_count'                => 0,
+				'empty_conversion_count'            => 0,
+				'unsafe_svg_count'                  => 0,
+				'svg_materialization_failure_count' => 0,
+				'failure_reasons'                   => array(),
 			),
 			'conversion_fragments' => array(),
+			'assets'               => array(
+				'svg_icons' => array(),
+			),
 			'diagnostics'          => array(),
 			'notes'                => array(
 				'Block Format Bridge owns HTML-to-block transform fidelity; Static Site Importer records converter diagnostics and quality gates the generated theme.',
@@ -1063,6 +1377,12 @@ class Static_Site_Importer_Theme_Generator {
 		if ( $quality['empty_conversion_count'] > 0 ) {
 			$reasons[] = 'empty_conversion';
 		}
+		if ( $quality['unsafe_svg_count'] > 0 ) {
+			$reasons[] = 'unsafe_inline_svg';
+		}
+		if ( $quality['svg_materialization_failure_count'] > 0 ) {
+			$reasons[] = 'svg_materialization_failure';
+		}
 
 		$quality['pass']            = empty( $reasons );
 		$quality['failure_reasons'] = $reasons;
@@ -1097,7 +1417,7 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return true|WP_Error
 	 */
 	private static function ensure_dirs( string $theme_dir ) {
-		foreach ( array( $theme_dir, $theme_dir . '/templates', $theme_dir . '/parts', $theme_dir . '/patterns', $theme_dir . '/assets' ) as $dir ) {
+		foreach ( array( $theme_dir, $theme_dir . '/templates', $theme_dir . '/parts', $theme_dir . '/patterns', $theme_dir . '/assets', $theme_dir . '/assets/icons' ) as $dir ) {
 			if ( ! wp_mkdir_p( $dir ) ) {
 				return new WP_Error( 'static_site_importer_mkdir_failed', sprintf( 'Failed to create directory: %s', $dir ) );
 			}

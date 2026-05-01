@@ -148,6 +148,77 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Safe inline SVG icons are materialized as theme assets and native image blocks.
+	 */
+	public function test_safe_inline_svg_icons_materialize_as_theme_assets(): void {
+		$html_path = $this->write_temp_fixture(
+			'safe-svg-icons.html',
+			'<!doctype html><html><head><title>Safe SVG Icons</title></head><body><main><section class="icons"><h1>Icons</h1><svg class="icon icon-bolt" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="Bolt"><title>Bolt</title><path d="M13 2 3 14h8l-1 8 11-13h-8z" fill="currentColor"/></svg></section></main></body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Safe SVG Icons',
+				'slug'      => 'safe-svg-icons',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$pattern   = $this->pattern_blocks( $this->read_file( $theme_dir . '/patterns/page-safe-svg-icons.php' ) );
+		$report    = json_decode( $this->read_file( $result['report_path'] ), true );
+
+		$this->assertStringContainsString( '<!-- wp:image ', $pattern );
+		$this->assertStringNotContainsString( '<!-- wp:html', $pattern );
+		$this->assertStringContainsString( '/assets/icons/', $pattern );
+		$this->assertSame( 0, $report['quality']['fallback_count'] ?? null );
+		$this->assertSame( 0, $report['quality']['unsafe_svg_count'] ?? null );
+		$this->assertNotEmpty( $report['assets']['svg_icons'] ?? array() );
+
+		$asset = $report['assets']['svg_icons'][0] ?? array();
+		$this->assertSame( 'core/image', $asset['block'] ?? '' );
+		$this->assertFileExists( $theme_dir . '/' . ( $asset['path'] ?? '' ) );
+	}
+
+	/**
+	 * Unsafe inline SVG remains visible in the import report instead of being accepted silently.
+	 */
+	public function test_unsafe_inline_svg_is_reported(): void {
+		$html_path = $this->write_temp_fixture(
+			'unsafe-svg-icons.html',
+			'<!doctype html><html><head><title>Unsafe SVG Icons</title></head><body><main><section><h1>Unsafe</h1><svg viewBox="0 0 24 24"><script>alert(1)</script><path d="M0 0h24v24H0z"/></svg></section></main></body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Unsafe SVG Icons',
+				'slug'      => 'unsafe-svg-icons',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$report = json_decode( $this->read_file( $result['report_path'] ), true );
+		$this->assertSame( 1, $report['quality']['unsafe_svg_count'] ?? null );
+		$this->assertContains( 'unsafe_inline_svg', $report['quality']['failure_reasons'] ?? array() );
+		$this->assertNotEmpty(
+			array_filter(
+				$report['diagnostics'] ?? array(),
+				static fn ( array $diagnostic ): bool => 'unsafe_inline_svg' === ( $diagnostic['type'] ?? '' )
+			)
+		);
+	}
+
+	/**
 	 * Reads a generated file.
 	 */
 	private function read_file( string $path ): string {
@@ -155,6 +226,18 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertNotFalse( $contents, 'Unable to read ' . $path );
 
 		return (string) $contents;
+	}
+
+	/**
+	 * Writes a temporary single-file static site fixture.
+	 */
+	private function write_temp_fixture( string $filename, string $html ): string {
+		$dir = trailingslashit( get_temp_dir() ) . 'static-site-importer-fixtures-' . wp_generate_uuid4();
+		$this->assertTrue( wp_mkdir_p( $dir ) );
+		$path = trailingslashit( $dir ) . $filename;
+		$this->assertNotFalse( file_put_contents( $path, $html ) );
+
+		return $path;
 	}
 
 	/**
