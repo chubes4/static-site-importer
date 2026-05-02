@@ -146,8 +146,8 @@ class Static_Site_Importer_Document {
 		$body = $this->first_element( 'body' );
 		$root = $body instanceof DOMElement ? $body : $this->dom->documentElement;
 
-		$nav    = $this->first_element( 'nav' );
-		$header = $this->first_element( 'header' );
+		$header = $this->first_plausible_global_header( $root );
+		$nav    = $this->first_plausible_global_nav( $root, $header );
 		$footer = $this->first_element( 'footer' );
 
 		$header_parts = array();
@@ -209,6 +209,113 @@ class Static_Site_Importer_Document {
 		$node  = $nodes->length > 0 ? $nodes->item( 0 ) : null;
 
 		return $node instanceof DOMElement ? $node : null;
+	}
+
+	/**
+	 * Find a header that is plausible reusable site chrome.
+	 *
+	 * @param DOMElement $root Page root element.
+	 * @return DOMElement|null
+	 */
+	private function first_plausible_global_header( DOMElement $root ): ?DOMElement {
+		foreach ( $this->dom->getElementsByTagName( 'header' ) as $header ) {
+			if ( $header instanceof DOMElement && $this->is_plausible_global_header( $root, $header ) ) {
+				return $header;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Find a nav that is plausible reusable site chrome.
+	 *
+	 * @param DOMElement      $root   Page root element.
+	 * @param DOMElement|null $header Selected header element.
+	 * @return DOMElement|null
+	 */
+	private function first_plausible_global_nav( DOMElement $root, ?DOMElement $header ): ?DOMElement {
+		foreach ( $this->dom->getElementsByTagName( 'nav' ) as $nav ) {
+			if ( ! $nav instanceof DOMElement ) {
+				continue;
+			}
+
+			if ( $header instanceof DOMElement && $this->is_descendant_of( $nav, $header ) ) {
+				return $nav;
+			}
+
+			if ( $this->is_direct_child( $root, $nav ) || $this->has_global_chrome_signal( $nav ) ) {
+				return $nav;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Check whether a header looks like global site chrome rather than section content.
+	 *
+	 * @param DOMElement $root   Page root element.
+	 * @param DOMElement $header Header element.
+	 * @return bool
+	 */
+	private function is_plausible_global_header( DOMElement $root, DOMElement $header ): bool {
+		if ( $this->has_global_chrome_signal( $header ) ) {
+			return true;
+		}
+
+		return $this->is_direct_child( $root, $header );
+	}
+
+	/**
+	 * Check whether an element carries explicit global-chrome signals.
+	 *
+	 * @param DOMElement $element Element.
+	 * @return bool
+	 */
+	private function has_global_chrome_signal( DOMElement $element ): bool {
+		$role = strtolower( trim( $element->getAttribute( 'role' ) ) );
+		if ( 'banner' === $role || 'navigation' === $role ) {
+			return true;
+		}
+
+		$classes = strtolower( $element->getAttribute( 'class' ) );
+		if ( preg_match( '/(^|[\s_-])(site-header|site-nav|navbar|navigation|masthead|brand|branding)([\s_-]|$)/', $classes ) ) {
+			return true;
+		}
+
+		return $element->getElementsByTagName( 'nav' )->length > 0;
+	}
+
+	/**
+	 * Check whether a candidate is a direct child of the page root.
+	 *
+	 * @param DOMElement $root      Page root element.
+	 * @param DOMElement $candidate Candidate element.
+	 * @return bool
+	 */
+	private function is_direct_child( DOMElement $root, DOMElement $candidate ): bool {
+		return $candidate->parentNode instanceof DOMNode && $candidate->parentNode->isSameNode( $root );
+	}
+
+	/**
+	 * Check whether a candidate is contained by another element.
+	 *
+	 * @param DOMElement $candidate Candidate element.
+	 * @param DOMElement $ancestor  Ancestor element.
+	 * @return bool
+	 */
+	private function is_descendant_of( DOMElement $candidate, DOMElement $ancestor ): bool {
+		$node = $candidate->parentNode;
+		while ( $node instanceof DOMNode ) {
+			if ( $node->isSameNode( $ancestor ) ) {
+				return true;
+			}
+
+			$node = $node->parentNode;
+		}
+
+		return false;
 	}
 
 	/**

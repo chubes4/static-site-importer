@@ -187,6 +187,44 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Nested section headers are page content, not shared site chrome.
+	 */
+	public function test_nested_section_header_stays_in_page_content(): void {
+		$html_path = $this->write_temp_fixture(
+			'nested-section-header.html',
+			'<!doctype html><html><head><title>Nested Section Header</title></head><body>' .
+			'<main><section class="proof"><div class="proof-inner"><header class="proof-header">' .
+			'<p class="section-label">Why It Actually Works</p>' .
+			'<h2 class="proof-heading reveal">Six reasons the assumptions are wrong.</h2>' .
+			'</header><p class="proof-copy">The section body stays with the section.</p></div></section></main>' .
+			'</body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Nested Section Header',
+				'slug'      => 'nested-section-header',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$header    = $this->read_file( $theme_dir . '/parts/header.html' );
+		$pattern   = $this->pattern_blocks( $this->read_file( $theme_dir . '/patterns/page-nested-section-header.php' ) );
+
+		$this->assertStringNotContainsString( 'proof-header', $header );
+		$this->assertStringNotContainsString( 'Six reasons the assumptions are wrong.', $header );
+		$this->assertStringContainsString( 'proof-header', $pattern );
+		$this->assertStringContainsString( 'Why It Actually Works', $pattern );
+		$this->assertStringContainsString( 'Six reasons the assumptions are wrong.', $pattern );
+	}
+
+	/**
 	 * Source button styles are moved to the inner link without restyling the core/button wrapper.
 	 */
 	public function test_source_button_class_styles_do_not_double_apply_to_core_button_wrapper(): void {

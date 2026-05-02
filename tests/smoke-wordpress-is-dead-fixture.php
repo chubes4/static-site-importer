@@ -330,6 +330,40 @@ if ( false !== $wrote_leading_nav ) {
 	}
 }
 
+$nested_header_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-nested-section-header.html';
+$wrote_nested_header   = file_put_contents(
+	$nested_header_fixture,
+	'<!doctype html><html><head><title>Nested Section Header</title></head><body>' .
+	'<main><section class="proof"><div class="proof-inner"><header class="proof-header">' .
+	'<p class="section-label">Why It Actually Works</p>' .
+	'<h2 class="proof-heading reveal">Six reasons the assumptions are wrong.</h2>' .
+	'</header><p class="proof-copy">The section body stays with the section.</p></div></section></main>' .
+	'</body></html>'
+);
+$assert( false !== $wrote_nested_header, 'nested-header-fixture-written' );
+
+if ( false !== $wrote_nested_header ) {
+	$nested_header_result = Static_Site_Importer_Theme_Generator::import_theme(
+		$nested_header_fixture,
+		array(
+			'name'      => 'Nested Section Header',
+			'slug'      => 'nested-section-header',
+			'overwrite' => true,
+			'activate'  => false,
+		)
+	);
+	$assert( ! is_wp_error( $nested_header_result ), 'nested-header-import-succeeds', is_wp_error( $nested_header_result ) ? $nested_header_result->get_error_message() : '' );
+	if ( ! is_wp_error( $nested_header_result ) ) {
+		$nested_header = $read( $nested_header_result['theme_dir'] . '/parts/header.html' );
+		$nested_pattern = $pattern_blocks( $read( $nested_header_result['theme_dir'] . '/patterns/page-static-site-importer-nested-section-header.php' ) );
+		$assert( ! str_contains( $nested_header, 'proof-header' ), 'nested-section-header-not-extracted-to-global-header' );
+		$assert( ! str_contains( $nested_header, 'Six reasons the assumptions are wrong.' ), 'nested-section-heading-not-extracted-to-global-header' );
+		$assert( str_contains( $nested_pattern, 'proof-header' ), 'nested-section-header-class-stays-in-page-content' );
+		$assert( str_contains( $nested_pattern, 'Why It Actually Works' ), 'nested-section-label-stays-in-page-content' );
+		$assert( str_contains( $nested_pattern, 'Six reasons the assumptions are wrong.' ), 'nested-section-heading-stays-in-page-content' );
+	}
+}
+
 $quality_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-quality.html';
 $wrote_quality   = file_put_contents(
 	$quality_fixture,
