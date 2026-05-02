@@ -108,7 +108,11 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $report['version'] ?? 0 );
 		$this->assertArrayHasKey( 'quality', $report );
 		$this->assertArrayHasKey( 'conversion_fragments', $report );
+		$this->assertArrayHasKey( 'generated_theme', $report );
 		$this->assertArrayHasKey( 'diagnostics', $report );
+		$this->assertSame( 0, $report['quality']['invalid_block_count'] ?? null );
+		$this->assertSame( 0, $report['quality']['invalid_block_document_count'] ?? null );
+		$this->assertNotEmpty( $report['generated_theme']['block_documents'] ?? array() );
 
 		$pages = array();
 		foreach ( array( 'index.html', 'manifesto.html', 'comparison.html', 'eulogy.html', 'proof.html' ) as $filename ) {
@@ -216,6 +220,40 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 				static fn ( array $diagnostic ): bool => 'unsafe_inline_svg' === ( $diagnostic['type'] ?? '' )
 			)
 		);
+	}
+
+	/**
+	 * Server-visible malformed block documents are counted in generated-theme quality.
+	 */
+	public function test_generated_theme_quality_reports_malformed_block_documents(): void {
+		$reflection = new ReflectionClass( Static_Site_Importer_Theme_Generator::class );
+
+		$new_report = $reflection->getMethod( 'new_conversion_report' );
+		$new_report->setAccessible( true );
+
+		$report_property = $reflection->getProperty( 'conversion_report' );
+		$report_property->setAccessible( true );
+		$report_property->setValue( null, $new_report->invoke( null, '/tmp/source/index.html' ) );
+
+		$analyze = $reflection->getMethod( 'analyze_generated_theme_block_documents' );
+		$analyze->setAccessible( true );
+		$analyze->invoke(
+			null,
+			array(
+				'/tmp/generated/templates/front-page.html' => '<!-- wp:paragraph --><p>Missing closer</p>',
+			),
+			'/tmp/generated'
+		);
+
+		$finalize = $reflection->getMethod( 'finalize_quality_report' );
+		$finalize->setAccessible( true );
+		$quality = $finalize->invoke( null, array() );
+		$report  = $report_property->getValue();
+
+		$this->assertSame( 1, $quality['invalid_block_count'] ?? null );
+		$this->assertSame( 1, $quality['invalid_block_document_count'] ?? null );
+		$this->assertContains( 'invalid_block', $quality['failure_reasons'] ?? array() );
+		$this->assertSame( 'invalid_block_document', $report['diagnostics'][0]['type'] ?? '' );
 	}
 
 	/**

@@ -112,18 +112,11 @@ class Static_Site_Importer_Theme_Generator {
 			return $result;
 		}
 
-		$site_css    = self::site_css( $site_dir, $document );
-		$quality     = self::finalize_quality_report( $args );
-		$report_json = wp_json_encode( self::$conversion_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
-		if ( false === $report_json ) {
-			return new WP_Error( 'static_site_importer_report_encode_failed', 'Failed to encode import report JSON.' );
-		}
-
+		$site_css = self::site_css( $site_dir, $document );
 		$writes = array(
 			$theme_dir . '/style.css'                 => self::style_css( $theme_name, $site_css ),
 			$theme_dir . '/functions.php'             => self::functions_php( $theme_slug ),
 			$theme_dir . '/theme.json'                => self::theme_json( $theme_name, $site_css ),
-			$theme_dir . '/import-report.json'        => $report_json . "\n",
 			$theme_dir . '/parts/header.html'         => $header_blocks,
 			$theme_dir . '/parts/footer.html'         => $footer_blocks,
 			$theme_dir . '/templates/front-page.html' => self::page_pattern_template( $background_blocks, $page_artifacts['patterns']['index.html'] ?? '' ),
@@ -145,6 +138,15 @@ class Static_Site_Importer_Theme_Generator {
 		if ( '' !== $inline_js ) {
 			$writes[ $theme_dir . '/assets/site.js' ] = $inline_js;
 		}
+
+		self::analyze_generated_theme_block_documents( $writes, $theme_dir );
+		$quality     = self::finalize_quality_report( $args );
+		$report_json = wp_json_encode( self::$conversion_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+		if ( false === $report_json ) {
+			return new WP_Error( 'static_site_importer_report_encode_failed', 'Failed to encode import report JSON.' );
+		}
+
+		$writes[ $theme_dir . '/import-report.json' ] = $report_json . "\n";
 
 		foreach ( $writes as $path => $content ) {
 			$result = self::write_file( $path, $content );
@@ -1248,6 +1250,9 @@ class Static_Site_Importer_Theme_Generator {
 				'fallback_count'                    => 0,
 				'content_loss_count'                => 0,
 				'empty_conversion_count'            => 0,
+				'core_html_block_count'             => 0,
+				'invalid_block_count'               => 0,
+				'invalid_block_document_count'      => 0,
 				'unsafe_svg_count'                  => 0,
 				'svg_materialization_failure_count' => 0,
 				'failure_reasons'                   => array(),
@@ -1256,11 +1261,153 @@ class Static_Site_Importer_Theme_Generator {
 			'assets'               => array(
 				'svg_icons' => array(),
 			),
+			'generated_theme'      => array(
+				'block_documents' => array(),
+			),
 			'diagnostics'          => array(),
 			'notes'                => array(
 				'Block Format Bridge owns HTML-to-block transform fidelity; Static Site Importer records converter diagnostics and quality gates the generated theme.',
+				'Generated-theme block validation uses WordPress server-side block parsing and serialization checks; editor-runtime validation remains the exact Gutenberg authority.',
 			),
 		);
+	}
+
+	/**
+	 * Analyze generated theme block documents before writing the import report.
+	 *
+	 * @param array<string,string> $writes    Generated files keyed by absolute path.
+	 * @param string               $theme_dir Generated theme directory.
+	 * @return void
+	 */
+	private static function analyze_generated_theme_block_documents( array $writes, string $theme_dir ): void {
+		foreach ( $writes as $path => $content ) {
+			$relative_path = ltrim( str_replace( trailingslashit( $theme_dir ), '', $path ), '/' );
+			if ( ! self::is_generated_block_document_path( $relative_path ) ) {
+				continue;
+			}
+
+			$block_markup = self::generated_block_document_markup( $relative_path, $content );
+			$analysis     = self::analyze_generated_block_document( $relative_path, $block_markup );
+			self::$conversion_report['generated_theme']['block_documents'][] = $analysis;
+		}
+	}
+
+	/**
+	 * Determine whether a generated file should contain block markup.
+	 *
+	 * @param string $relative_path Theme-relative path.
+	 * @return bool
+	 */
+	private static function is_generated_block_document_path( string $relative_path ): bool {
+		return str_starts_with( $relative_path, 'templates/' ) || str_starts_with( $relative_path, 'parts/' ) || str_starts_with( $relative_path, 'patterns/' );
+	}
+
+	/**
+	 * Extract block markup from a generated block document.
+	 *
+	 * @param string $relative_path Theme-relative path.
+	 * @param string $content       Generated file content.
+	 * @return string
+	 */
+	private static function generated_block_document_markup( string $relative_path, string $content ): string {
+		if ( str_starts_with( $relative_path, 'patterns/' ) ) {
+			$parts = explode( '?>', $content, 2 );
+			return trim( 2 === count( $parts ) ? $parts[1] : $content );
+		}
+
+		return trim( $content );
+	}
+
+	/**
+	 * Analyze one generated block document for server-visible quality issues.
+	 *
+	 * @param string $relative_path Theme-relative path.
+	 * @param string $block_markup  Block markup.
+	 * @return array<string,mixed>
+	 */
+	private static function analyze_generated_block_document( string $relative_path, string $block_markup ): array {
+		$blocks          = parse_blocks( $block_markup );
+		$block_count     = 0;
+		$core_html_count = 0;
+		$freeform_count  = 0;
+		$invalid_count   = 0;
+
+		self::analyze_generated_block_list( $blocks, $block_count, $core_html_count, $freeform_count, $invalid_count );
+
+		$serialized             = serialize_blocks( $blocks );
+		$serialization_mismatch = self::normalize_block_document_for_report( $block_markup ) !== self::normalize_block_document_for_report( $serialized );
+		if ( $serialization_mismatch ) {
+			++$invalid_count;
+		}
+
+		self::$conversion_report['quality']['core_html_block_count'] += $core_html_count;
+		self::$conversion_report['quality']['invalid_block_count']   += $invalid_count;
+		if ( $invalid_count > 0 ) {
+			++self::$conversion_report['quality']['invalid_block_document_count'];
+			self::$conversion_report['diagnostics'][] = array(
+				'type'                   => 'invalid_block_document',
+				'source'                 => $relative_path,
+				'block_count'            => $block_count,
+				'core_html_block_count'  => $core_html_count,
+				'freeform_block_count'   => $freeform_count,
+				'invalid_block_count'    => $invalid_count,
+				'serialization_mismatch' => $serialization_mismatch,
+				'original_excerpt'       => self::diagnostic_excerpt( $block_markup ),
+				'serialized_excerpt'     => self::diagnostic_excerpt( $serialized ),
+			);
+		}
+
+		return array(
+			'path'                   => $relative_path,
+			'block_count'            => $block_count,
+			'core_html_block_count'  => $core_html_count,
+			'freeform_block_count'   => $freeform_count,
+			'invalid_block_count'    => $invalid_count,
+			'serialization_mismatch' => $serialization_mismatch,
+		);
+	}
+
+	/**
+	 * Walk parsed blocks for generated-theme quality metrics.
+	 *
+	 * @param array<int,array<string,mixed>> $blocks          Parsed blocks.
+	 * @param int                           $block_count     Total named block count.
+	 * @param int                           $core_html_count HTML block count.
+	 * @param int                           $freeform_count  Freeform block count.
+	 * @param int                           $invalid_count   Invalid block count.
+	 * @return void
+	 */
+	private static function analyze_generated_block_list( array $blocks, int &$block_count, int &$core_html_count, int &$freeform_count, int &$invalid_count ): void {
+		foreach ( $blocks as $block ) {
+			$name = isset( $block['blockName'] ) ? $block['blockName'] : null;
+			if ( is_string( $name ) && '' !== $name ) {
+				++$block_count;
+				if ( 'core/html' === $name ) {
+					++$core_html_count;
+				}
+			} elseif ( '' !== trim( isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ? $block['innerHTML'] : '' ) ) {
+				++$freeform_count;
+				++$invalid_count;
+			}
+
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				self::analyze_generated_block_list( $block['innerBlocks'], $block_count, $core_html_count, $freeform_count, $invalid_count );
+			}
+		}
+	}
+
+	/**
+	 * Normalize generated markup enough to avoid formatting-only report noise.
+	 *
+	 * @param string $markup Block document markup.
+	 * @return string
+	 */
+	private static function normalize_block_document_for_report( string $markup ): string {
+		$markup = str_replace( array( "\r\n", "\r" ), "\n", trim( $markup ) );
+		$markup = preg_replace( '/>\s+</', '><', $markup );
+		$markup = preg_replace( '/\s+/', ' ', is_string( $markup ) ? $markup : '' );
+
+		return is_string( $markup ) ? trim( $markup ) : '';
 	}
 
 	/**
@@ -1376,6 +1523,12 @@ class Static_Site_Importer_Theme_Generator {
 		}
 		if ( $quality['empty_conversion_count'] > 0 ) {
 			$reasons[] = 'empty_conversion';
+		}
+		if ( $quality['core_html_block_count'] > 0 ) {
+			$reasons[] = 'core_html_block';
+		}
+		if ( $quality['invalid_block_count'] > 0 ) {
+			$reasons[] = 'invalid_block';
 		}
 		if ( $quality['unsafe_svg_count'] > 0 ) {
 			$reasons[] = 'unsafe_inline_svg';
