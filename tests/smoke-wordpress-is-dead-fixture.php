@@ -172,6 +172,11 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( str_contains( $style, '.wp-block-button.btn > .wp-block-button__link' ), 'style-bridges-source-button-classes-to-core-button-links' );
 	$assert( str_contains( $style, '.wp-block-button.btn.primary > .wp-block-button__link' ), 'style-bridges-source-primary-button-to-core-button-link' );
 	$assert( str_contains( $style, '.wp-block-button.btn.ghost > .wp-block-button__link' ), 'style-bridges-source-ghost-button-to-core-button-link' );
+	$assert( str_contains( $style, '.cta-row .wp-block-button.btn > .wp-block-button__link:focus-visible' ), 'style-bridges-contextual-anchor-button-pseudo-selector' );
+	$assert( str_contains( $style, '.wp-block-button.btn.ghost > .wp-block-button__link:active' ), 'style-bridges-tagged-button-pseudo-selector' );
+	$assert( str_contains( $style, '@media (max-width: 720px)' ) && str_contains( $style, '.cta-row .wp-block-button.btn.primary > .wp-block-button__link:hover' ), 'style-bridges-media-scoped-button-selector' );
+	$assert( ! str_contains( $style, '.wp-block-button.container > .wp-block-button__link' ), 'style-does-not-bridge-non-button-container-class' );
+	$assert( ! str_contains( $style, '.wp-block-button.note > .wp-block-button__link' ), 'style-does-not-bridge-non-button-note-class' );
 	$assert( str_contains( $functions, 'wp_enqueue_style' ), 'theme-enqueues-stylesheet' );
 	$assert( is_array( $theme_json ), 'theme-json-is-valid-json' );
 	$assert( isset( $palette['bg'] ) && '#0a0a0a' === $palette['bg']['color'], 'theme-json-exposes-bg-palette-token' );

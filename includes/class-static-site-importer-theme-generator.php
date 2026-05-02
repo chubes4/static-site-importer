@@ -43,6 +43,13 @@ class Static_Site_Importer_Theme_Generator {
 	private static array $materialized_svg_assets = array();
 
 	/**
+	 * Classes observed on generated core/button wrappers during this import.
+	 *
+	 * @var array<string, true>
+	 */
+	private static array $button_wrapper_classes = array();
+
+	/**
 	 * Import an HTML file as a block theme.
 	 *
 	 * @param string $html_path  HTML file path.
@@ -100,6 +107,7 @@ class Static_Site_Importer_Theme_Generator {
 		self::$active_theme_dir        = $theme_dir;
 		self::$active_theme_uri        = trailingslashit( get_theme_root_uri( $theme_slug ) ) . $theme_slug;
 		self::$materialized_svg_assets = array();
+		self::$button_wrapper_classes  = array();
 
 		$background_blocks = self::convert_fragment( self::rewrite_internal_links( $fragments['background'], $permalinks ), 'background:index.html' );
 		$header_blocks     = self::convert_header_fragment( self::strip_active_classes( self::rewrite_internal_links( $fragments['header'], $permalinks ) ), $theme_slug );
@@ -113,8 +121,8 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		$site_css = self::site_css( $site_dir, $document );
-		$writes = array(
-			$theme_dir . '/style.css'                 => self::style_css( $theme_name, $site_css ),
+		$writes   = array(
+			$theme_dir . '/style.css'                 => self::style_css( $theme_name, $site_css, array_keys( self::$button_wrapper_classes ) ),
 			$theme_dir . '/functions.php'             => self::functions_php( $theme_slug ),
 			$theme_dir . '/theme.json'                => self::theme_json( $theme_name, $site_css ),
 			$theme_dir . '/parts/header.html'         => $header_blocks,
@@ -624,6 +632,7 @@ class Static_Site_Importer_Theme_Generator {
 			$attrs = array( 'url' => esc_url_raw( $href ) );
 			if ( '' !== $class ) {
 				$attrs['className'] = $class;
+				self::record_button_wrapper_classes( $class );
 			}
 
 			return '<!-- wp:buttons --><div class="wp-block-buttons"><!-- wp:button ' . wp_json_encode( $attrs, JSON_UNESCAPED_SLASHES ) . ' --><div class="wp-block-button ' . esc_attr( $class ) . '"><a class="wp-block-button__link wp-element-button" href="' . esc_url( $href ) . '">' . esc_html( $label ) . '</a></div><!-- /wp:button --></div><!-- /wp:buttons -->';
@@ -1443,6 +1452,58 @@ class Static_Site_Importer_Theme_Generator {
 
 		self::$conversion_report['conversion_fragments'][ $source ]['output_length']      = strlen( $blocks );
 		self::$conversion_report['conversion_fragments'][ $source ]['output_text_length'] = strlen( wp_strip_all_tags( $blocks ) );
+		self::record_button_wrapper_classes_from_blocks( $blocks );
+	}
+
+	/**
+	 * Record generated core/button wrapper classes from serialized block markup.
+	 *
+	 * @param string $blocks Serialized block markup.
+	 * @return void
+	 */
+	private static function record_button_wrapper_classes_from_blocks( string $blocks ): void {
+		if ( '' === trim( $blocks ) || ! function_exists( 'parse_blocks' ) ) {
+			return;
+		}
+
+		self::record_button_wrapper_classes_from_parsed_blocks( parse_blocks( $blocks ) );
+	}
+
+	/**
+	 * Record generated core/button wrapper classes from parsed blocks.
+	 *
+	 * @param array<int, array<string, mixed>> $blocks Parsed block list.
+	 * @return void
+	 */
+	private static function record_button_wrapper_classes_from_parsed_blocks( array $blocks ): void {
+		foreach ( $blocks as $block ) {
+			if ( 'core/button' === ( $block['blockName'] ?? null ) && ! empty( $block['attrs']['className'] ) && is_string( $block['attrs']['className'] ) ) {
+				self::record_button_wrapper_classes( $block['attrs']['className'] );
+			}
+
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				self::record_button_wrapper_classes_from_parsed_blocks( $block['innerBlocks'] );
+			}
+		}
+	}
+
+	/**
+	 * Record individual class tokens present on generated core/button wrappers.
+	 *
+	 * @param string $class_name Space-separated class attribute.
+	 * @return void
+	 */
+	private static function record_button_wrapper_classes( string $class_name ): void {
+		$classes = preg_split( '/\s+/', trim( $class_name ) );
+		if ( ! is_array( $classes ) ) {
+			return;
+		}
+
+		foreach ( $classes as $class ) {
+			if ( preg_match( '/^[A-Za-z_-][A-Za-z0-9_-]*$/', $class ) ) {
+				self::$button_wrapper_classes[ $class ] = true;
+			}
+		}
 	}
 
 	/**
@@ -1619,8 +1680,8 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param string $css        Source CSS.
 	 * @return string
 	 */
-	private static function style_css( string $theme_name, string $css ): string {
-		$button_bridge = self::button_style_bridge_css( $css );
+	private static function style_css( string $theme_name, string $css, array $button_classes = array() ): string {
+		$button_bridge = self::button_style_bridge_css( $css, $button_classes );
 
 		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Imported from static HTML using Block Format Bridge.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge;
 	}
@@ -1628,45 +1689,131 @@ class Static_Site_Importer_Theme_Generator {
 	/**
 	 * Build compatibility rules for source anchor classes moved onto core/button wrappers.
 	 *
-	 * @param string $css Source CSS.
+	 * @param string             $css            Source CSS.
+	 * @param array<int, string> $button_classes Classes observed on generated core/button wrappers.
 	 * @return string Additional CSS rules.
 	 */
-	private static function button_style_bridge_css( string $css ): string {
-		if ( '' === trim( $css ) || ! str_contains( $css, '.' ) ) {
+	private static function button_style_bridge_css( string $css, array $button_classes ): string {
+		$css            = preg_replace( '/\/\*.*?\*\//s', '', $css ) ?? $css;
+		$button_classes = array_fill_keys( array_filter( array_map( 'strval', $button_classes ) ), true );
+		if ( '' === trim( $css ) || ! str_contains( $css, '.' ) || empty( $button_classes ) ) {
 			return '';
 		}
 
-		$rules = array();
-		if ( ! preg_match_all( '/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER ) ) {
-			return '';
-		}
-
-		foreach ( $matches as $match ) {
-			$declarations = trim( $match[2] );
-			if ( '' === $declarations ) {
-				continue;
-			}
-
-			$selectors = array();
-			foreach ( explode( ',', $match[1] ) as $selector ) {
-				$selector = trim( $selector );
-				if ( ! preg_match( '/^((?:\.[A-Za-z0-9_-]+)+)(:(?:hover|focus|active|visited))?$/', $selector, $selector_match ) ) {
-					continue;
-				}
-
-				$selectors[] = '.wp-block-button' . $selector_match[1] . ' > .wp-block-button__link' . ( $selector_match[2] ?? '' );
-			}
-
-			if ( $selectors ) {
-				$rules[] = implode( ', ', array_unique( $selectors ) ) . ' { ' . $declarations . ' }';
-			}
-		}
+		$rules = self::button_style_bridge_rules_from_css( $css, $button_classes );
 
 		if ( ! $rules ) {
 			return '';
 		}
 
 		return "\n/* Static Site Importer: preserve source anchor styles on core/button links. */\n" . implode( "\n", array_unique( $rules ) ) . "\n";
+	}
+
+	/**
+	 * Build bridge rules from one CSS scope, preserving nested media/supports scopes.
+	 *
+	 * @param string              $css            CSS to inspect.
+	 * @param array<string, true> $button_classes Classes observed on generated core/button wrappers.
+	 * @return array<int, string>
+	 */
+	private static function button_style_bridge_rules_from_css( string $css, array $button_classes ): array {
+		$rules  = array();
+		$length = strlen( $css );
+		$offset = 0;
+
+		while ( $offset < $length && preg_match( '/\G\s*([^{}]+)\{/', $css, $match, 0, $offset ) ) {
+			$prelude    = trim( $match[1] );
+			$body_start = $offset + strlen( $match[0] );
+			$body_end   = self::find_css_block_end( $css, $body_start );
+			if ( null === $body_end ) {
+				break;
+			}
+
+			$body   = trim( substr( $css, $body_start, $body_end - $body_start ) );
+			$offset = $body_end + 1;
+
+			if ( '' === $prelude || '' === $body ) {
+				continue;
+			}
+
+			if ( str_starts_with( $prelude, '@' ) ) {
+				$nested_rules = self::button_style_bridge_rules_from_css( $body, $button_classes );
+				if ( $nested_rules ) {
+					$rules[] = $prelude . " {\n" . implode( "\n", $nested_rules ) . "\n}";
+				}
+				continue;
+			}
+
+			$selectors = array();
+			foreach ( explode( ',', $prelude ) as $selector ) {
+				$bridge_selector = self::button_style_bridge_selector( trim( $selector ), $button_classes );
+				if ( null !== $bridge_selector ) {
+					$selectors[] = $bridge_selector;
+				}
+			}
+
+			if ( $selectors ) {
+				$rules[] = implode( ', ', array_unique( $selectors ) ) . ' { ' . $body . ' }';
+			}
+		}
+
+		return $rules;
+	}
+
+	/**
+	 * Find the matching closing brace for a CSS block body.
+	 *
+	 * @param string $css        CSS text.
+	 * @param int    $body_start Offset immediately after the opening brace.
+	 * @return int|null Offset of the matching closing brace.
+	 */
+	private static function find_css_block_end( string $css, int $body_start ): ?int {
+		$depth  = 1;
+		$length = strlen( $css );
+		for ( $index = $body_start; $index < $length; $index++ ) {
+			if ( '{' === $css[ $index ] ) {
+				++$depth;
+			} elseif ( '}' === $css[ $index ] ) {
+				--$depth;
+				if ( 0 === $depth ) {
+					return $index;
+				}
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Rewrite one source selector to target a generated core/button inner link.
+	 *
+	 * @param string              $selector       Source selector.
+	 * @param array<string, true> $button_classes Classes observed on generated core/button wrappers.
+	 * @return string|null Bridge selector, or null when selector does not target a known button class.
+	 */
+	private static function button_style_bridge_selector( string $selector, array $button_classes ): ?string {
+		if ( '' === $selector || ! preg_match( '/^(.*?)([^\s>+~]+)$/', $selector, $selector_match ) ) {
+			return null;
+		}
+
+		$prefix = $selector_match[1];
+		$target = $selector_match[2];
+		if ( ! preg_match( '/^(?:(a|button))?((?:\.[A-Za-z_-][A-Za-z0-9_-]*)+)((?::[A-Za-z_-][A-Za-z0-9_-]*(?:\([^)]*\))?)*)$/i', $target, $target_match ) ) {
+			return null;
+		}
+
+		$classes = array();
+		foreach ( explode( '.', ltrim( $target_match[2], '.' ) ) as $class ) {
+			if ( isset( $button_classes[ $class ] ) ) {
+				$classes[] = $class;
+			}
+		}
+
+		if ( empty( $classes ) ) {
+			return null;
+		}
+
+		return $prefix . '.wp-block-button.' . implode( '.', $classes ) . ' > .wp-block-button__link' . $target_match[3];
 	}
 
 	/**

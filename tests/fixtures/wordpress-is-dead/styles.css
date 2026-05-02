@@ -128,6 +128,8 @@ nav.primary a.active {
 .btn.primary { background: var(--accent); color: #fff; }
 .btn.ghost { border-color: var(--border); color: var(--fg); }
 .btn.ghost:hover { border-color: var(--accent); }
+.cta-row a.btn:focus-visible { outline: 2px solid var(--accent-soft); outline-offset: 3px; }
+button.btn.ghost:active { transform: translateY(0); }
 
 /* SECTIONS */
 section.block {
@@ -259,6 +261,7 @@ h3 {
 @media (max-width: 720px) {
   .compare { grid-template-columns: 1fr; }
   .compare .col-wp { border-right: none; border-bottom: 1px solid var(--border); }
+  .cta-row .btn.primary:hover { transform: none; }
 }
 
 /* EULOGY */
