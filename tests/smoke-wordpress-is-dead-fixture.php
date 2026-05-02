@@ -169,6 +169,7 @@ if ( ! is_wp_error( $result ) ) {
 		$assert( $footer_nav->ID === $footer_nav_after->ID, 'second-import-reuses-footer-navigation-post' );
 	}
 	$assert( str_contains( $style, '--accent' ) && str_contains( $style, '.compare' ) && str_contains( $style, '.manifesto-list' ), 'style-preserves-source-css' );
+	$assert( str_contains( $style, '.wp-block-button.btn > .wp-block-button__link:where(.wp-element-button)' ), 'style-resets-source-button-classes-on-core-button-links' );
 	$assert( str_contains( $style, '.wp-block-button.btn > .wp-block-button__link' ), 'style-bridges-source-button-classes-to-core-button-links' );
 	$assert( str_contains( $style, '.wp-block-button.btn.primary > .wp-block-button__link' ), 'style-bridges-source-primary-button-to-core-button-link' );
 	$assert( str_contains( $style, '.wp-block-button.btn.ghost > .wp-block-button__link' ), 'style-bridges-source-ghost-button-to-core-button-link' );
