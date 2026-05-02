@@ -150,12 +150,18 @@ class Static_Site_Importer_Document {
 		$header = $this->first_element( 'header' );
 		$footer = $this->first_element( 'footer' );
 
-		$header_html = '';
-		if ( $header instanceof DOMElement ) {
-			$header_html = $this->outer_html( $header );
-		} elseif ( $nav instanceof DOMElement ) {
-			$header_html = $this->outer_html( $nav );
+		$header_parts = array();
+		if ( $nav instanceof DOMElement && $header instanceof DOMElement && $this->is_leading_sibling( $root, $nav, $header ) ) {
+			$header_parts[] = $this->outer_html( $nav );
 		}
+
+		if ( $header instanceof DOMElement ) {
+			$header_parts[] = $this->outer_html( $header );
+		} elseif ( $nav instanceof DOMElement ) {
+			$header_parts[] = $this->outer_html( $nav );
+		}
+
+		$header_html = implode( "\n", $header_parts );
 
 		$footer_html = $footer instanceof DOMElement ? $this->outer_html( $footer ) : '';
 
@@ -225,6 +231,32 @@ class Static_Site_Importer_Document {
 	 */
 	private function same_node( DOMElement $left, ?DOMElement $right ): bool {
 		return $right instanceof DOMElement && $left->isSameNode( $right );
+	}
+
+	/**
+	 * Check whether one element is a direct sibling before another under the page root.
+	 *
+	 * @param DOMElement $root   Page root element.
+	 * @param DOMElement $before Candidate leading element.
+	 * @param DOMElement $after  Candidate following element.
+	 * @return bool
+	 */
+	private function is_leading_sibling( DOMElement $root, DOMElement $before, DOMElement $after ): bool {
+		foreach ( iterator_to_array( $root->childNodes ) as $child ) {
+			if ( ! $child instanceof DOMElement ) {
+				continue;
+			}
+
+			if ( $child->isSameNode( $before ) ) {
+				return true;
+			}
+
+			if ( $child->isSameNode( $after ) ) {
+				return false;
+			}
+		}
+
+		return false;
 	}
 
 	/**
