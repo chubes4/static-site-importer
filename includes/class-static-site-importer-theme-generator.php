@@ -1940,11 +1940,154 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return string
 	 */
 	private static function style_css( string $theme_name, string $css, array $button_classes = array() ): string {
-		$button_bridge = self::button_style_bridge_css( $css, $button_classes );
-		$editor_bridge = self::editor_absolute_overlay_css( $css );
-		$css           = self::scope_source_button_css( $css, $button_classes );
+		$button_bridge    = self::button_style_bridge_css( $css, $button_classes );
+		$editor_bridge    = self::editor_absolute_overlay_css( $css );
+		$admin_bar_bridge = self::admin_bar_top_chrome_css( $css );
+		$css              = self::scope_source_button_css( $css, $button_classes );
 
-		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Imported from static HTML using Block Format Bridge.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge . $editor_bridge;
+		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Imported from static HTML using Block Format Bridge.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge . $editor_bridge . $admin_bar_bridge;
+	}
+
+	/**
+	 * Build frontend admin-bar offsets for imported fixed/sticky top chrome.
+	 *
+	 * WordPress adds body.admin-bar but does not offset arbitrary imported fixed
+	 * headers. Only selectors that already declare fixed/sticky positioning,
+	 * a top value, and header/nav-like naming receive generated offsets.
+	 *
+	 * @param string $css Source CSS.
+	 * @return string Additional frontend CSS rules.
+	 */
+	private static function admin_bar_top_chrome_css( string $css ): string {
+		$css = preg_replace( '/\/\*.*?\*\//s', '', $css ) ?? $css;
+		if ( '' === trim( $css ) || ! str_contains( $css, 'position' ) || ! str_contains( $css, 'top' ) ) {
+			return '';
+		}
+
+		$rules = self::admin_bar_top_chrome_rules_from_css( $css );
+		if ( empty( $rules ) ) {
+			return '';
+		}
+
+		return "\n/* Static Site Importer: offset imported fixed/sticky top chrome below the WordPress admin bar. */\n" . implode( "\n", array_unique( $rules ) ) . "\n";
+	}
+
+	/**
+	 * Build admin-bar offset rules from one CSS scope.
+	 *
+	 * @param string $css CSS to inspect.
+	 * @return array<int, string> CSS rules.
+	 */
+	private static function admin_bar_top_chrome_rules_from_css( string $css ): array {
+		$rules  = array();
+		$length = strlen( $css );
+		$offset = 0;
+
+		while ( $offset < $length && preg_match( '/\G\s*([^{}]+)\{/', $css, $match, 0, $offset ) ) {
+			$prelude    = trim( $match[1] );
+			$body_start = $offset + strlen( $match[0] );
+			$body_end   = self::find_css_block_end( $css, $body_start );
+			if ( null === $body_end ) {
+				break;
+			}
+
+			$body   = trim( substr( $css, $body_start, $body_end - $body_start ) );
+			$offset = $body_end + 1;
+
+			if ( str_starts_with( $prelude, '@' ) ) {
+				$rules = array_merge( $rules, self::admin_bar_top_chrome_rules_from_css( $body ) );
+				continue;
+			}
+
+			if ( ! preg_match( '/(?:^|;)\s*position\s*:\s*(?:fixed|sticky)\s*(?:!important\s*)?(?:;|$)/i', $body ) ) {
+				continue;
+			}
+
+			$top = self::css_declaration_value( $body, 'top' );
+			if ( null === $top ) {
+				continue;
+			}
+
+			$desktop_top = self::admin_bar_offset_top_value( $top, '32px' );
+			$mobile_top  = self::admin_bar_offset_top_value( $top, '46px' );
+			if ( null === $desktop_top || null === $mobile_top ) {
+				continue;
+			}
+
+			$selectors = array();
+			foreach ( explode( ',', $prelude ) as $selector ) {
+				$selector = trim( $selector );
+				if ( self::selector_is_plausible_top_chrome( $selector ) ) {
+					$selectors[] = 'body.admin-bar ' . $selector;
+				}
+			}
+
+			if ( empty( $selectors ) ) {
+				continue;
+			}
+
+			$selector_list = implode( ', ', array_unique( $selectors ) );
+			$rules[]       = $selector_list . ' { top: ' . $desktop_top . '; }';
+			$rules[]       = '@media screen and (max-width: 782px) { ' . $selector_list . ' { top: ' . $mobile_top . '; } }';
+		}
+
+		return $rules;
+	}
+
+	/**
+	 * Extract one CSS declaration value from a rule body.
+	 *
+	 * @param string $body     CSS declaration body.
+	 * @param string $property Property name.
+	 * @return string|null Declaration value.
+	 */
+	private static function css_declaration_value( string $body, string $property ): ?string {
+		if ( ! preg_match( '/(?:^|;)\s*' . preg_quote( $property, '/' ) . '\s*:\s*([^;]+)\s*(?:;|$)/i', $body, $match ) ) {
+			return null;
+		}
+
+		return trim( $match[1] );
+	}
+
+	/**
+	 * Add one WordPress admin-bar height to a source top value.
+	 *
+	 * @param string $top    Source top declaration value.
+	 * @param string $offset Admin-bar height.
+	 * @return string|null Offset top value, or null when unsafe to rewrite.
+	 */
+	private static function admin_bar_offset_top_value( string $top, string $offset ): ?string {
+		$top       = trim( $top );
+		$important = '';
+		if ( preg_match( '/\s*!important\s*$/i', $top ) ) {
+			$important = ' !important';
+			$top       = trim( preg_replace( '/\s*!important\s*$/i', '', $top ) ?? $top );
+		}
+
+		if ( '' === $top || preg_match( '/[;{}]/', $top ) || preg_match( '/^(?:auto|inherit|initial|revert|unset)$/i', $top ) || str_starts_with( $top, '-' ) ) {
+			return null;
+		}
+
+		if ( preg_match( '/^0(?:[a-z%]+)?$/i', $top ) ) {
+			return $offset . $important;
+		}
+
+		return 'calc(' . $top . ' + ' . $offset . ')' . $important;
+	}
+
+	/**
+	 * Determine whether a selector plausibly targets imported top chrome.
+	 *
+	 * @param string $selector CSS selector.
+	 * @return bool Whether the selector is narrow enough for admin-bar offsets.
+	 */
+	private static function selector_is_plausible_top_chrome( string $selector ): bool {
+		$selector = trim( strtolower( $selector ) );
+		if ( '' === $selector || str_starts_with( $selector, '@' ) || preg_match( '/(?:footer|bottom|modal|dialog|popup|overlay|sidebar|drawer)/', $selector ) ) {
+			return false;
+		}
+
+		return (bool) preg_match( '/(?:header|masthead|nav|navbar|navigation|topbar|app-bar|toolbar|fixed-top|sticky-top)/', $selector );
 	}
 
 	/**
