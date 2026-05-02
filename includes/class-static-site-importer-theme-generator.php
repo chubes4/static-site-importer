@@ -1355,7 +1355,9 @@ class Static_Site_Importer_Theme_Generator {
 		$freeform_count  = 0;
 		$invalid_count   = 0;
 
-		self::analyze_generated_block_list( $blocks, $block_count, $core_html_count, $freeform_count, $invalid_count );
+		/** @var array<int, array<string, mixed>> $analyzed_blocks */
+		$analyzed_blocks = $blocks;
+		self::analyze_generated_block_list( $analyzed_blocks, $block_count, $core_html_count, $freeform_count, $invalid_count );
 
 		$serialized             = serialize_blocks( $blocks );
 		$serialization_mismatch = self::normalize_block_document_for_report( $block_markup ) !== self::normalize_block_document_for_report( $serialized );
@@ -1480,7 +1482,9 @@ class Static_Site_Importer_Theme_Generator {
 			return;
 		}
 
-		self::record_button_wrapper_classes_from_parsed_blocks( parse_blocks( $blocks ) );
+		/** @var array<int, array<string, mixed>> $parsed_blocks */
+		$parsed_blocks = parse_blocks( $blocks );
+		self::record_button_wrapper_classes_from_parsed_blocks( $parsed_blocks );
 	}
 
 	/**
@@ -1696,8 +1700,66 @@ class Static_Site_Importer_Theme_Generator {
 	 */
 	private static function style_css( string $theme_name, string $css, array $button_classes = array() ): string {
 		$button_bridge = self::button_style_bridge_css( $css, $button_classes );
+		$css           = self::scope_source_button_css( $css, $button_classes );
 
 		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Imported from static HTML using Block Format Bridge.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge;
+	}
+
+	/**
+	 * Keep copied source button selectors from restyling generated core/button wrappers.
+	 *
+	 * @param string             $css            Source CSS.
+	 * @param array<int, string> $button_classes Classes observed on generated core/button wrappers.
+	 * @return string Scoped source CSS.
+	 */
+	private static function scope_source_button_css( string $css, array $button_classes ): string {
+		$button_classes = array_fill_keys( array_filter( array_map( 'strval', $button_classes ) ), true );
+		if ( '' === trim( $css ) || ! str_contains( $css, '.' ) || empty( $button_classes ) ) {
+			return $css;
+		}
+
+		return self::scope_source_button_css_scope( $css, $button_classes );
+	}
+
+	/**
+	 * Scope selectors inside one CSS block list, preserving nested media/supports scopes.
+	 *
+	 * @param string              $css            CSS to rewrite.
+	 * @param array<string, true> $button_classes Classes observed on generated core/button wrappers.
+	 * @return string Rewritten CSS.
+	 */
+	private static function scope_source_button_css_scope( string $css, array $button_classes ): string {
+		$rewritten = '';
+		$length    = strlen( $css );
+		$offset    = 0;
+
+		while ( $offset < $length && preg_match( '/\G(\s*)([^{}]+)\{/', $css, $match, 0, $offset ) ) {
+			$leading    = $match[1];
+			$prelude    = trim( $match[2] );
+			$body_start = $offset + strlen( $match[0] );
+			$body_end   = self::find_css_block_end( $css, $body_start );
+			if ( null === $body_end ) {
+				break;
+			}
+
+			$body   = substr( $css, $body_start, $body_end - $body_start );
+			$offset = $body_end + 1;
+
+			if ( str_starts_with( $prelude, '@' ) ) {
+				$body = self::scope_source_button_css_scope( $body, $button_classes );
+			} else {
+				$selectors = array();
+				foreach ( explode( ',', $prelude ) as $selector ) {
+					$selectors[] = self::source_button_selector_without_wrapper_match( trim( $selector ), $button_classes ) ?? trim( $selector );
+				}
+
+				$prelude = implode( ', ', $selectors );
+			}
+
+			$rewritten .= $leading . $prelude . ' {' . $body . '}';
+		}
+
+		return $rewritten . substr( $css, $offset );
 	}
 
 	/**
@@ -1828,6 +1890,37 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return $prefix . '.wp-block-button.' . implode( '.', $classes ) . ' > .wp-block-button__link' . $target_match[3];
+	}
+
+	/**
+	 * Exclude generated core/button wrappers from a copied source selector.
+	 *
+	 * @param string              $selector       Source selector.
+	 * @param array<string, true> $button_classes Classes observed on generated core/button wrappers.
+	 * @return string|null Rewritten selector, or null when the selector cannot match a wrapper.
+	 */
+	private static function source_button_selector_without_wrapper_match( string $selector, array $button_classes ): ?string {
+		if ( '' === $selector || str_contains( $selector, '.wp-block-button' ) || ! preg_match( '/^(.*?)([^\s>+~]+)$/', $selector, $selector_match ) ) {
+			return null;
+		}
+
+		$target = $selector_match[2];
+		if ( ! preg_match( '/^([A-Za-z][A-Za-z0-9_-]*)?((?:\.[A-Za-z_-][A-Za-z0-9_-]*)+)((?::[A-Za-z_-][A-Za-z0-9_-]*(?:\([^)]*\))?)*)$/i', $target, $target_match ) ) {
+			return null;
+		}
+
+		$tag_name = strtolower( $target_match[1] );
+		if ( in_array( $tag_name, array( 'a', 'button' ), true ) ) {
+			return null;
+		}
+
+		foreach ( explode( '.', ltrim( $target_match[2], '.' ) ) as $class ) {
+			if ( isset( $button_classes[ $class ] ) ) {
+				return $selector_match[1] . $target_match[1] . $target_match[2] . ':not(.wp-block-button)' . $target_match[3];
+			}
+		}
+
+		return null;
 	}
 
 	/**
