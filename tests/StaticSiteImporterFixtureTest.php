@@ -284,6 +284,49 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Absolute decorative children inside imported sections keep their source stack in the Site Editor.
+	 */
+	public function test_absolute_decorative_overlay_stacks_in_site_editor(): void {
+		$html_path = $this->write_temp_fixture(
+			'absolute-hero-overlay.html',
+			'<!doctype html><html><head><title>Absolute Hero Overlay</title><style>' .
+			'.hero { min-height: 100vh; display: flex; flex-direction: column; justify-content: flex-end; position: relative; overflow: hidden; }' .
+			'.hero-rip { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: clamp(220px, 42vw, 580px); color: rgba(255, 61, 0, 0.035); pointer-events: none; user-select: none; }' .
+			'.hero .container { position: relative; z-index: 1; }' .
+			'</style></head><body><main><section class="hero"><div class="hero-rip" aria-hidden="true">RIP</div><div class="container"><h1>WordPress is dead.</h1><p>Hero copy stays above the decorative overlay.</p></div></section></main></body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Absolute Hero Overlay',
+				'slug'      => 'absolute-hero-overlay',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$pattern   = $this->pattern_blocks( $this->read_file( $theme_dir . '/patterns/page-absolute-hero-overlay.php' ) );
+		$style     = $this->read_file( $theme_dir . '/style.css' );
+		$report    = json_decode( $this->read_file( $result['report_path'] ), true );
+
+		$this->assertStringContainsString( '<!-- wp:group {"className":"hero","tagName":"section"}', $pattern );
+		$this->assertStringContainsString( 'hero-rip', $pattern );
+		$this->assertStringContainsString( '<!-- wp:group {"className":"container"}', $pattern );
+		$this->assertStringContainsString( '.hero-rip { position: absolute;', $style );
+		$this->assertStringContainsString( '.hero .container { position: relative; z-index: 1;', $style );
+		$this->assertStringContainsString( 'Static Site Importer: let Site Editor wrappers preserve imported absolute overlay stacking.', $style );
+		$this->assertStringContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .hero-rip) { display: contents; }', $style );
+		$this->assertSame( 0, $report['quality']['fallback_count'] ?? null );
+		$this->assertSame( 0, $report['quality']['core_html_block_count'] ?? null );
+		$this->assertSame( 0, $report['quality']['invalid_block_count'] ?? null );
+	}
+
+	/**
 	 * Safe inline SVG icons are materialized as theme assets and native image blocks.
 	 */
 	public function test_safe_inline_svg_icons_materialize_as_theme_assets(): void {
