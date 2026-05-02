@@ -152,6 +152,41 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Leading page navigation before a hero/header belongs in the shared header part.
+	 */
+	public function test_leading_nav_before_header_is_preserved_in_header_part(): void {
+		$html_path = $this->write_temp_fixture(
+			'leading-nav-header.html',
+			'<!doctype html><html><head><title>Leading Nav Header</title></head><body>' .
+			'<nav><div class="nav-logo">Studio Code</div><div class="nav-badge">Early Access</div><a href="#get-started" class="nav-cta">Get Started</a></nav>' .
+			'<header class="hero"><h1>Launch with Studio</h1><p>Hero copy.</p></header>' .
+			'<main><section id="get-started"><h2>Get started</h2><p>Body copy.</p></section></main>' .
+			'</body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Leading Nav Header',
+				'slug'      => 'leading-nav-header',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$header    = $this->read_file( $theme_dir . '/parts/header.html' );
+
+		$this->assertStringContainsString( 'Studio Code', $header );
+		$this->assertStringContainsString( 'Early Access', $header );
+		$this->assertStringContainsString( 'Get Started', $header );
+		$this->assertStringContainsString( 'Launch with Studio', $header );
+	}
+
+	/**
 	 * Safe inline SVG icons are materialized as theme assets and native image blocks.
 	 */
 	public function test_safe_inline_svg_icons_materialize_as_theme_assets(): void {

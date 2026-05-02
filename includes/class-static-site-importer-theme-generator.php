@@ -416,6 +416,20 @@ class Static_Site_Importer_Theme_Generator {
 		$html   = self::materialize_inline_svg_icons( $html, 'theme-part:header' );
 		$doc    = self::load_fragment_document( $html );
 		$header = self::sole_child_element( $doc );
+		$root   = $doc->documentElement;
+		if ( ! $header instanceof DOMElement && $root instanceof DOMElement ) {
+			$children = self::direct_element_children( $root );
+			if ( count( $children ) > 1 ) {
+				return implode(
+					'',
+					array_map(
+						static fn ( DOMElement $child ): string => self::theme_part_element_block( $doc, $child, $theme_slug, 'header' ),
+						$children
+					)
+				);
+			}
+		}
+
 		if ( $header instanceof DOMElement && 'nav' === strtolower( $header->tagName ) ) {
 			return self::theme_part_element_block( $doc, $header, $theme_slug, 'header' );
 		}

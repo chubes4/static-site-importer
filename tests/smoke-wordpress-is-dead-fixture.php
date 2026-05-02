@@ -280,6 +280,37 @@ if ( false !== $wrote_fixture ) {
 	}
 }
 
+$leading_nav_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-leading-nav-header.html';
+$wrote_leading_nav   = file_put_contents(
+	$leading_nav_fixture,
+	'<!doctype html><html><head><title>Leading Nav Header</title></head><body>' .
+	'<nav><div class="nav-logo">Studio Code</div><div class="nav-badge">Early Access</div><a href="#get-started" class="nav-cta">Get Started</a></nav>' .
+	'<header class="hero"><h1>Launch with Studio</h1><p>Hero copy.</p></header>' .
+	'<main><section id="get-started"><h2>Get started</h2><p>Body copy.</p></section></main>' .
+	'</body></html>'
+);
+$assert( false !== $wrote_leading_nav, 'leading-nav-fixture-written' );
+
+if ( false !== $wrote_leading_nav ) {
+	$leading_nav_result = Static_Site_Importer_Theme_Generator::import_theme(
+		$leading_nav_fixture,
+		array(
+			'name'      => 'Leading Nav Header',
+			'slug'      => 'leading-nav-header',
+			'overwrite' => true,
+			'activate'  => false,
+		)
+	);
+	$assert( ! is_wp_error( $leading_nav_result ), 'leading-nav-import-succeeds', is_wp_error( $leading_nav_result ) ? $leading_nav_result->get_error_message() : '' );
+	if ( ! is_wp_error( $leading_nav_result ) ) {
+		$leading_nav_header = $read( $leading_nav_result['theme_dir'] . '/parts/header.html' );
+		$assert( str_contains( $leading_nav_header, 'Studio Code' ), 'leading-nav-header-preserves-logo' );
+		$assert( str_contains( $leading_nav_header, 'Early Access' ), 'leading-nav-header-preserves-badge' );
+		$assert( str_contains( $leading_nav_header, 'Get Started' ), 'leading-nav-header-preserves-cta' );
+		$assert( str_contains( $leading_nav_header, 'Launch with Studio' ), 'leading-nav-header-preserves-hero' );
+	}
+}
+
 $quality_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-quality.html';
 $wrote_quality   = file_put_contents(
 	$quality_fixture,
