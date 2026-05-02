@@ -327,6 +327,76 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Empty CSS-only visual layers stay on the frontend without noisy Site Editor group placeholders.
+	 */
+	public function test_empty_css_only_background_layers_hide_site_editor_placeholders(): void {
+		$html_path = $this->write_temp_fixture(
+			'empty-css-background-layers.html',
+			'<!doctype html><html><head><title>Empty CSS Background Layers</title><style>' .
+			'#hero { position: relative; overflow: hidden; min-height: 80vh; }' .
+			'.hero-bg { position: absolute; inset: 0; pointer-events: none; }' .
+			'.hero-bg-grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,.1) 1px, transparent 1px); background-size: 32px 32px; }' .
+			'.hero-bg-glow { position: absolute; inset: 10% auto auto 20%; width: 40vw; height: 40vw; background: radial-gradient(circle, rgba(255,61,0,.4), transparent 70%); }' .
+			'.hero-bg-glow2 { position: absolute; right: 5%; bottom: 10%; width: 30vw; height: 30vw; background: radial-gradient(circle, rgba(0,200,255,.35), transparent 70%); }' .
+			'.hero-inner { position: relative; z-index: 1; }' .
+			'</style></head><body><main><section id="hero"><div class="hero-bg"><div class="hero-bg-grid"></div><div class="hero-bg-glow"></div><div class="hero-bg-glow2"></div></div><div class="hero-inner"><h1>Launch cleanly</h1><p>Content remains editable above decorative layers.</p></div></section></main></body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Empty CSS Background Layers',
+				'slug'      => 'empty-css-background-layers',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$pattern   = $this->pattern_blocks( $this->read_file( $theme_dir . '/patterns/page-empty-css-background-layers.php' ) );
+		$style     = $this->read_file( $theme_dir . '/style.css' );
+		$report    = json_decode( $this->read_file( $result['report_path'] ), true );
+
+		foreach ( array( 'hero-bg-grid', 'hero-bg-glow', 'hero-bg-glow2' ) as $class_name ) {
+			$this->assertStringContainsString( $class_name, $pattern );
+			$this->assertStringContainsString( 'wp-block-group ' . $class_name . ' static-site-importer-decorative-layer', $pattern );
+			$this->assertStringContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .' . $class_name . ')', $style );
+		}
+
+		$this->assertStringContainsString( 'Static Site Importer: hide empty decorative layer group controls in the Site Editor.', $style );
+		$this->assertStringContainsString( '.editor-styles-wrapper .wp-block-group.static-site-importer-decorative-layer .block-editor-block-variation-picker', $style );
+		$this->assertStringContainsString( '.editor-styles-wrapper .wp-block-group.static-site-importer-decorative-layer .components-placeholder', $style );
+		$this->assertStringContainsString( '.editor-styles-wrapper .wp-block-group.static-site-importer-decorative-layer .block-list-appender', $style );
+		$this->assertStringContainsString( '.editor-styles-wrapper .wp-block-group.static-site-importer-decorative-layer .block-editor-button-block-appender', $style );
+		$this->assertSame( 0, $report['quality']['fallback_count'] ?? null );
+		$this->assertSame( 0, $report['quality']['core_html_block_count'] ?? null );
+		$this->assertSame( 0, $report['quality']['invalid_block_count'] ?? null );
+	}
+
+	/**
+	 * Normal empty groups without decorative CSS are not marked for hidden editor controls.
+	 */
+	public function test_normal_empty_groups_remain_unmarked_for_editor_controls(): void {
+		$reflection = new ReflectionClass( Static_Site_Importer_Theme_Generator::class );
+
+		$classes_property = $reflection->getProperty( 'decorative_empty_group_classes' );
+		$classes_property->setAccessible( true );
+		$classes_property->setValue( null, array( 'hero-bg-grid' => true ) );
+
+		$mark = $reflection->getMethod( 'mark_empty_decorative_group_blocks' );
+		$mark->setAccessible( true );
+
+		$markup = '<!-- wp:group {"className":"normal-empty"} --><div class="wp-block-group normal-empty"></div><!-- /wp:group -->';
+		$result = $mark->invoke( null, $markup );
+
+		$this->assertSame( $markup, $result );
+		$this->assertStringNotContainsString( 'static-site-importer-decorative-layer', $result );
+	}
+
+	/**
 	 * Safe inline SVG icons are materialized as theme assets and native image blocks.
 	 */
 	public function test_safe_inline_svg_icons_materialize_as_theme_assets(): void {
