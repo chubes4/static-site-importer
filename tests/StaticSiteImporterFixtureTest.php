@@ -196,8 +196,12 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 			'.nav-cta { background: var(--accent); color: #fff; padding: 10px 24px; border-radius: 100px; transition: transform 0.08s ease; }' .
 			'.nav-cta:hover { transform: translateY(-1px); }' .
 			'a.nav-cta:focus-visible { outline: 2px solid var(--accent); }' .
+			'.btn-primary { background: var(--acid); color: var(--ink); padding: 0.9rem 2.25rem; border-radius: 8px; display: inline-flex; }' .
+			'.btn-ghost { color: var(--paper-dim); border-bottom: 1px solid var(--slate-border); padding-bottom: 2px; }' .
+			'.btn-outline { border: 1px solid var(--slate-border); color: var(--paper-dim); padding: 0.85rem 1.75rem; border-radius: 8px; }' .
 			'</style></head><body>' .
-			'<main><h1>Button Wrapper Style</h1><p><a href="#try" class="btn nav-cta">Request Access</a></p></main>' .
+			'<main><h1>Button Wrapper Style</h1><p><a href="#try" class="btn nav-cta">Request Access</a></p>' .
+			'<p><a href="#primary" class="btn-primary">Start Building</a> <a href="#ghost" class="btn-ghost">Watch Demo</a> <a href="#outline" class="btn-outline">Read Docs</a></p></main>' .
 			'</body></html>'
 		);
 
@@ -219,10 +223,25 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$style     = $this->read_file( $theme_dir . '/style.css' );
 
 		$this->assertStringContainsString( '<div class="wp-block-button btn nav-cta">', $pattern );
+		$this->assertStringContainsString( '<div class="wp-block-button btn-primary">', $pattern );
+		$this->assertStringContainsString( '<div class="wp-block-button btn-ghost">', $pattern );
+		$this->assertStringContainsString( '<div class="wp-block-button btn-outline">', $pattern );
 		$this->assertStringContainsString( '.nav-cta:not(.wp-block-button)', $style );
+		$this->assertStringContainsString( '.btn-primary:not(.wp-block-button)', $style );
+		$this->assertStringContainsString( '.btn-ghost:not(.wp-block-button)', $style );
+		$this->assertStringContainsString( '.btn-outline:not(.wp-block-button)', $style );
 		$this->assertStringNotContainsString( '.nav-cta { background: var(--accent); color: #fff; padding: 10px 24px;', $style );
+		$this->assertStringContainsString( '.wp-block-button.nav-cta > .wp-block-button__link:where(.wp-element-button)', $style );
+		$this->assertStringContainsString( '.wp-block-button.btn-primary > .wp-block-button__link:where(.wp-element-button)', $style );
+		$this->assertStringContainsString( '.wp-block-button.btn-ghost > .wp-block-button__link:where(.wp-element-button)', $style );
+		$this->assertStringContainsString( '.wp-block-button.btn-outline > .wp-block-button__link:where(.wp-element-button)', $style );
+		$this->assertStringContainsString( 'background: transparent; border: 0; border-radius: 0; box-shadow: none; color: inherit; display: inline;', $style );
+		$this->assertStringContainsString( 'max-width: none; min-width: 0; padding: 0; text-decoration: inherit; width: auto;', $style );
 		$this->assertStringContainsString( '.wp-block-button.nav-cta > .wp-block-button__link { background: var(--accent); color: #fff; padding: 10px 24px;', $style );
 		$this->assertStringContainsString( '.wp-block-button.nav-cta > .wp-block-button__link:hover { transform: translateY(-1px); }', $style );
+		$this->assertStringContainsString( '.wp-block-button.btn-primary > .wp-block-button__link { background: var(--acid); color: var(--ink); padding: 0.9rem 2.25rem;', $style );
+		$this->assertStringContainsString( '.wp-block-button.btn-ghost > .wp-block-button__link { color: var(--paper-dim); border-bottom: 1px solid var(--slate-border); padding-bottom: 2px;', $style );
+		$this->assertStringContainsString( '.wp-block-button.btn-outline > .wp-block-button__link { border: 1px solid var(--slate-border); color: var(--paper-dim); padding: 0.85rem 1.75rem;', $style );
 		$this->assertStringContainsString( 'a.nav-cta:focus-visible', $style );
 	}
 

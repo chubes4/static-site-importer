@@ -2017,13 +2017,39 @@ class Static_Site_Importer_Theme_Generator {
 			return '';
 		}
 
-		$rules = self::button_style_bridge_rules_from_css( $css, $button_classes );
+		$rules = array_merge(
+			self::button_style_bridge_reset_rules( $button_classes ),
+			self::button_style_bridge_rules_from_css( $css, $button_classes )
+		);
 
 		if ( ! $rules ) {
 			return '';
 		}
 
 		return "\n/* Static Site Importer: preserve source anchor styles on core/button links. */\n" . implode( "\n", array_unique( $rules ) ) . "\n";
+	}
+
+	/**
+	 * Build reset rules that prevent WordPress button defaults from leaking into source-converted buttons.
+	 *
+	 * @param array<string, true> $button_classes Classes observed on generated core/button wrappers.
+	 * @return array<int, string>
+	 */
+	private static function button_style_bridge_reset_rules( array $button_classes ): array {
+		$selectors = array();
+		foreach ( array_keys( $button_classes ) as $class ) {
+			if ( preg_match( '/^[A-Za-z_-][A-Za-z0-9_-]*$/', $class ) ) {
+				$selectors[] = '.wp-block-button.' . $class . ' > .wp-block-button__link:where(.wp-element-button)';
+			}
+		}
+
+		if ( empty( $selectors ) ) {
+			return array();
+		}
+
+		return array(
+			implode( ', ', $selectors ) . ' { background: transparent; border: 0; border-radius: 0; box-shadow: none; color: inherit; display: inline; font: inherit; height: auto; line-height: inherit; max-width: none; min-width: 0; padding: 0; text-decoration: inherit; width: auto; }',
+		);
 	}
 
 	/**
