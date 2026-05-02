@@ -119,6 +119,24 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( is_array( $report ), 'import-report-is-valid-json' );
 	$assert( isset( $report['quality']['fallback_count'] ), 'import-report-includes-fallback-count' );
 	$assert( isset( $report['conversion_fragments']['main:index.html'] ), 'import-report-groups-fragments-by-source' );
+	$assert( 'requires_external_render_check' === ( $report['visual_fidelity']['status'] ?? '' ), 'import-report-declares-visual-fidelity-render-check' );
+	$assert( 'benchmark_harness' === ( $report['visual_fidelity']['gate_owner'] ?? '' ), 'import-report-delegates-visual-gate-to-benchmark-harness' );
+	$visual_targets = $report['visual_fidelity']['comparison_targets'] ?? array();
+	$assert( is_array( $visual_targets ) && count( $visual_targets ) >= 5, 'import-report-includes-visual-comparison-targets' );
+	$home_visual_target = array_values(
+		array_filter(
+			is_array( $visual_targets ) ? $visual_targets : array(),
+			static fn ( $target ): bool => is_array( $target ) && 'index.html' === ( $target['source_filename'] ?? '' )
+		)
+	)[0] ?? array();
+	$assert( str_ends_with( (string) ( $home_visual_target['source_file'] ?? '' ), '/index.html' ), 'visual-target-records-source-file' );
+	$assert( is_string( $home_visual_target['wordpress_url'] ?? null ) && '' !== $home_visual_target['wordpress_url'], 'visual-target-records-wordpress-url' );
+	$assert( 'templates/page-home.html' === ( $home_visual_target['generated_template'] ?? '' ), 'visual-target-records-generated-template' );
+	$assert( 'patterns/page-home.php' === ( $home_visual_target['generated_pattern'] ?? '' ), 'visual-target-records-generated-pattern' );
+	$assert( ( $home_visual_target['source_probe_counts']['hero_candidates'] ?? 0 ) > 0, 'visual-target-counts-source-hero-probes' );
+	$assert( ( $home_visual_target['source_probe_counts']['button_candidates'] ?? 0 ) > 0, 'visual-target-counts-source-button-probes' );
+	$assert( ( $home_visual_target['generated_probe_counts']['core_button_blocks'] ?? 0 ) > 0, 'visual-target-counts-generated-core-button-blocks' );
+	$assert( in_array( 'style.css', $home_visual_target['comparison_hooks']['generated_files'] ?? array(), true ), 'visual-target-points-harness-at-generated-css' );
 	$assert( isset( $result['quality']['pass'] ), 'import-result-includes-quality-summary' );
 	$assert( str_contains( $page, 'wp:post-content' ), 'page-template-renders-imported-page-content' );
 	$assert( str_contains( $home_tmpl, 'wp:pattern' ) && str_contains( $home_tmpl, 'wordpress-is-dead-fixture/page-home' ), 'home-page-template-renders-home-pattern' );

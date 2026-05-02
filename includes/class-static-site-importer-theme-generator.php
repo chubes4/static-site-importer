@@ -148,6 +148,7 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		self::analyze_generated_theme_block_documents( $writes, $theme_dir );
+		self::record_visual_fidelity_targets( $pages, $page_ids, $permalinks, $writes, $theme_dir );
 		$quality     = self::finalize_quality_report( $args );
 		$report_json = wp_json_encode( self::$conversion_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 		if ( false === $report_json ) {
@@ -1287,12 +1288,252 @@ class Static_Site_Importer_Theme_Generator {
 			'generated_theme'      => array(
 				'block_documents' => array(),
 			),
+			'visual_fidelity'      => array(
+				'status'             => 'requires_external_render_check',
+				'gate_owner'         => 'benchmark_harness',
+				'comparison_targets' => array(),
+				'notes'              => array(
+					'Static Site Importer records source and generated DOM probes, render URLs, and theme artifacts for visual comparison; screenshot capture and computed-style/layout thresholds belong to the benchmark harness.',
+				),
+			),
 			'diagnostics'          => array(),
 			'notes'                => array(
 				'Block Format Bridge owns HTML-to-block transform fidelity; Static Site Importer records converter diagnostics and quality gates the generated theme.',
 				'Generated-theme block validation uses WordPress server-side block parsing and serialization checks; editor-runtime validation remains the exact Gutenberg authority.',
+				'Visual fidelity requires browser rendering; use visual_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',
 			),
 		);
+	}
+
+	/**
+	 * Record practical source/generated targets for external visual fidelity gates.
+	 *
+	 * @param array<string, array{path:string,document:Static_Site_Importer_Document}> $pages          Imported pages.
+	 * @param array<string, int>                                                       $page_ids       Page IDs keyed by source filename.
+	 * @param array<string, string>                                                    $permalinks     Page permalinks keyed by source filename.
+	 * @param array<string, string>                                                    $writes         Generated files keyed by absolute path.
+	 * @param string                                                                   $theme_dir      Generated theme directory.
+	 * @return void
+	 */
+	private static function record_visual_fidelity_targets( array $pages, array $page_ids, array $permalinks, array $writes, string $theme_dir ): void {
+		$theme_prefix = trailingslashit( $theme_dir );
+
+		foreach ( $pages as $filename => $page ) {
+			$source_html = self::read_visual_probe_file( $page['path'] );
+			$slug        = self::page_slug( $filename );
+			$template    = '' === $slug ? '' : 'templates/page-' . $slug . '.html';
+			$pattern     = '' === $slug ? '' : 'patterns/page-' . $slug . '.php';
+			$generated   = self::generated_visual_probe_markup( $writes, $theme_prefix, $pattern );
+
+			self::$conversion_report['visual_fidelity']['comparison_targets'][] = array(
+				'source_file'            => $page['path'],
+				'source_filename'        => $filename,
+				'wordpress_page_id'      => $page_ids[ $filename ] ?? null,
+				'wordpress_url'          => $permalinks[ $filename ] ?? '',
+				'generated_template'     => $template,
+				'generated_pattern'      => $pattern,
+				'source_probe_counts'    => self::visual_probe_counts( $source_html ),
+				'generated_probe_counts' => self::visual_probe_counts( $generated ),
+				'comparison_hooks'       => array(
+					'screenshot'      => array(
+						'source'    => $page['path'],
+						'generated' => $permalinks[ $filename ] ?? '',
+					),
+					'hero'            => array( '.hero', 'header', '[class*=hero]' ),
+					'buttons'         => array( 'a[class*=btn]', 'a[class*=button]', 'a[class*=cta]', 'button', '.wp-block-button__link' ),
+					'visible_chrome'  => array( 'nav', 'header', 'footer' ),
+					'generated_files' => array_values( array_filter( array( $template, $pattern, 'parts/header.html', 'parts/footer.html', 'style.css' ) ) ),
+				),
+			);
+		}
+	}
+
+	/**
+	 * Read an HTML file for best-effort visual probe metadata.
+	 *
+	 * @param string $path File path.
+	 * @return string
+	 */
+	private static function read_visual_probe_file( string $path ): string {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads local static-site source files for report-only visual probe metadata.
+		$contents = is_readable( $path ) ? file_get_contents( $path ) : '';
+		return false === $contents ? '' : $contents;
+	}
+
+	/**
+	 * Collect generated markup relevant to one page's visual comparison.
+	 *
+	 * @param array<string, string> $writes       Generated files keyed by absolute path.
+	 * @param string                $theme_prefix Absolute theme directory with trailing slash.
+	 * @param string                $pattern      Theme-relative page pattern path.
+	 * @return string
+	 */
+	private static function generated_visual_probe_markup( array $writes, string $theme_prefix, string $pattern ): string {
+		$parts = array();
+		foreach ( array( 'parts/header.html', $pattern, 'parts/footer.html' ) as $relative_path ) {
+			if ( '' === $relative_path ) {
+				continue;
+			}
+
+			$path = $theme_prefix . $relative_path;
+			if ( isset( $writes[ $path ] ) ) {
+				$parts[] = self::generated_block_document_markup( $relative_path, $writes[ $path ] );
+			}
+		}
+
+		return trim( implode( "\n", $parts ) );
+	}
+
+	/**
+	 * Count visual probe anchors that a browser-based harness should compare.
+	 *
+	 * @param string $html HTML or block markup.
+	 * @return array<string, int>
+	 */
+	private static function visual_probe_counts( string $html ): array {
+		return array(
+			'hero_candidates'    => self::visual_probe_count( $html, 'hero' ),
+			'button_candidates'  => self::visual_probe_count( $html, 'button' ),
+			'nav_candidates'     => self::visual_probe_count( $html, 'nav' ),
+			'footer_candidates'  => self::visual_probe_count( $html, 'footer' ),
+			'core_button_blocks' => self::count_block_name_in_markup( $html, 'core/button' ),
+		);
+	}
+
+	/**
+	 * Count one visual probe family in markup.
+	 *
+	 * @param string $html  HTML or block markup.
+	 * @param string $probe Probe family.
+	 * @return int
+	 */
+	private static function visual_probe_count( string $html, string $probe ): int {
+		if ( '' === trim( $html ) ) {
+			return 0;
+		}
+
+		$doc      = new DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$loaded   = $doc->loadHTML( '<!doctype html><html><body>' . $html . '</body></html>' );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+		if ( ! $loaded ) {
+			return 0;
+		}
+
+		$count = 0;
+		foreach ( $doc->getElementsByTagName( '*' ) as $element ) {
+			if ( self::element_matches_visual_probe( $element, $probe ) ) {
+				++$count;
+			}
+		}
+
+		return $count;
+	}
+
+	/**
+	 * Check whether one DOM element matches a visual probe family.
+	 *
+	 * @param DOMElement $element DOM element.
+	 * @param string     $probe   Probe family.
+	 * @return bool
+	 */
+	private static function element_matches_visual_probe( DOMElement $element, string $probe ): bool {
+		$tag     = strtolower( $element->tagName );
+		$classes = preg_split( '/\s+/', strtolower( trim( $element->getAttribute( 'class' ) ) ) );
+		$classes = is_array( $classes ) ? array_filter( $classes ) : array();
+
+		if ( 'hero' === $probe ) {
+			return 'header' === $tag || self::class_tokens_contain_fragment( $classes, 'hero' );
+		}
+
+		if ( 'button' === $probe ) {
+			return 'button' === $tag || 'button' === strtolower( $element->getAttribute( 'role' ) ) || self::class_tokens_contain_any_fragment( $classes, array( 'btn', 'button', 'cta', 'pill' ) );
+		}
+
+		if ( 'nav' === $probe ) {
+			return 'nav' === $tag || self::class_tokens_contain_any_fragment( $classes, array( 'nav', 'navigation' ) );
+		}
+
+		if ( 'footer' === $probe ) {
+			return 'footer' === $tag || self::class_tokens_contain_fragment( $classes, 'footer' );
+		}
+
+		return false;
+	}
+
+	/**
+	 * Check whether class tokens contain any listed fragment.
+	 *
+	 * @param array<int, string> $classes   Class tokens.
+	 * @param array<int, string> $fragments Fragments to match.
+	 * @return bool
+	 */
+	private static function class_tokens_contain_any_fragment( array $classes, array $fragments ): bool {
+		foreach ( $fragments as $fragment ) {
+			if ( self::class_tokens_contain_fragment( $classes, $fragment ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Check whether class tokens contain a fragment.
+	 *
+	 * @param array<int, string> $classes  Class tokens.
+	 * @param string             $fragment Fragment to match.
+	 * @return bool
+	 */
+	private static function class_tokens_contain_fragment( array $classes, string $fragment ): bool {
+		foreach ( $classes as $class ) {
+			if ( str_contains( $class, $fragment ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Count one block type in serialized block markup.
+	 *
+	 * @param string $markup     Serialized block markup.
+	 * @param string $block_name Block name.
+	 * @return int
+	 */
+	private static function count_block_name_in_markup( string $markup, string $block_name ): int {
+		if ( '' === trim( $markup ) || ! function_exists( 'parse_blocks' ) ) {
+			return 0;
+		}
+
+		$count = 0;
+		/** @var array<int, array<string, mixed>> $blocks */
+		$blocks = parse_blocks( $markup );
+		self::count_block_name_in_blocks( $blocks, $block_name, $count );
+
+		return $count;
+	}
+
+	/**
+	 * Recursively count one block type in parsed blocks.
+	 *
+	 * @param array<int, array<string, mixed>> $blocks     Parsed block list.
+	 * @param string                           $block_name Block name.
+	 * @param int                              $count      Running count.
+	 * @return void
+	 */
+	private static function count_block_name_in_blocks( array $blocks, string $block_name, int &$count ): void {
+		foreach ( $blocks as $block ) {
+			if ( ( $block['blockName'] ?? null ) === $block_name ) {
+				++$count;
+			}
+
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				self::count_block_name_in_blocks( $block['innerBlocks'], $block_name, $count );
+			}
+		}
 	}
 
 	/**
