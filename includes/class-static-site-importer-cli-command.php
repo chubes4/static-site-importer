@@ -36,8 +36,8 @@ class Static_Site_Importer_CLI_Command {
 	 * [--overwrite]
 	 * : Overwrite an existing theme directory.
 	 *
-	 * [--fail-on-quality]
-	 * : Exit non-zero when conversion quality checks report fallbacks or content loss.
+		 * [--fail-on-quality]
+		 * : Exit non-zero when conversion quality checks report fallbacks, invalid blocks, or content loss.
 	 *
 	 * [--max-fallbacks=<count>]
 	 * : Exit non-zero when unsupported HTML fallback count exceeds this threshold.
@@ -88,7 +88,7 @@ class Static_Site_Importer_CLI_Command {
 		if ( ! empty( $result['external_report_path'] ) ) {
 			WP_CLI::line( sprintf( 'External import report: %s', $result['external_report_path'] ) );
 		}
-		WP_CLI::line( sprintf( 'Conversion quality: %s (%d unsupported HTML fallbacks, %d content-loss aborts).', $result['quality']['pass'] ? 'pass' : 'needs review', $result['quality']['fallback_count'], $result['quality']['content_loss_count'] ) );
+		WP_CLI::line( sprintf( 'Conversion quality: %s (%d unsupported HTML fallbacks, %d invalid blocks, %d content-loss aborts).', $result['quality']['pass'] ? 'pass' : 'needs review', $result['quality']['fallback_count'], $result['quality']['invalid_block_count'], $result['quality']['content_loss_count'] ) );
 
 		if ( ! $result['quality']['pass'] ) {
 			WP_CLI::warning( 'Conversion quality checks reported issues. Inspect import-report.json for source fragments and diagnostics.' );
