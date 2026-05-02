@@ -1941,9 +1941,115 @@ class Static_Site_Importer_Theme_Generator {
 	 */
 	private static function style_css( string $theme_name, string $css, array $button_classes = array() ): string {
 		$button_bridge = self::button_style_bridge_css( $css, $button_classes );
+		$editor_bridge = self::editor_absolute_overlay_css( $css );
 		$css           = self::scope_source_button_css( $css, $button_classes );
 
-		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Imported from static HTML using Block Format Bridge.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge;
+		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Imported from static HTML using Block Format Bridge.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge . $editor_bridge;
+	}
+
+	/**
+	 * Build editor-only wrapper normalization for imported absolute overlay blocks.
+	 *
+	 * The Site Editor inserts block-list wrappers between imported section/group blocks
+	 * and their children. When a source child is absolutely positioned, that extra
+	 * wrapper can become the visible stack item instead of the imported child.
+	 *
+	 * @param string $css Source CSS.
+	 * @return string Additional editor-only CSS rules.
+	 */
+	private static function editor_absolute_overlay_css( string $css ): string {
+		$classes = self::absolute_position_classes_from_css( $css );
+		if ( empty( $classes ) ) {
+			return '';
+		}
+
+		$selectors = array();
+		foreach ( $classes as $class ) {
+			if ( preg_match( '/^[A-Za-z_-][A-Za-z0-9_-]*$/', $class ) ) {
+				$selectors[] = '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .' . $class . ')';
+			}
+		}
+
+		if ( empty( $selectors ) ) {
+			return '';
+		}
+
+		return "\n/* Static Site Importer: let Site Editor wrappers preserve imported absolute overlay stacking. */\n" . implode( ', ', array_unique( $selectors ) ) . ' { display: contents; }' . "\n";
+	}
+
+	/**
+	 * Collect terminal selector classes from rules declaring position:absolute.
+	 *
+	 * @param string $css Source CSS.
+	 * @return array<int, string> Class names.
+	 */
+	private static function absolute_position_classes_from_css( string $css ): array {
+		$css = preg_replace( '/\/\*.*?\*\//s', '', $css ) ?? $css;
+		if ( '' === trim( $css ) || ! str_contains( $css, 'position' ) || ! str_contains( $css, '.' ) ) {
+			return array();
+		}
+
+		$classes = self::absolute_position_classes_from_css_scope( $css );
+		sort( $classes, SORT_STRING );
+
+		return $classes;
+	}
+
+	/**
+	 * Collect absolute-position classes inside one CSS block list.
+	 *
+	 * @param string $css CSS to inspect.
+	 * @return array<int, string> Class names.
+	 */
+	private static function absolute_position_classes_from_css_scope( string $css ): array {
+		$classes = array();
+		$length  = strlen( $css );
+		$offset  = 0;
+
+		while ( $offset < $length && preg_match( '/\G\s*([^{}]+)\{/', $css, $match, 0, $offset ) ) {
+			$prelude    = trim( $match[1] );
+			$body_start = $offset + strlen( $match[0] );
+			$body_end   = self::find_css_block_end( $css, $body_start );
+			if ( null === $body_end ) {
+				break;
+			}
+
+			$body   = substr( $css, $body_start, $body_end - $body_start );
+			$offset = $body_end + 1;
+
+			if ( str_starts_with( $prelude, '@' ) ) {
+				$classes = array_merge( $classes, self::absolute_position_classes_from_css_scope( $body ) );
+				continue;
+			}
+
+			if ( ! preg_match( '/(?:^|;)\s*position\s*:\s*absolute\s*(?:;|$)/i', $body ) ) {
+				continue;
+			}
+
+			foreach ( explode( ',', $prelude ) as $selector ) {
+				$classes = array_merge( $classes, self::selector_terminal_classes( trim( $selector ) ) );
+			}
+		}
+
+		return array_values( array_unique( $classes ) );
+	}
+
+	/**
+	 * Extract classes from the final compound selector that identifies the styled element.
+	 *
+	 * @param string $selector CSS selector.
+	 * @return array<int, string> Class names.
+	 */
+	private static function selector_terminal_classes( string $selector ): array {
+		if ( '' === $selector || ! preg_match( '/([^\s>+~]+)(?::[A-Za-z_-][A-Za-z0-9_-]*(?:\([^)]*\))?)*\s*$/', $selector, $selector_match ) ) {
+			return array();
+		}
+
+		if ( ! preg_match_all( '/\.([A-Za-z_-][A-Za-z0-9_-]*)/', $selector_match[1], $class_matches ) ) {
+			return array();
+		}
+
+		return array_values( array_unique( $class_matches[1] ) );
 	}
 
 	/**
