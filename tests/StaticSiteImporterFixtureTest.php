@@ -397,6 +397,83 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Imported fixed/sticky top chrome is offset only when the WordPress admin bar is present.
+	 */
+	public function test_fixed_top_chrome_gets_admin_bar_offsets(): void {
+		$html_path = $this->write_temp_fixture(
+			'fixed-top-chrome.html',
+			'<!doctype html><html><head><title>Fixed Top Chrome</title><style>' .
+			'header.site-header { position: fixed; top: 0; left: 0; right: 0; z-index: 10; }' .
+			'.top-nav { position: sticky; top: 12px; z-index: 9; }' .
+			'.modal-header { position: fixed; top: 0; }' .
+			'.site-footer { position: fixed; top: 0; }' .
+			'</style></head><body>' .
+			'<header class="site-header"><p>Site title</p><nav class="top-nav"><a href="#content">Content</a></nav></header>' .
+			'<main id="content"><h1>Fixed Top Chrome</h1><p>Body copy.</p></main>' .
+			'</body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Fixed Top Chrome',
+				'slug'      => 'fixed-top-chrome',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$style = $this->read_file( $result['theme_dir'] . '/style.css' );
+
+		$this->assertStringContainsString( 'Static Site Importer: offset imported fixed/sticky top chrome below the WordPress admin bar.', $style );
+		$this->assertStringContainsString( 'body.admin-bar header.site-header { top: 32px; }', $style );
+		$this->assertStringContainsString( '@media screen and (max-width: 782px) { body.admin-bar header.site-header { top: 46px; } }', $style );
+		$this->assertStringContainsString( 'body.admin-bar .top-nav { top: calc(12px + 32px); }', $style );
+		$this->assertStringContainsString( '@media screen and (max-width: 782px) { body.admin-bar .top-nav { top: calc(12px + 46px); } }', $style );
+		$this->assertStringNotContainsString( 'body.admin-bar .modal-header', $style );
+		$this->assertStringNotContainsString( 'body.admin-bar .site-footer', $style );
+	}
+
+	/**
+	 * Static headers are not offset just because they look like top chrome.
+	 */
+	public function test_static_header_does_not_get_admin_bar_offsets(): void {
+		$html_path = $this->write_temp_fixture(
+			'static-header.html',
+			'<!doctype html><html><head><title>Static Header</title><style>' .
+			'header.site-header { position: relative; top: 0; }' .
+			'.top-nav { display: flex; gap: 1rem; }' .
+			'</style></head><body>' .
+			'<header class="site-header"><nav class="top-nav"><a href="#content">Content</a></nav></header>' .
+			'<main id="content"><h1>Static Header</h1><p>Body copy.</p></main>' .
+			'</body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Static Header',
+				'slug'      => 'static-header',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$style = $this->read_file( $result['theme_dir'] . '/style.css' );
+
+		$this->assertStringContainsString( 'header.site-header { position: relative; top: 0;', $style );
+		$this->assertStringNotContainsString( 'Static Site Importer: offset imported fixed/sticky top chrome below the WordPress admin bar.', $style );
+		$this->assertStringNotContainsString( 'body.admin-bar header.site-header', $style );
+		$this->assertStringNotContainsString( 'body.admin-bar .top-nav', $style );
+	}
+
+	/**
 	 * Safe inline SVG icons are materialized as theme assets and native image blocks.
 	 */
 	public function test_safe_inline_svg_icons_materialize_as_theme_assets(): void {
