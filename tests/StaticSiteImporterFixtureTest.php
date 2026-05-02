@@ -187,6 +187,46 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Source button styles are moved to the inner link without restyling the core/button wrapper.
+	 */
+	public function test_source_button_class_styles_do_not_double_apply_to_core_button_wrapper(): void {
+		$html_path = $this->write_temp_fixture(
+			'button-wrapper-style.html',
+			'<!doctype html><html><head><title>Button Wrapper Style</title><style>' .
+			'.nav-cta { background: var(--accent); color: #fff; padding: 10px 24px; border-radius: 100px; transition: transform 0.08s ease; }' .
+			'.nav-cta:hover { transform: translateY(-1px); }' .
+			'a.nav-cta:focus-visible { outline: 2px solid var(--accent); }' .
+			'</style></head><body>' .
+			'<main><h1>Button Wrapper Style</h1><p><a href="#try" class="btn nav-cta">Request Access</a></p></main>' .
+			'</body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Button Wrapper Style',
+				'slug'      => 'button-wrapper-style',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$pattern   = $this->pattern_blocks( $this->read_file( $theme_dir . '/patterns/page-button-wrapper-style.php' ) );
+		$style     = $this->read_file( $theme_dir . '/style.css' );
+
+		$this->assertStringContainsString( '<div class="wp-block-button btn nav-cta">', $pattern );
+		$this->assertStringContainsString( '.nav-cta:not(.wp-block-button)', $style );
+		$this->assertStringNotContainsString( '.nav-cta { background: var(--accent); color: #fff; padding: 10px 24px;', $style );
+		$this->assertStringContainsString( '.wp-block-button.nav-cta > .wp-block-button__link { background: var(--accent); color: #fff; padding: 10px 24px;', $style );
+		$this->assertStringContainsString( '.wp-block-button.nav-cta > .wp-block-button__link:hover { transform: translateY(-1px); }', $style );
+		$this->assertStringContainsString( 'a.nav-cta:focus-visible', $style );
+	}
+
+	/**
 	 * Safe inline SVG icons are materialized as theme assets and native image blocks.
 	 */
 	public function test_safe_inline_svg_icons_materialize_as_theme_assets(): void {
