@@ -1370,6 +1370,77 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Validated commerce context is forwarded to BFB and summarized in the import report.
+	 */
+	public function test_commerce_context_is_forwarded_to_page_conversion_and_reported(): void {
+		$html_path = $this->write_temp_fixture(
+			'index.html',
+			'<!doctype html><html><head><title>Commerce Context</title></head><body><main><section class="product-grid"><article class="product-card"><h2>Roasted Beans</h2><p>$18.00</p></article></section></main></body></html>'
+		);
+
+		$captured_contexts = array();
+		$args_filter       = static function ( array $handler_args ) use ( &$captured_contexts ): array {
+			if ( isset( $handler_args['context']['commerce'] ) && is_array( $handler_args['context']['commerce'] ) ) {
+				$captured_contexts[] = $handler_args['context']['commerce'];
+				do_action(
+					'bfb_conversion_metadata',
+					array(
+						'type'          => 'commerce_context_received',
+						'product_count' => count( $handler_args['context']['commerce']['products'] ?? array() ),
+					)
+				);
+			}
+
+			return $handler_args;
+		};
+		add_filter( 'bfb_html_to_blocks_args', $args_filter, 10, 1 );
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'             => 'Commerce Context',
+				'slug'             => 'commerce-context',
+				'overwrite'        => true,
+				'activate'         => false,
+				'keep_source'      => true,
+				'commerce_context' => array(
+					'source'   => 'products.json',
+					'products' => array(
+						array(
+							'name'            => 'Roasted Beans',
+							'slug'            => 'roasted-beans',
+							'source_filename' => 'index.html',
+							'card_selector'   => '.product-card',
+						),
+					),
+					'selector_hints' => array(
+						array(
+							'source_filename' => 'index.html',
+							'grid_selector'   => '.product-grid',
+						),
+					),
+				),
+			)
+		);
+		remove_filter( 'bfb_html_to_blocks_args', $args_filter, 10 );
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+		$this->assertNotEmpty( $captured_contexts );
+		$this->assertSame( 'products.json', $captured_contexts[0]['source'] ?? '' );
+		$this->assertContains( 'main:index.html', array_column( $captured_contexts, 'source_fragment' ) );
+
+		$report = json_decode( $this->read_file( $result['report_path'] ), true );
+		$this->assertIsArray( $report );
+		$this->assertTrue( $report['commerce_context']['supplied'] ?? false );
+		$this->assertSame( 'products.json', $report['commerce_context']['source'] ?? '' );
+		$this->assertSame( 1, $report['commerce_context']['product_count'] ?? null );
+		$this->assertContains( '.product-grid', array_column( $report['commerce_context']['selector_hints'] ?? array(), 'grid_selector' ) );
+		$this->assertContains( '.product-card', array_column( $report['commerce_context']['selector_hints'] ?? array(), 'card_selector' ) );
+		$this->assertSame( 'commerce_context_received', $report['commerce_context']['diagnostics'][0]['metadata']['type'] ?? '' );
+	}
+
+	/**
 	 * Server-visible malformed block documents are counted in generated-theme quality.
 	 */
 	public function test_generated_theme_quality_reports_malformed_block_documents(): void {
