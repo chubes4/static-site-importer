@@ -197,16 +197,26 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 
 		$this->assertIsArray( $report );
 		$this->assertSame( 0, $report['quality']['core_html_block_count'] ?? null );
+		$this->assertSame( 0, $report['quality']['invalid_block_count'] ?? null );
 		$this->assertStringNotContainsString( '<!-- wp:html -->', $header );
 		$this->assertStringNotContainsString( '<!-- wp:html -->', $footer );
+		$this->assertStringNotContainsString( '<p><a href="#" class="logo"><div', $header );
+		$this->assertStringNotContainsString( '<p><a href="#" class="footer-logo"><div', $footer );
 		$this->assertStringContainsString( 'href="#"', $header );
-		$this->assertStringContainsString( 'class="logo"', $header );
-		$this->assertStringContainsString( 'class="logo-mark"', $header );
+		$this->assertStringContainsString( '"className":"logo"', $header );
+		$this->assertStringContainsString( 'logo-mark', $header );
+		$this->assertStringContainsString( 'class="logo-name"', $header );
 		$this->assertStringContainsString( 'Relay Atlas', $header );
-		$this->assertStringContainsString( 'relay-mark.svg', $header );
+		$this->assertStringContainsString( '/assets/icons/', $header );
 		$this->assertStringContainsString( 'href="#"', $footer );
-		$this->assertStringContainsString( 'class="footer-logo"', $footer );
+		$this->assertStringContainsString( '"className":"footer-logo"', $footer );
+		$this->assertStringContainsString( 'footer-logo-mark', $footer );
 		$this->assertStringContainsString( 'Relay Atlas', $footer );
+		$this->assertStringContainsString( '/assets/icons/', $footer );
+		$this->assertNotEmpty( $report['assets']['svg_icons'] ?? array() );
+		foreach ( $report['assets']['svg_icons'] as $asset ) {
+			$this->assertFileExists( $theme_dir . '/' . ( $asset['path'] ?? '' ) );
+		}
 		$this->assertStringContainsString( '<!-- wp:navigation ', $header );
 		$this->assertStringContainsString( '<!-- wp:navigation ', $footer );
 	}

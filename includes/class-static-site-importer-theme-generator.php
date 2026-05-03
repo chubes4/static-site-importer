@@ -813,6 +813,10 @@ class Static_Site_Importer_Theme_Generator {
 
 		$class = trim( $element->getAttribute( 'class' ) );
 		if ( preg_match( '/(^|[-_\s])(brand|logo)([-_\s]|$)/i', $class ) ) {
+			if ( ! self::element_has_only_phrasing_content( $element ) ) {
+				return self::logo_anchor_block( $doc, $element, $href, $class );
+			}
+
 			$anchor_attrs = ' href="' . esc_url( $href ) . '"';
 			if ( '' !== $class ) {
 				$anchor_attrs .= ' class="' . esc_attr( $class ) . '"';
@@ -835,25 +839,105 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Convert an image in shared chrome to a native image block.
+	 * Build valid native blocks for a logo anchor that contains image wrappers.
 	 *
-	 * @param DOMDocument $doc     Source DOM document.
-	 * @param DOMElement  $element Image element.
+	 * @param DOMDocument $doc        Source DOM document.
+	 * @param DOMElement  $element    Anchor element.
+	 * @param string      $href       Anchor href.
+	 * @param string      $class_name Anchor class attribute.
 	 * @return string
 	 */
-	private static function image_element_block( DOMDocument $doc, DOMElement $element ): string {
+	private static function logo_anchor_block( DOMDocument $doc, DOMElement $element, string $href, string $class_name ): string {
+		$children = array();
+		foreach ( $element->childNodes as $child ) {
+			if ( $child instanceof DOMText ) {
+				$text = trim( $child->textContent );
+				if ( '' !== $text ) {
+					$children[] = self::linked_text_block( $text, $href );
+				}
+				continue;
+			}
+
+			if ( ! $child instanceof DOMElement ) {
+				continue;
+			}
+
+			$img = self::sole_descendant_image( $child );
+			if ( $img instanceof DOMElement ) {
+				$children[] = self::image_element_block( $doc, $img, trim( $child->getAttribute( 'class' ) ), $href );
+				continue;
+			}
+
+			$text = trim( $child->textContent );
+			if ( '' !== $text && self::element_has_only_phrasing_content( $child ) ) {
+				$children[] = self::linked_text_block( $text, $href, trim( $child->getAttribute( 'class' ) ) );
+				continue;
+			}
+
+			$children[] = self::theme_part_element_block( $doc, $child, '', '' );
+		}
+
+		$inner = implode( '', array_filter( $children ) );
+		if ( '' === trim( $inner ) ) {
+			return self::html_block( self::node_html( $doc, $element ) );
+		}
+
+		return self::group_block( $inner, $class_name );
+	}
+
+	/**
+	 * Find a direct or singly wrapped image child.
+	 *
+	 * @param DOMElement $element Source element.
+	 * @return DOMElement|null
+	 */
+	private static function sole_descendant_image( DOMElement $element ): ?DOMElement {
+		if ( 'img' === strtolower( $element->tagName ) ) {
+			return $element;
+		}
+
+		$children = self::direct_element_children( $element );
+		return 1 === count( $children ) && 'img' === strtolower( $children[0]->tagName ) ? $children[0] : null;
+	}
+
+	/**
+	 * Build a paragraph containing a text link.
+	 *
+	 * @param string $text       Link text.
+	 * @param string $href       Link href.
+	 * @param string $class_name Source class attribute.
+	 * @return string
+	 */
+	private static function linked_text_block( string $text, string $href, string $class_name = '' ): string {
+		return self::paragraph_block( '<a href="' . esc_url( $href ) . '">' . esc_html( $text ) . '</a>', $class_name );
+	}
+
+	/**
+	 * Convert an image in shared chrome to a native image block.
+	 *
+	 * @param DOMDocument $doc        Source DOM document.
+	 * @param DOMElement  $element    Image element.
+	 * @param string      $class_name Optional class override.
+	 * @param string      $href       Optional link href.
+	 * @return string
+	 */
+	private static function image_element_block( DOMDocument $doc, DOMElement $element, string $class_name = '', string $href = '' ): string {
 		$src = trim( $element->getAttribute( 'src' ) );
 		if ( '' === $src ) {
 			return self::html_block( self::node_html( $doc, $element ) );
 		}
 
-		$class = trim( $element->getAttribute( 'class' ) );
+		$class = trim( '' !== $class_name ? $class_name : $element->getAttribute( 'class' ) );
 		$attrs = array(
 			'url'      => esc_url_raw( $src ),
 			'sizeSlug' => 'large',
 		);
 		if ( '' !== $class ) {
 			$attrs['className'] = $class;
+		}
+		if ( '' !== $href ) {
+			$attrs['href']            = esc_url_raw( $href );
+			$attrs['linkDestination'] = 'custom';
 		}
 
 		$figure_class = trim( 'wp-block-image size-large ' . $class );
@@ -867,6 +951,10 @@ class Static_Site_Importer_Theme_Generator {
 			$img_markup .= ' ' . $name . '="' . $value . '"';
 		}
 		$img_markup .= '/>';
+
+		if ( '' !== $href ) {
+			$img_markup = '<a href="' . esc_url( $href ) . '">' . $img_markup . '</a>';
+		}
 
 		return '<!-- wp:image ' . wp_json_encode( $attrs, JSON_UNESCAPED_SLASHES ) . ' --><figure class="' . esc_attr( $figure_class ) . '">' . $img_markup . '</figure><!-- /wp:image -->';
 	}
