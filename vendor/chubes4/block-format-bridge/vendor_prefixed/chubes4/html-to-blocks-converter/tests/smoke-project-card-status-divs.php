@@ -3,9 +3,9 @@
 namespace BlockFormatBridge\Vendor;
 
 /**
- * Smoke test: traffic-light decorative dots convert to native blocks.
+ * Smoke test: empty project-card status divs convert to native blocks.
  *
- * Run: php tests/smoke-traffic-light-decorative-dots.php
+ * Run: php tests/smoke-project-card-status-divs.php
  */
 // phpcs:disable
 if (!\defined('ABSPATH')) {
@@ -118,9 +118,10 @@ $flatten_blocks = static function (array $blocks) use (&$flatten_blocks): array 
     return $flat;
 };
 $html = <<<'HTML'
-<div class="traffic-light tl-red"></div>
-<div class="traffic-light tl-yellow"></div>
-<div class="traffic-light tl-green"></div>
+<div class="pcard-status status-done"></div>
+<div class="pcard-status status-active"></div>
+<div class="pcard-status status-warn"></div>
+<div class="pcard-status status-idle"></div>
 HTML;
 $blocks = html_to_blocks_raw_handler(['HTML' => $html]);
 $flat = $flatten_blocks($blocks);
@@ -131,34 +132,22 @@ $class_names = \array_filter(\array_map(static function ($block) {
     return $block['attrs']['className'] ?? '';
 }, $flat));
 $serialized = serialize_blocks($blocks);
-$assert(\count($blocks) === 3, 'traffic-light-dots-are-not-dropped', (string) \count($blocks));
-$assert(!\in_array('core/html', $names, \true), 'traffic-light-dots-do-not-use-core-html', \implode(', ', $names));
-$assert(\count($fallback_events) === 0, 'traffic-light-dots-emit-no-fallback-events', (string) \count($fallback_events));
-$assert(\in_array('core/group', $names, \true), 'traffic-light-dots-use-group-blocks', \implode(', ', $names));
-$assert(\in_array('traffic-light tl-red', $class_names, \true), 'red-dot-classes-survive', \implode(', ', $class_names));
-$assert(\in_array('traffic-light tl-yellow', $class_names, \true), 'yellow-dot-classes-survive', \implode(', ', $class_names));
-$assert(\in_array('traffic-light tl-green', $class_names, \true), 'green-dot-classes-survive', \implode(', ', $class_names));
-$assert(!\str_contains($serialized, '<!-- wp:html -->'), 'serialized-output-has-no-wp-html', $serialized);
+$assert(\count($blocks) === 4, 'project-card-status-divs-are-not-dropped', (string) \count($blocks));
+$assert(!\in_array('core/html', $names, \true), 'project-card-status-divs-do-not-use-core-html', \implode(', ', $names));
+$assert(\count($fallback_events) === 0, 'project-card-status-divs-emit-no-fallback-events', (string) \count($fallback_events));
+$assert(\substr_count(\implode(',', $names), 'core/group') === 4, 'project-card-status-divs-use-group-blocks', \implode(', ', $names));
+$assert(\in_array('pcard-status status-done', $class_names, \true), 'status-done-classes-survive', \implode(', ', $class_names));
+$assert(\in_array('pcard-status status-active', $class_names, \true), 'status-active-classes-survive', \implode(', ', $class_names));
+$assert(\in_array('pcard-status status-warn', $class_names, \true), 'status-warn-classes-survive', \implode(', ', $class_names));
+$assert(\in_array('pcard-status status-idle', $class_names, \true), 'status-idle-classes-survive', \implode(', ', $class_names));
+$assert(!\str_contains($serialized, '<!-- wp:html -->'), 'serialized-project-card-statuses-have-no-wp-html', $serialized);
 $fallback_events = [];
-$code_dot_blocks = html_to_blocks_raw_handler(['HTML' => <<<'HTML'
-<div class="code-dot red"></div>
-<div class="code-dot yellow"></div>
-<div class="code-dot green"></div>
-HTML
-]);
-$code_dot_names = \array_map(static function ($block) {
+$unsafe_blocks = html_to_blocks_raw_handler(['HTML' => '<div class="pcard-status status-done"><span>Done</span></div>']);
+$unsafe_names = \array_map(static function ($block) {
     return $block['blockName'] ?? '';
-}, $flatten_blocks($code_dot_blocks));
-$assert(\count($code_dot_blocks) === 0, 'empty-code-dot-chrome-is-dropped', (string) \count($code_dot_blocks));
-$assert(!\in_array('core/html', $code_dot_names, \true), 'empty-code-dot-chrome-does-not-use-core-html', \implode(', ', $code_dot_names));
-$assert(\count($fallback_events) === 0, 'empty-code-dot-chrome-emits-no-fallback-events', (string) \count($fallback_events));
-$fallback_events = [];
-$arbitrary_blocks = html_to_blocks_raw_handler(['HTML' => '<div class="custom-widget">Meaningful widget copy</div>']);
-$arbitrary_names = \array_map(static function ($block) {
-    return $block['blockName'] ?? '';
-}, $flatten_blocks($arbitrary_blocks));
-$assert(!\in_array('core/group', $arbitrary_names, \true), 'non-empty-arbitrary-div-does-not-become-group', \implode(', ', $arbitrary_names));
-$assert(\in_array('core/paragraph', $arbitrary_names, \true), 'non-empty-arbitrary-div-remains-textual', \implode(', ', $arbitrary_names));
+}, $flatten_blocks($unsafe_blocks));
+$assert(\in_array('core/html', $unsafe_names, \true), 'non-empty-project-card-status-still-falls-back', \implode(', ', $unsafe_names));
+$assert(\count($fallback_events) > 0, 'non-empty-project-card-status-emits-fallback-event', (string) \count($fallback_events));
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

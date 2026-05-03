@@ -168,7 +168,7 @@ function html_to_blocks_should_ignore_empty_decorative_placeholder($element): bo
     $class_name = isset($attributes['class']) ? (string) $attributes['class'] : '';
     $style = isset($attributes['style']) ? (string) $attributes['style'] : '';
     $role = isset($attributes['role']) ? \strtolower(\trim((string) $attributes['role'])) : '';
-    $decorative_class_pattern = '/(?:^|[-_\s])(icon|ico|glyph|symbol|accent|bar|divider|separator|sep|rule|line|orb|blob|dot|glow)(?:$|[-_\s]|\d)/i';
+    $decorative_class_pattern = '/(?:^|[-_\s])(icon|ico|glyph|symbol|accent|bar|divider|separator|sep|rule|line|blank|orb|blob|dot|glow)(?:$|[-_\s]|\d)/i';
     if (\preg_match($decorative_class_pattern, $class_name) !== 1) {
         return \false;
     }
@@ -186,6 +186,9 @@ function html_to_blocks_should_ignore_empty_decorative_placeholder($element): bo
     }
     if (\preg_match('/url\s*\(/i', $style)) {
         return \false;
+    }
+    if (\preg_match('/(?:^|\s)code[-_]?dot(?:$|\s)/i', $class_name) === 1) {
+        return \true;
     }
     if (\preg_match('/(?:^|[-_\s])(?:accent|sep)(?:$|[-_\s]|\d)/i', $class_name) === 1) {
         return \true;
@@ -402,7 +405,7 @@ function html_to_blocks_is_decorative_inline_span_fragment(string $html): bool
     if (\preg_match('/(?:url\s*\(|expression\s*\(|javascript\s*:|behavior\s*:)/i', $style)) {
         return \false;
     }
-    $decorative_class_pattern = '/(?:^|[-_\s])(icon|ico|glyph|symbol|accent|bar|divider|separator|sep|rule|line|orb|blob|dot|glow)(?:$|[-_\s]|\d)/i';
+    $decorative_class_pattern = '/(?:^|[-_\s])(icon|ico|glyph|symbol|accent|bar|divider|separator|sep|rule|line|blank|orb|blob|dot|glow)(?:$|[-_\s]|\d)/i';
     if (\preg_match($decorative_class_pattern, $class_name) === 1) {
         return \true;
     }

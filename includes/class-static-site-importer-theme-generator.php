@@ -181,6 +181,7 @@ class Static_Site_Importer_Theme_Generator {
 
 		self::analyze_generated_theme_block_documents( $writes, $theme_dir );
 		self::record_visual_fidelity_targets( $pages, $page_ids, $permalinks, $writes, $theme_dir );
+		self::record_semantic_fidelity_targets( $pages, $page_ids, $permalinks, $writes, $theme_dir );
 		$quality     = self::finalize_quality_report( $args );
 		$report_json = wp_json_encode( self::$conversion_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 		if ( false === $report_json ) {
@@ -577,11 +578,15 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		if ( 'a' === $tag ) {
-			return self::link_element_block( $doc, $element );
+			return self::link_element_block( $doc, $element, $location );
 		}
 
 		if ( 'img' === $tag ) {
 			return self::image_element_block( $doc, $element );
+		}
+
+		if ( self::should_preserve_theme_part_phrasing_element( $element ) ) {
+			return self::freeform_block( self::node_html( $doc, $element ) );
 		}
 
 		if ( self::is_link_cluster_container( $element ) ) {
@@ -793,6 +798,26 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Check whether classed theme chrome should keep source element ownership.
+	 *
+	 * @param DOMElement $element Source element.
+	 * @return bool
+	 */
+	private static function should_preserve_theme_part_phrasing_element( DOMElement $element ): bool {
+		$tag = strtolower( $element->tagName );
+		if ( ! in_array( $tag, array( 'div', 'span' ), true ) || ! self::element_has_only_phrasing_content( $element ) ) {
+			return false;
+		}
+
+		$class = trim( $element->getAttribute( 'class' ) );
+		if ( '' === $class ) {
+			return false;
+		}
+
+		return preg_match( '/(^|[-_\s])(brand|logo|wordmark|name|badge|meta|copy)([-_\s]|$)/i', $class ) === 1;
+	}
+
+	/**
 	 * Check whether an element can be represented as one paragraph with inline markup.
 	 *
 	 * @param DOMElement $element Source element.
@@ -800,6 +825,10 @@ class Static_Site_Importer_Theme_Generator {
 	 */
 	private static function element_has_only_phrasing_content( DOMElement $element ): bool {
 		if ( self::element_contains_svg_or_form( $element ) ) {
+			return false;
+		}
+
+		if ( in_array( strtolower( $element->tagName ), array( 'header', 'footer', 'main', 'nav', 'section', 'article', 'aside' ), true ) ) {
 			return false;
 		}
 
@@ -851,7 +880,7 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param DOMElement  $element Anchor element.
 	 * @return string
 	 */
-	private static function link_element_block( DOMDocument $doc, DOMElement $element ): string {
+	private static function link_element_block( DOMDocument $doc, DOMElement $element, string $location = '' ): string {
 		$href  = trim( $element->getAttribute( 'href' ) );
 		$label = trim( $element->textContent );
 		if ( '' === $href || '' === $label ) {
@@ -860,6 +889,11 @@ class Static_Site_Importer_Theme_Generator {
 
 		$class = trim( $element->getAttribute( 'class' ) );
 		if ( preg_match( '/(^|[-_\s])(brand|logo)([-_\s]|$)/i', $class ) ) {
+			$brand_anchor = self::brand_anchor_inline_block( $doc, $element );
+			if ( null !== $brand_anchor ) {
+				return $brand_anchor;
+			}
+
 			if ( ! self::element_has_only_phrasing_content( $element ) ) {
 				return self::logo_anchor_block( $doc, $element, $href, $class );
 			}
@@ -869,7 +903,7 @@ class Static_Site_Importer_Theme_Generator {
 				$anchor_attrs .= ' class="' . esc_attr( $class ) . '"';
 			}
 
-			return self::paragraph_block( '<a' . $anchor_attrs . '>' . self::node_inner_html( $doc, $element ) . '</a>' );
+			return self::freeform_block( '<a' . $anchor_attrs . '>' . self::node_inner_html( $doc, $element ) . '</a>' );
 		}
 
 		if ( preg_match( '/(^|[-_\s])(btn|button|cta|pill)([-_\s]|$)/i', $class ) ) {
@@ -883,6 +917,116 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return self::paragraph_block( '<a href="' . esc_url( $href ) . '"' . ( '' !== $class ? ' class="' . esc_attr( $class ) . '"' : '' ) . '>' . esc_html( $label ) . '</a>' );
+	}
+
+	/**
+	 * Preserve one brand anchor when block-level logo wrappers can become inline spans.
+	 *
+	 * @param DOMDocument $doc     Source DOM document.
+	 * @param DOMElement  $element Anchor element.
+	 * @return string|null
+	 */
+	private static function brand_anchor_inline_block( DOMDocument $doc, DOMElement $element ): ?string {
+		$inner = self::brand_anchor_inline_children_html( $doc, $element );
+		if ( null === $inner || ( '' === trim( wp_strip_all_tags( $inner ) ) && ! str_contains( strtolower( $inner ), '<img' ) ) ) {
+			return null;
+		}
+
+		return self::freeform_block( '<a' . self::element_attribute_markup( $element ) . '>' . $inner . '</a>' );
+	}
+
+	/**
+	 * Convert a brand anchor's children to valid phrasing HTML.
+	 *
+	 * @param DOMDocument $doc     Source DOM document.
+	 * @param DOMElement  $element Source element.
+	 * @return string|null
+	 */
+	private static function brand_anchor_inline_children_html( DOMDocument $doc, DOMElement $element ): ?string {
+		$parts = array();
+		foreach ( $element->childNodes as $child ) {
+			$part = self::brand_anchor_inline_node_html( $doc, $child );
+			if ( null === $part ) {
+				return null;
+			}
+
+			$parts[] = $part;
+		}
+
+		return implode( '', $parts );
+	}
+
+	/**
+	 * Convert one node to phrasing HTML for a preserved brand anchor.
+	 *
+	 * @param DOMDocument $doc  Source DOM document.
+	 * @param DOMNode     $node Source node.
+	 * @return string|null
+	 */
+	private static function brand_anchor_inline_node_html( DOMDocument $doc, DOMNode $node ): ?string {
+		if ( $node instanceof DOMText ) {
+			return esc_html( $node->textContent );
+		}
+
+		if ( ! $node instanceof DOMElement ) {
+			return '';
+		}
+
+		$tag = strtolower( $node->tagName );
+		if ( 'div' === $tag ) {
+			$inner = self::brand_anchor_inline_children_html( $doc, $node );
+			return null === $inner ? null : '<span' . self::element_attribute_markup( $node ) . '>' . $inner . '</span>';
+		}
+
+		if ( 'img' === $tag ) {
+			return self::node_html( $doc, $node );
+		}
+
+		if ( ! self::is_phrasing_element( $node ) ) {
+			return null;
+		}
+
+		$inner = self::brand_anchor_inline_children_html( $doc, $node );
+		return null === $inner ? null : '<' . $tag . self::element_attribute_markup( $node ) . '>' . $inner . '</' . $tag . '>';
+	}
+
+	/**
+	 * Serialize source attributes for HTML rebuilt from DOM nodes.
+	 *
+	 * @param DOMElement $element Source element.
+	 * @return string
+	 */
+	private static function element_attribute_markup( DOMElement $element ): string {
+		$attributes = '';
+		foreach ( $element->attributes as $attribute ) {
+			$attributes .= ' ' . strtolower( $attribute->name ) . '="' . esc_attr( $attribute->value ) . '"';
+		}
+
+		return $attributes;
+	}
+
+	/**
+	 * Record an explicit semantic approximation/recovery diagnostic for theme-part chrome.
+	 *
+	 * @param string     $location Theme part location.
+	 * @param DOMElement $element  Source element.
+	 * @param string     $code     Diagnostic code.
+	 * @param string     $message  Diagnostic message.
+	 * @return void
+	 */
+	private static function record_theme_part_semantic_diagnostic( string $location, DOMElement $element, string $code, string $message ): void {
+		if ( empty( self::$conversion_report ) ) {
+			return;
+		}
+
+		self::$conversion_report['diagnostics'][] = array(
+			'type'       => 'theme_part_semantic_fidelity',
+			'code'       => $code,
+			'source'     => 'theme-part:' . ( '' !== $location ? $location : 'unknown' ),
+			'element'    => strtolower( $element->tagName ),
+			'class_name' => trim( $element->getAttribute( 'class' ) ),
+			'message'    => $message,
+		);
 	}
 
 	/**
@@ -1152,6 +1296,16 @@ class Static_Site_Importer_Theme_Generator {
 	 */
 	private static function html_block( string $html ): string {
 		return '<!-- wp:html -->' . $html . '<!-- /wp:html -->';
+	}
+
+	/**
+	 * Build an editable Classic block that preserves exact source element HTML.
+	 *
+	 * @param string $html Source HTML.
+	 * @return string
+	 */
+	private static function freeform_block( string $html ): string {
+		return '<!-- wp:freeform -->' . $html . '<!-- /wp:freeform -->';
 	}
 
 	/**
@@ -1530,7 +1684,7 @@ class Static_Site_Importer_Theme_Generator {
 					return null;
 				}
 
-				if ( ! in_array( $name, array( 'xmlns', 'id', 'viewBox', 'viewbox', 'width', 'height', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'd', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'points', 'transform', 'opacity', 'class', 'role', 'aria-hidden', 'aria-label', 'focusable' ), true ) ) {
+				if ( ! in_array( $name, array( 'xmlns', 'id', 'viewBox', 'viewbox', 'width', 'height', 'fill', 'fill-opacity', 'stroke', 'stroke-opacity', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'd', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'points', 'transform', 'opacity', 'class', 'role', 'aria-hidden', 'aria-label', 'focusable' ), true ) ) {
 					return null;
 				}
 			}
@@ -1708,7 +1862,9 @@ class Static_Site_Importer_Theme_Generator {
 				'width',
 				'height',
 				'fill',
+				'fill-opacity',
 				'stroke',
+				'stroke-opacity',
 				'stroke-width',
 				'stroke-linecap',
 				'stroke-linejoin',
@@ -2364,11 +2520,20 @@ class Static_Site_Importer_Theme_Generator {
 					'Static Site Importer records source and generated DOM probes, render URLs, and theme artifacts for visual comparison; screenshot capture and computed-style/layout thresholds belong to the benchmark harness.',
 				),
 			),
+			'semantic_fidelity'    => array(
+				'status'             => 'requires_external_render_check',
+				'gate_owner'         => 'benchmark_harness',
+				'comparison_targets' => array(),
+				'notes'              => array(
+					'Static Site Importer records source/generated semantic comparison targets; browser DOM extraction and semantic fingerprint comparison belong to the benchmark harness.',
+				),
+			),
 			'diagnostics'          => array(),
 			'notes'                => array(
 				'Block Format Bridge owns HTML-to-block transform fidelity; Static Site Importer records converter diagnostics and quality gates the generated theme.',
 				'Generated-theme block validation uses WordPress server-side block parsing and serialization checks; editor-runtime validation remains the exact Gutenberg authority.',
 				'Visual fidelity requires browser rendering; use visual_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',
+				'Semantic fidelity requires browser DOM extraction; use semantic_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',
 			),
 		);
 	}
@@ -2435,6 +2600,117 @@ class Static_Site_Importer_Theme_Generator {
 				),
 			);
 		}
+	}
+
+	/**
+	 * Record source/generated targets for external semantic fidelity gates.
+	 *
+	 * @param array<string, array{path:string,document:Static_Site_Importer_Document}> $pages      Imported pages.
+	 * @param array<string, int>                                                       $page_ids   Page IDs keyed by source filename.
+	 * @param array<string, string>                                                    $permalinks Page permalinks keyed by source filename.
+	 * @param array<string, string>                                                    $writes     Generated files keyed by absolute path.
+	 * @param string                                                                   $theme_dir  Generated theme directory.
+	 * @return void
+	 */
+	private static function record_semantic_fidelity_targets( array $pages, array $page_ids, array $permalinks, array $writes, string $theme_dir ): void {
+		$theme_prefix = trailingslashit( $theme_dir );
+		$theme_parts  = self::generated_semantic_theme_parts( $writes, $theme_prefix );
+
+		foreach ( $pages as $filename => $page ) {
+			$source_html = self::read_visual_probe_file( $page['path'] );
+			$slug        = self::page_slug( $filename );
+			$template    = '' === $slug ? '' : 'templates/page-' . $slug . '.html';
+			$pattern     = '' === $slug ? '' : 'patterns/page-' . $slug . '.php';
+			$generated   = self::generated_visual_probe_markup( $writes, $theme_prefix, $pattern );
+
+			self::$conversion_report['semantic_fidelity']['comparison_targets'][] = array(
+				'source_file'            => $page['path'],
+				'source_filename'        => $filename,
+				'wordpress_page_id'      => $page_ids[ $filename ] ?? null,
+				'wordpress_url'          => $permalinks[ $filename ] ?? '',
+				'generated_template'     => $template,
+				'generated_pattern'      => $pattern,
+				'generated_theme_parts'  => $theme_parts,
+				'generated_files'        => array_values( array_filter( array_merge( array( $template, $pattern ), $theme_parts ) ) ),
+				'regions'                => self::semantic_regions( $source_html, $generated ),
+				'semantic_selectors'     => self::semantic_selectors(),
+				'comparison_hooks'       => array(
+					'landmarks' => array( 'header', 'nav', 'main', 'footer', '[role=banner]', '[role=navigation]', '[role=main]', '[role=contentinfo]' ),
+					'actions'   => array( 'a', 'button', '[role=button]', '.wp-block-button__link' ),
+					'identity'  => array( '[class*=brand]', '[class*=logo]', '[class*=wordmark]', 'img[alt*=logo i]', 'svg[aria-label*=logo i]' ),
+					'sections'  => array( '[class*=nav]', '[class*=footer]', '[class*=header]', '[class*=card]', '[class*=cta]', '[class*=status]' ),
+				),
+			);
+		}
+	}
+
+	/**
+	 * Generated theme parts that contribute shared page semantics.
+	 *
+	 * @param array<string, string> $writes       Generated files keyed by absolute path.
+	 * @param string                $theme_prefix Absolute theme directory with trailing slash.
+	 * @return array<int, string>
+	 */
+	private static function generated_semantic_theme_parts( array $writes, string $theme_prefix ): array {
+		$parts = array();
+		foreach ( array( 'parts/header.html', 'parts/footer.html' ) as $relative_path ) {
+			if ( isset( $writes[ $theme_prefix . $relative_path ] ) ) {
+				$parts[] = $relative_path;
+			}
+		}
+
+		return $parts;
+	}
+
+	/**
+	 * Broad semantic regions present in either source or generated markup.
+	 *
+	 * @param string $source_html Source HTML.
+	 * @param string $generated   Generated block markup.
+	 * @return array<int, string>
+	 */
+	private static function semantic_regions( string $source_html, string $generated ): array {
+		$regions = array();
+		$markup  = $source_html . "\n" . $generated;
+		foreach ( array( 'header', 'nav', 'main', 'footer' ) as $region ) {
+			if ( 'main' === $region || self::visual_probe_count( $markup, $region ) > 0 ) {
+				$regions[] = $region;
+			}
+		}
+
+		return $regions;
+	}
+
+	/**
+	 * Broad selectors the benchmark harness should fingerprint for semantic drift.
+	 *
+	 * @return array<int, string>
+	 */
+	private static function semantic_selectors(): array {
+		return array(
+			'header',
+			'nav',
+			'main',
+			'footer',
+			'a',
+			'button',
+			'img',
+			'svg',
+			'[role=banner]',
+			'[role=navigation]',
+			'[role=main]',
+			'[role=contentinfo]',
+			'[role=button]',
+			'[class*=brand]',
+			'[class*=logo]',
+			'[class*=wordmark]',
+			'[class*=nav]',
+			'[class*=footer]',
+			'[class*=header]',
+			'[class*=card]',
+			'[class*=cta]',
+			'[class*=status]',
+		);
 	}
 
 	/**
@@ -2564,6 +2840,14 @@ class Static_Site_Importer_Theme_Generator {
 
 		if ( 'hero' === $probe ) {
 			return 'header' === $tag || self::class_tokens_contain_fragment( $classes, 'hero' );
+		}
+
+		if ( 'header' === $probe ) {
+			return 'header' === $tag || self::class_tokens_contain_fragment( $classes, 'header' );
+		}
+
+		if ( 'main' === $probe ) {
+			return 'main' === $tag || 'main' === strtolower( $element->getAttribute( 'role' ) ) || self::class_tokens_contain_fragment( $classes, 'main' );
 		}
 
 		if ( 'button' === $probe ) {

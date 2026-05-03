@@ -146,6 +146,28 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( in_array( 'frontend_editor_visibility_parity', $home_visual_target['comparison_hooks']['layout_probes']['code_visual']['assertions'] ?? array(), true ), 'code-visual-probe-checks-frontend-editor-visibility' );
 	$assert( in_array( 'frontend_editor_column_parity', $home_visual_target['comparison_hooks']['layout_probes']['problem_grid']['assertions'] ?? array(), true ), 'problem-grid-probe-checks-frontend-editor-columns' );
 	$assert( in_array( 'style.css', $home_visual_target['comparison_hooks']['generated_files'] ?? array(), true ), 'visual-target-points-harness-at-generated-css' );
+	$assert( 'requires_external_render_check' === ( $report['semantic_fidelity']['status'] ?? '' ), 'import-report-declares-semantic-fidelity-render-check' );
+	$assert( 'benchmark_harness' === ( $report['semantic_fidelity']['gate_owner'] ?? '' ), 'import-report-delegates-semantic-gate-to-benchmark-harness' );
+	$semantic_targets = $report['semantic_fidelity']['comparison_targets'] ?? array();
+	$assert( is_array( $semantic_targets ) && count( $semantic_targets ) >= 5, 'import-report-includes-semantic-comparison-targets' );
+	$home_semantic_target = array_values(
+		array_filter(
+			is_array( $semantic_targets ) ? $semantic_targets : array(),
+			static fn ( $target ): bool => is_array( $target ) && 'index.html' === ( $target['source_filename'] ?? '' )
+		)
+	)[0] ?? array();
+	$assert( str_ends_with( (string) ( $home_semantic_target['source_file'] ?? '' ), '/index.html' ), 'semantic-target-records-source-file' );
+	$assert( is_string( $home_semantic_target['wordpress_url'] ?? null ) && '' !== $home_semantic_target['wordpress_url'], 'semantic-target-records-wordpress-url' );
+	$assert( 'templates/page-home.html' === ( $home_semantic_target['generated_template'] ?? '' ), 'semantic-target-records-generated-template' );
+	$assert( 'patterns/page-home.php' === ( $home_semantic_target['generated_pattern'] ?? '' ), 'semantic-target-records-generated-pattern' );
+	$assert( in_array( 'parts/header.html', $home_semantic_target['generated_theme_parts'] ?? array(), true ), 'semantic-target-records-generated-header-part' );
+	$assert( in_array( 'parts/footer.html', $home_semantic_target['generated_theme_parts'] ?? array(), true ), 'semantic-target-records-generated-footer-part' );
+	foreach ( array( 'header', 'nav', 'main', 'footer' ) as $region ) {
+		$assert( in_array( $region, $home_semantic_target['regions'] ?? array(), true ), 'semantic-target-records-region-' . $region );
+	}
+	foreach ( array( '[class*=brand]', '[class*=logo]', '[class*=wordmark]', '[class*=nav]', '[class*=cta]', '[class*=card]', '[class*=status]' ) as $selector ) {
+		$assert( in_array( $selector, $home_semantic_target['semantic_selectors'] ?? array(), true ), 'semantic-target-records-selector-' . $selector );
+	}
 	$assert( isset( $result['quality']['pass'] ), 'import-result-includes-quality-summary' );
 	$assert( str_contains( $page, 'wp:post-content' ), 'page-template-renders-imported-page-content' );
 	$assert( str_contains( $home_tmpl, 'wp:post-content' ), 'home-page-template-renders-page-post-content' );
@@ -390,10 +412,10 @@ if ( false !== $wrote_footer_chrome ) {
 
 		$assert( ! str_contains( $footer_chrome_footer, '<!-- wp:html' ), 'footer-chrome-has-no-core-html-blocks', $footer_chrome_footer );
 		$assert( ! str_contains( $footer_chrome_footer, 'core/html' ), 'footer-chrome-has-no-raw-core-html-name', $footer_chrome_footer );
-		$assert( str_contains( $footer_chrome_footer, '<!-- wp:paragraph {"className":"footer-logo"}' ), 'footer-logo-becomes-classed-paragraph' );
+		$assert( str_contains( $footer_chrome_footer, '<!-- wp:freeform --><div class="footer-logo">' ), 'footer-logo-preserves-source-wrapper' );
 		$assert( str_contains( $footer_chrome_footer, 'width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block;' ), 'footer-logo-decorative-span-style-survives' );
 		$assert( str_contains( $footer_chrome_footer, 'Studio Code — by Automattic' ), 'footer-logo-text-survives' );
-		$assert( str_contains( $footer_chrome_footer, '<!-- wp:paragraph {"className":"footer-meta"}' ), 'footer-meta-becomes-classed-paragraph' );
+		$assert( str_contains( $footer_chrome_footer, '<!-- wp:freeform --><div class="footer-meta">' ), 'footer-meta-preserves-source-wrapper' );
 		$assert( str_contains( $footer_chrome_style, 'display: flex; align-items: center; justify-content: space-between' ), 'footer-flex-alignment-css-survives' );
 		$assert( str_contains( $footer_chrome_style, 'footer .footer-logo' ) && str_contains( $footer_chrome_style, 'gap: 8px' ), 'footer-logo-spacing-css-survives' );
 		$assert( str_contains( $footer_chrome_style, 'flex-direction: column; gap: 12px; text-align: center' ), 'footer-responsive-spacing-css-survives' );
@@ -471,6 +493,54 @@ if ( false !== $wrote_branded_nav ) {
 			$assert( ! str_contains( $branded_nav_post->post_content, 'Studio Code' ), 'branded-nav-post-excludes-brand-text' );
 			$assert( ! str_contains( $branded_nav_post->post_content, 'SC' ), 'branded-nav-post-excludes-logo-text' );
 		}
+	}
+}
+
+$footer_brand_anchor_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-footer-brand-anchor.html';
+$wrote_footer_brand_anchor   = file_put_contents(
+	$footer_brand_anchor_fixture,
+	'<!doctype html><html><head><title>Footer Brand Anchor</title></head><body>' .
+	'<main><section><h1>Footer brand anchor</h1><p>Body copy.</p></section></main>' .
+	'<footer>' .
+	'<a href="#" class="footer-brand"><div class="footer-logo-mark"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 4h4v4H2zM8 4h4v1.5H8zM8 7h4v1.5H8zM2 9.5h10v1H2z" fill="white"/></svg></div><span class="footer-wordmark">Relay Atlas</span></a>' .
+	'<ul class="footer-links"><li><a href="#features">Features</a></li><li><a href="#pricing">Pricing</a></li></ul>' .
+	'<span class="footer-copy">&copy; 2025 Relay Atlas, Inc.</span>' .
+	'</footer>' .
+	'</body></html>'
+);
+$assert( false !== $wrote_footer_brand_anchor, 'footer-brand-anchor-fixture-written' );
+
+if ( false !== $wrote_footer_brand_anchor ) {
+	$footer_brand_anchor_result = Static_Site_Importer_Theme_Generator::import_theme(
+		$footer_brand_anchor_fixture,
+		array(
+			'name'      => 'Footer Brand Anchor',
+			'slug'      => 'footer-brand-anchor',
+			'overwrite' => true,
+			'activate'  => false,
+		)
+	);
+	$assert( ! is_wp_error( $footer_brand_anchor_result ), 'footer-brand-anchor-import-succeeds', is_wp_error( $footer_brand_anchor_result ) ? $footer_brand_anchor_result->get_error_message() : '' );
+	if ( ! is_wp_error( $footer_brand_anchor_result ) ) {
+		$footer_brand_anchor_footer = $read( $footer_brand_anchor_result['theme_dir'] . '/parts/footer.html' );
+		$footer_brand_anchor_report = json_decode( $read( $footer_brand_anchor_result['report_path'] ?? '' ), true );
+		$footer_brand_anchor_post   = get_page_by_path( 'footer-brand-anchor-footer-navigation', OBJECT, 'wp_navigation' );
+		$assert( ! str_contains( $footer_brand_anchor_footer, '<!-- wp:html' ), 'footer-brand-anchor-has-no-core-html-blocks', $footer_brand_anchor_footer );
+		$assert( str_contains( $footer_brand_anchor_footer, '<a href="#" class="footer-brand">' ), 'footer-brand-anchor-keeps-one-brand-anchor', $footer_brand_anchor_footer );
+		$assert( str_contains( $footer_brand_anchor_footer, '<span class="footer-logo-mark"><img' ), 'footer-brand-anchor-keeps-logo-class-inside-anchor', $footer_brand_anchor_footer );
+		$assert( str_contains( $footer_brand_anchor_footer, '<span class="footer-wordmark">Relay Atlas</span>' ), 'footer-brand-anchor-keeps-wordmark-inside-anchor', $footer_brand_anchor_footer );
+		$assert( ! str_contains( $footer_brand_anchor_footer, '<div class="wp-block-group footer-brand">' ), 'footer-brand-anchor-class-stays-on-anchor' );
+		$assert( ! str_contains( $footer_brand_anchor_footer, '<a href="#">Relay Atlas</a>' ), 'footer-brand-anchor-does-not-split-wordmark-link' );
+		$assert( ! preg_match( '/<p[^>]*>\s*<a[^>]*>.*<div/is', $footer_brand_anchor_footer ), 'footer-brand-anchor-avoids-invalid-paragraph-anchor-content', $footer_brand_anchor_footer );
+		$assert( str_contains( $footer_brand_anchor_footer, '<!-- wp:navigation ' ), 'footer-brand-anchor-footer-uses-navigation-block' );
+		$assert( str_contains( $footer_brand_anchor_footer, '2025 Relay Atlas, Inc.' ), 'footer-brand-anchor-keeps-copy' );
+		$assert( $footer_brand_anchor_post instanceof WP_Post, 'footer-brand-anchor-navigation-post-exists' );
+		if ( $footer_brand_anchor_post instanceof WP_Post ) {
+			$assert( str_contains( $footer_brand_anchor_post->post_content, '"label":"Features"' ), 'footer-brand-anchor-menu-includes-features' );
+			$assert( ! str_contains( $footer_brand_anchor_post->post_content, 'Relay Atlas' ), 'footer-brand-anchor-menu-excludes-brand-text' );
+		}
+		$assert( 0 === ( $footer_brand_anchor_report['quality']['core_html_block_count'] ?? -1 ), 'footer-brand-anchor-report-has-zero-core-html-blocks' );
+		$assert( 0 === ( $footer_brand_anchor_report['quality']['invalid_block_count'] ?? -1 ), 'footer-brand-anchor-report-has-zero-invalid-blocks' );
 	}
 }
 

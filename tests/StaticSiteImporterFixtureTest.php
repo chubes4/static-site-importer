@@ -117,10 +117,39 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'quality', $report );
 		$this->assertArrayHasKey( 'conversion_fragments', $report );
 		$this->assertArrayHasKey( 'generated_theme', $report );
+		$this->assertArrayHasKey( 'semantic_fidelity', $report );
 		$this->assertArrayHasKey( 'diagnostics', $report );
 		$this->assertSame( 0, $report['quality']['invalid_block_count'] ?? null );
 		$this->assertSame( 0, $report['quality']['invalid_block_document_count'] ?? null );
 		$this->assertNotEmpty( $report['generated_theme']['block_documents'] ?? array() );
+		$this->assertSame( 'requires_external_render_check', $report['semantic_fidelity']['status'] ?? '' );
+		$this->assertSame( 'benchmark_harness', $report['semantic_fidelity']['gate_owner'] ?? '' );
+		$semantic_targets = $report['semantic_fidelity']['comparison_targets'] ?? array();
+		$this->assertIsArray( $semantic_targets );
+		$this->assertNotEmpty( $semantic_targets );
+		$home_semantic_target = array_values(
+			array_filter(
+				$semantic_targets,
+				static fn ( $target ): bool => is_array( $target ) && 'index.html' === ( $target['source_filename'] ?? '' )
+			)
+		)[0] ?? array();
+		$this->assertNotEmpty( $home_semantic_target );
+		$this->assertStringEndsWith( '/index.html', (string) ( $home_semantic_target['source_file'] ?? '' ) );
+		$this->assertSame( 'templates/page-home.html', $home_semantic_target['generated_template'] ?? '' );
+		$this->assertSame( 'patterns/page-home.php', $home_semantic_target['generated_pattern'] ?? '' );
+		$this->assertContains( 'parts/header.html', $home_semantic_target['generated_theme_parts'] ?? array() );
+		$this->assertContains( 'parts/footer.html', $home_semantic_target['generated_theme_parts'] ?? array() );
+		$this->assertContains( 'header', $home_semantic_target['regions'] ?? array() );
+		$this->assertContains( 'nav', $home_semantic_target['regions'] ?? array() );
+		$this->assertContains( 'main', $home_semantic_target['regions'] ?? array() );
+		$this->assertContains( 'footer', $home_semantic_target['regions'] ?? array() );
+		$this->assertContains( '[class*=brand]', $home_semantic_target['semantic_selectors'] ?? array() );
+		$this->assertContains( '[class*=logo]', $home_semantic_target['semantic_selectors'] ?? array() );
+		$this->assertContains( '[class*=wordmark]', $home_semantic_target['semantic_selectors'] ?? array() );
+		$this->assertContains( '[class*=nav]', $home_semantic_target['semantic_selectors'] ?? array() );
+		$this->assertContains( '[class*=cta]', $home_semantic_target['semantic_selectors'] ?? array() );
+		$this->assertContains( '[class*=card]', $home_semantic_target['semantic_selectors'] ?? array() );
+		$this->assertContains( '[class*=status]', $home_semantic_target['semantic_selectors'] ?? array() );
 
 		$pages = array();
 		foreach ( array( 'index.html', 'manifesto.html', 'comparison.html', 'eulogy.html', 'proof.html' ) as $filename ) {
@@ -206,15 +235,15 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( '<!-- wp:html -->', $footer );
 		$this->assertStringNotContainsString( '<p><a href="#" class="logo"><div', $header );
 		$this->assertStringNotContainsString( '<p><a href="#" class="footer-logo"><div', $footer );
-		$this->assertStringContainsString( 'href="#"', $header );
-		$this->assertStringContainsString( '"className":"logo"', $header );
-		$this->assertStringContainsString( 'logo-mark', $header );
+		$this->assertStringContainsString( '<a href="#" class="logo">', $header );
+		$this->assertStringNotContainsString( '<div class="wp-block-group logo">', $header );
+		$this->assertStringContainsString( '<span class="logo-mark"><img', $header );
 		$this->assertStringContainsString( 'class="logo-name"', $header );
 		$this->assertStringContainsString( 'Relay Atlas', $header );
 		$this->assertStringContainsString( '/assets/icons/', $header );
-		$this->assertStringContainsString( 'href="#"', $footer );
-		$this->assertStringContainsString( '"className":"footer-logo"', $footer );
-		$this->assertStringContainsString( 'footer-logo-mark', $footer );
+		$this->assertStringContainsString( '<a href="#" class="footer-logo">', $footer );
+		$this->assertStringNotContainsString( '<div class="wp-block-group footer-logo">', $footer );
+		$this->assertStringContainsString( '<span class="footer-logo-mark"><img', $footer );
 		$this->assertStringContainsString( 'Relay Atlas', $footer );
 		$this->assertStringContainsString( '/assets/icons/', $footer );
 		$this->assertNotEmpty( $report['assets']['svg_icons'] ?? array() );
@@ -258,6 +287,44 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'Early Access', $header );
 		$this->assertStringContainsString( 'Get Started', $header );
 		$this->assertStringContainsString( 'Launch with Studio', $header );
+	}
+
+	/**
+	 * Classed theme chrome keeps source element ownership without core/html islands.
+	 */
+	public function test_classed_header_and_footer_chrome_preserve_source_elements(): void {
+		$html_path = $this->write_temp_fixture(
+			'classed-chrome.html',
+			'<!doctype html><html><head><title>Classed Chrome</title></head><body>' .
+			'<header><nav class="topbar"><a href="#" class="nav-logo">HOME<span>BOY</span></a><a href="#docs">Docs</a></nav></header>' .
+			'<main><section><h1>Classed chrome</h1><p>Body copy.</p></section></main>' .
+			'<footer><div class="footer-logo">HOMEBOY</div><p>Developer operations for engineers who ship with evidence.</p></footer>' .
+			'</body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Classed Chrome',
+				'slug'      => 'classed-chrome',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$header    = $this->read_file( $theme_dir . '/parts/header.html' );
+		$footer    = $this->read_file( $theme_dir . '/parts/footer.html' );
+
+		$this->assertStringNotContainsString( '<!-- wp:html', $header );
+		$this->assertStringNotContainsString( '<!-- wp:html', $footer );
+		$this->assertStringNotContainsString( '<p><a href="#" class="nav-logo">', $header );
+		$this->assertStringNotContainsString( '<p class="footer-logo">HOMEBOY</p>', $footer );
+		$this->assertStringContainsString( '<!-- wp:freeform --><a href="#" class="nav-logo">HOME<span>BOY</span></a><!-- /wp:freeform -->', $header );
+		$this->assertStringContainsString( '<!-- wp:freeform --><div class="footer-logo">HOMEBOY</div><!-- /wp:freeform -->', $footer );
 	}
 
 	/**
@@ -387,6 +454,45 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertInstanceOf( WP_Post::class, $nav_post );
 		$this->assertStringContainsString( '"label":"Intro"', $nav_post->post_content );
 		$this->assertStringContainsString( '"label":"Pricing"', $nav_post->post_content );
+	}
+
+	/**
+	 * Classed header/footer identity chrome does not silently move classes onto paragraphs.
+	 */
+	public function test_classed_header_footer_identity_chrome_reports_or_preserves_ownership(): void {
+		$html_path = $this->write_temp_fixture(
+			'homeboy-chrome-identity.html',
+			'<!doctype html><html><head><title>Homeboy Chrome Identity</title></head><body>' .
+			'<header><nav class="site-nav"><a href="#" class="nav-logo">HOME<span>BOY</span></a><ul><li><a href="#evidence">Evidence</a></li></ul></nav></header>' .
+			'<main id="evidence"><h1>Evidence</h1><p>Body copy.</p></main>' .
+			'<footer><div class="footer-logo">HOMEBOY</div><p>Developer operations for engineers who ship with evidence.</p></footer>' .
+			'</body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Homeboy Chrome Identity',
+				'slug'      => 'homeboy-chrome-identity',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$header    = $this->read_file( $theme_dir . '/parts/header.html' );
+		$footer    = $this->read_file( $theme_dir . '/parts/footer.html' );
+		$report    = json_decode( $this->read_file( $result['report_path'] ), true );
+
+		$this->assertStringContainsString( '<!-- wp:freeform --><a href="#" class="nav-logo">HOME<span>BOY</span></a><!-- /wp:freeform -->', $header );
+		$this->assertStringNotContainsString( '<p><a href="#" class="nav-logo">HOME<span>BOY</span></a></p>', $header );
+		$this->assertStringNotContainsString( '<!-- wp:paragraph {"className":"footer-logo"} --><p class="footer-logo">HOMEBOY</p>', $footer );
+		$this->assertStringContainsString( '<!-- wp:freeform --><div class="footer-logo">HOMEBOY</div><!-- /wp:freeform -->', $footer );
+		$this->assertStringNotContainsString( 'paragraph_wrapper_required_for_identity_anchor', wp_json_encode( $report['diagnostics'] ?? array() ) ?: '' );
+		$this->assertStringNotContainsString( 'native_group_wrapper_preserved_identity_class', wp_json_encode( $report['diagnostics'] ?? array() ) ?: '' );
 	}
 
 	/**
@@ -917,7 +1023,7 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$html_path = $this->write_temp_fixture(
 			'relay-atlas-chrome.html',
 			'<!doctype html><html><head><title>Relay Atlas Chrome</title></head><body>' .
-			'<nav><div class="nav-inner"><a href="/" class="nav-logo"><svg class="logo-mark" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 2 22 20H2Z" fill="currentColor"/></svg><span>Relay Atlas</span></a><ul class="nav-links"><li><a href="#features">Features</a></li><li><a href="#pricing">Pricing</a></li></ul><div class="nav-cta"><a href="#signin" class="login-link">Sign in</a><a href="#start" class="btn-primary">Start free</a></div></div></nav>' .
+			'<nav><div class="nav-inner"><a href="/" class="nav-logo"><div class="nav-logo-mark"><svg class="logo-mark" viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><path d="M3 5h5v5H3zM10 5h5v2h-5zM10 9h5v2h-5zM3 12h12v1H3z" fill="currentColor"/><circle cx="4.5" cy="14.5" r="1.5" fill="currentColor" fill-opacity="0.6"/></svg></div><span class="nav-wordmark">Relay Atlas</span></a><ul class="nav-links"><li><a href="#features">Features</a></li><li><a href="#pricing">Pricing</a></li></ul><div class="nav-cta"><a href="#signin" class="login-link">Sign in</a><a href="#start" class="btn-primary">Start free</a></div></div></nav>' .
 			'<main><section id="features"><h1>Map every handoff</h1><p>Relay Atlas keeps launch teams aligned.</p></section><section id="pricing"><h2>Pricing</h2><p>Simple plans.</p></section></main>' .
 			'<footer><div class="footer-inner"><div class="footer-left"><svg class="footer-logo-mark" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor"/></svg><span>Relay Atlas</span></div><ul class="footer-links"><li><a href="#features">Features</a></li><li><a href="#pricing">Pricing</a></li></ul></div></footer>' .
 			'</body></html>'
@@ -952,6 +1058,9 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 
 		$this->assertStringNotContainsString( '<!-- wp:html --><nav', $header );
 		$this->assertStringNotContainsString( '<!-- wp:html --><div class="nav-inner"', $header );
+		$this->assertStringNotContainsString( '<!-- wp:html --><a href="/" class="nav-logo"', $header );
+		$this->assertStringContainsString( '/assets/icons/', $header );
+		$this->assertStringContainsString( 'nav-wordmark', $header );
 		$this->assertStringNotContainsString( '<!-- wp:paragraph {"className":"nav-cta"}', $header );
 		$this->assertStringContainsString( '<!-- wp:group {"className":"nav-cta"}', $header );
 		$this->assertSame( 1, substr_count( $header, '"className":"nav-inner"' ) );
@@ -965,6 +1074,7 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertInstanceOf( WP_Post::class, $footer_nav );
 		$this->assertStringContainsString( '"label":"Features"', $header_nav->post_content );
 		$this->assertStringContainsString( '"label":"Pricing"', $footer_nav->post_content );
+		$this->assertSame( 0, $report['quality']['core_html_block_count'] ?? null );
 		$this->assertSame( 0, $report['quality']['unsafe_svg_count'] ?? null );
 		$this->assertNotEmpty( $report['assets']['svg_icons'] ?? array() );
 	}

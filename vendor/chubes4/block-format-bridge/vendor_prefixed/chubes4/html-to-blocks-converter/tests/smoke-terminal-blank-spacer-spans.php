@@ -3,9 +3,12 @@
 namespace BlockFormatBridge\Vendor;
 
 /**
- * Smoke test: traffic-light decorative dots convert to native blocks.
+ * Smoke test: Homeboy terminal blank spacer spans stay block-native.
  *
- * Run: php tests/smoke-traffic-light-decorative-dots.php
+ * Evidence: html-to-blocks-converter issue #216, Homeboy benchmark run
+ * 9b245aa9-76c1-4009-b64b-b5fb9c654497.
+ *
+ * Run: php tests/smoke-terminal-blank-spacer-spans.php
  */
 // phpcs:disable
 if (!\defined('ABSPATH')) {
@@ -23,6 +26,13 @@ if (!\class_exists('WP_HTML_Processor', \false)) {
     if ($wp_html_api_path === '') {
         \fwrite(\STDERR, "FAIL: WP_HTML_Processor is unavailable. Set WP_HTML_API_PATH to wp-includes/html-api.\n");
         exit(1);
+    }
+    $core_root = \dirname($wp_html_api_path);
+    if (\is_file($core_root . '/class-wp-token-map.php')) {
+        require_once $core_root . '/class-wp-token-map.php';
+    }
+    if (\is_file($wp_html_api_path . '/html5-named-character-references.php')) {
+        require_once $wp_html_api_path . '/html5-named-character-references.php';
     }
     foreach (['class-wp-html-attribute-token.php', 'class-wp-html-span.php', 'class-wp-html-text-replacement.php', 'class-wp-html-decoder.php', 'class-wp-html-doctype-info.php', 'class-wp-html-unsupported-exception.php', 'class-wp-html-token.php', 'class-wp-html-tag-processor.php', 'class-wp-html-stack-event.php', 'class-wp-html-open-elements.php', 'class-wp-html-active-formatting-elements.php', 'class-wp-html-processor-state.php', 'class-wp-html-processor.php'] as $file) {
         require_once $wp_html_api_path . '/' . $file;
@@ -118,47 +128,47 @@ $flatten_blocks = static function (array $blocks) use (&$flatten_blocks): array 
     return $flat;
 };
 $html = <<<'HTML'
-<div class="traffic-light tl-red"></div>
-<div class="traffic-light tl-yellow"></div>
-<div class="traffic-light tl-green"></div>
+<div class="terminal-body">
+  <p><span class="t-prompt">$</span> <span class="t-cmd">hb rig up --env staging</span></p>
+  <p class="t-output t-success">✓ Rig provisioned in 4.2s</p>
+  <span class="t-blank"></span>
+  <p><span class="t-prompt">$</span> <span class="t-cmd">hb bench run --baseline main</span></p>
+  <p class="t-output">Running 3 benchmark suites…</p>
+  <p class="t-output t-success">✓ p99 latency 18ms (-23% vs main)</p>
+  <p class="t-output t-info">→ report saved: .homeboy/bench/2024-11-18.json</p>
+  <span class="t-blank"></span>
+  <p><span class="t-prompt">$</span> <span class="t-cmd">hb trace analyze --since 2h</span></p>
+  <p class="t-output t-warn">! 3 slow spans detected in auth pipeline</p>
+  <p class="t-output t-info">→ flamegraph: .homeboy/traces/auth-slow.html</p>
+  <span class="t-blank"></span>
+  <p><span class="t-prompt">$</span> <span class="t-cmd">hb pr ready</span></p>
+  <p class="t-output t-success">✓ PR report generated with evidence bundle</p>
+  <p class="t-output t-success">✓ Opened: github.com/org/repo/pull/412</p>
+  <span class="t-blank"></span>
+  <p><span class="t-prompt">$</span> <span class="cursor"></span></p>
+</div>
 HTML;
 $blocks = html_to_blocks_raw_handler(['HTML' => $html]);
 $flat = $flatten_blocks($blocks);
 $names = \array_map(static function ($block) {
     return $block['blockName'] ?? '';
 }, $flat);
-$class_names = \array_filter(\array_map(static function ($block) {
-    return $block['attrs']['className'] ?? '';
-}, $flat));
 $serialized = serialize_blocks($blocks);
-$assert(\count($blocks) === 3, 'traffic-light-dots-are-not-dropped', (string) \count($blocks));
-$assert(!\in_array('core/html', $names, \true), 'traffic-light-dots-do-not-use-core-html', \implode(', ', $names));
-$assert(\count($fallback_events) === 0, 'traffic-light-dots-emit-no-fallback-events', (string) \count($fallback_events));
-$assert(\in_array('core/group', $names, \true), 'traffic-light-dots-use-group-blocks', \implode(', ', $names));
-$assert(\in_array('traffic-light tl-red', $class_names, \true), 'red-dot-classes-survive', \implode(', ', $class_names));
-$assert(\in_array('traffic-light tl-yellow', $class_names, \true), 'yellow-dot-classes-survive', \implode(', ', $class_names));
-$assert(\in_array('traffic-light tl-green', $class_names, \true), 'green-dot-classes-survive', \implode(', ', $class_names));
-$assert(!\str_contains($serialized, '<!-- wp:html -->'), 'serialized-output-has-no-wp-html', $serialized);
-$fallback_events = [];
-$code_dot_blocks = html_to_blocks_raw_handler(['HTML' => <<<'HTML'
-<div class="code-dot red"></div>
-<div class="code-dot yellow"></div>
-<div class="code-dot green"></div>
-HTML
-]);
-$code_dot_names = \array_map(static function ($block) {
+$assert(\count($blocks) === 1, 'terminal-body-single-wrapper', (string) \count($blocks));
+$assert(($blocks[0]['blockName'] ?? '') === 'core/group', 'terminal-body-wrapper-is-group', \implode(', ', $names));
+$assert(!\in_array('core/html', $names, \true), 'terminal-body-does-not-use-core-html', \implode(', ', $names));
+$assert(\count($fallback_events) === 0, 'terminal-body-emits-no-fallback-events', (string) \count($fallback_events));
+$assert(\substr_count($serialized, 'class="t-blank"') >= 4, 'terminal-blank-spacers-survive', $serialized);
+$assert(!\str_contains($serialized, '<!-- wp:html -->'), 'terminal-body-serialized-output-has-no-wp-html', $serialized);
+$legacy_fallback_blocks = [['blockName' => 'core/html', 'attrs' => ['content' => '<span class="t-blank"></span>'], 'innerBlocks' => [], 'innerHTML' => '<span class="t-blank"></span>', 'innerContent' => ['<span class="t-blank"></span>']]];
+$normalized_fallback = html_to_blocks_normalize_parsed_image_html_blocks($legacy_fallback_blocks);
+$normalized_names = \array_map(static function ($block) {
     return $block['blockName'] ?? '';
-}, $flatten_blocks($code_dot_blocks));
-$assert(\count($code_dot_blocks) === 0, 'empty-code-dot-chrome-is-dropped', (string) \count($code_dot_blocks));
-$assert(!\in_array('core/html', $code_dot_names, \true), 'empty-code-dot-chrome-does-not-use-core-html', \implode(', ', $code_dot_names));
-$assert(\count($fallback_events) === 0, 'empty-code-dot-chrome-emits-no-fallback-events', (string) \count($fallback_events));
-$fallback_events = [];
-$arbitrary_blocks = html_to_blocks_raw_handler(['HTML' => '<div class="custom-widget">Meaningful widget copy</div>']);
-$arbitrary_names = \array_map(static function ($block) {
-    return $block['blockName'] ?? '';
-}, $flatten_blocks($arbitrary_blocks));
-$assert(!\in_array('core/group', $arbitrary_names, \true), 'non-empty-arbitrary-div-does-not-become-group', \implode(', ', $arbitrary_names));
-$assert(\in_array('core/paragraph', $arbitrary_names, \true), 'non-empty-arbitrary-div-remains-textual', \implode(', ', $arbitrary_names));
+}, $flatten_blocks($normalized_fallback));
+$normalized_serialized = serialize_blocks($normalized_fallback);
+$assert(!\in_array('core/html', $normalized_names, \true), 'legacy-t-blank-fallback-normalizes-away-from-core-html', \implode(', ', $normalized_names));
+$assert(\str_contains($normalized_serialized, 'class="t-blank"'), 'legacy-t-blank-class-survives', $normalized_serialized);
+$assert(!\str_contains($normalized_serialized, '<!-- wp:html -->'), 'legacy-t-blank-serialized-output-has-no-wp-html', $normalized_serialized);
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

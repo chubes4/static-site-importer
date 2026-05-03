@@ -3,9 +3,9 @@
 namespace BlockFormatBridge\Vendor;
 
 /**
- * Smoke test: traffic-light decorative dots convert to native blocks.
+ * Smoke test: simple decorative and CTA wrapper divs avoid HTML fallbacks.
  *
- * Run: php tests/smoke-traffic-light-decorative-dots.php
+ * Run: php tests/smoke-decorative-cta-wrapper-divs.php
  */
 // phpcs:disable
 if (!\defined('ABSPATH')) {
@@ -37,7 +37,7 @@ if (!\class_exists('WP_Block_Type_Registry', \false)) {
         }
         public function is_registered($name)
         {
-            return \in_array($name, ['core/group', 'core/html', 'core/paragraph'], \true);
+            return \in_array($name, ['core/button', 'core/buttons', 'core/group', 'core/html', 'core/paragraph'], \true);
         }
         public function get_registered($name)
         {
@@ -73,28 +73,6 @@ if (!\function_exists('do_action')) {
         }
     }
 }
-if (!\function_exists('BlockFormatBridge\Vendor\serialize_blocks')) {
-    function serialize_blocks(array $blocks): string
-    {
-        $output = '';
-        foreach ($blocks as $block) {
-            $name = $block['blockName'] ?? '';
-            $attrs = \array_diff_key($block['attrs'] ?? [], ['content' => \true]);
-            $attrs_json = empty($attrs) ? '' : ' ' . \json_encode($attrs, \JSON_UNESCAPED_SLASHES);
-            if ($name === 'core/html') {
-                $output .= '<!-- wp:html -->' . ($block['attrs']['content'] ?? $block['innerHTML'] ?? '') . '<!-- /wp:html -->';
-                continue;
-            }
-            $output .= '<!-- wp:' . \substr($name, 5) . $attrs_json . ' -->';
-            $output .= $block['innerContent'][0] ?? $block['innerHTML'] ?? '';
-            $output .= serialize_blocks($block['innerBlocks'] ?? []);
-            $inner_content = $block['innerContent'] ?? [];
-            $output .= \end($inner_content) ?: '';
-            $output .= '<!-- /wp:' . \substr($name, 5) . ' -->';
-        }
-        return $output;
-    }
-}
 $repo_root = \dirname(__DIR__);
 require_once $repo_root . '/includes/class-block-factory.php';
 require_once $repo_root . '/includes/class-attribute-parser.php';
@@ -117,10 +95,11 @@ $flatten_blocks = static function (array $blocks) use (&$flatten_blocks): array 
     }
     return $flat;
 };
-$html = <<<'HTML'
-<div class="traffic-light tl-red"></div>
-<div class="traffic-light tl-yellow"></div>
-<div class="traffic-light tl-green"></div>
+$html = <<<HTML
+<div class="divider"></div>
+<div class="center">
+  <a class="btn primary" href="http://localhost:8881/comparison/">Compare it to the old way →</a>
+</div>
 HTML;
 $blocks = html_to_blocks_raw_handler(['HTML' => $html]);
 $flat = $flatten_blocks($blocks);
@@ -130,35 +109,22 @@ $names = \array_map(static function ($block) {
 $class_names = \array_filter(\array_map(static function ($block) {
     return $block['attrs']['className'] ?? '';
 }, $flat));
-$serialized = serialize_blocks($blocks);
-$assert(\count($blocks) === 3, 'traffic-light-dots-are-not-dropped', (string) \count($blocks));
-$assert(!\in_array('core/html', $names, \true), 'traffic-light-dots-do-not-use-core-html', \implode(', ', $names));
-$assert(\count($fallback_events) === 0, 'traffic-light-dots-emit-no-fallback-events', (string) \count($fallback_events));
-$assert(\in_array('core/group', $names, \true), 'traffic-light-dots-use-group-blocks', \implode(', ', $names));
-$assert(\in_array('traffic-light tl-red', $class_names, \true), 'red-dot-classes-survive', \implode(', ', $class_names));
-$assert(\in_array('traffic-light tl-yellow', $class_names, \true), 'yellow-dot-classes-survive', \implode(', ', $class_names));
-$assert(\in_array('traffic-light tl-green', $class_names, \true), 'green-dot-classes-survive', \implode(', ', $class_names));
-$assert(!\str_contains($serialized, '<!-- wp:html -->'), 'serialized-output-has-no-wp-html', $serialized);
-$fallback_events = [];
-$code_dot_blocks = html_to_blocks_raw_handler(['HTML' => <<<'HTML'
-<div class="code-dot red"></div>
-<div class="code-dot yellow"></div>
-<div class="code-dot green"></div>
-HTML
-]);
-$code_dot_names = \array_map(static function ($block) {
-    return $block['blockName'] ?? '';
-}, $flatten_blocks($code_dot_blocks));
-$assert(\count($code_dot_blocks) === 0, 'empty-code-dot-chrome-is-dropped', (string) \count($code_dot_blocks));
-$assert(!\in_array('core/html', $code_dot_names, \true), 'empty-code-dot-chrome-does-not-use-core-html', \implode(', ', $code_dot_names));
-$assert(\count($fallback_events) === 0, 'empty-code-dot-chrome-emits-no-fallback-events', (string) \count($fallback_events));
-$fallback_events = [];
-$arbitrary_blocks = html_to_blocks_raw_handler(['HTML' => '<div class="custom-widget">Meaningful widget copy</div>']);
-$arbitrary_names = \array_map(static function ($block) {
-    return $block['blockName'] ?? '';
-}, $flatten_blocks($arbitrary_blocks));
-$assert(!\in_array('core/group', $arbitrary_names, \true), 'non-empty-arbitrary-div-does-not-become-group', \implode(', ', $arbitrary_names));
-$assert(\in_array('core/paragraph', $arbitrary_names, \true), 'non-empty-arbitrary-div-remains-textual', \implode(', ', $arbitrary_names));
+$button_blocks = \array_values(\array_filter($flat, static function ($block) {
+    return ($block['blockName'] ?? '') === 'core/button';
+}));
+$serialized = \implode("\n", \array_column($flat, 'innerHTML'));
+$assert(!\in_array('core/html', $names, \true), 'issue-208-fragments-do-not-use-core-html', \implode(', ', $names));
+$assert(\count($fallback_events) === 0, 'issue-208-fragments-emit-no-fallback-events', (string) \count($fallback_events));
+$assert(\in_array('core/group', $names, \true), 'empty-divider-becomes-native-group', \implode(', ', $names));
+$assert(\in_array('core/buttons', $names, \true), 'centered-cta-wrapper-becomes-buttons', \implode(', ', $names));
+$assert(\count($button_blocks) === 1, 'cta-renders-one-button-block', (string) \count($button_blocks));
+$assert(\in_array('divider', $class_names, \true), 'divider-class-survives', \implode(', ', $class_names));
+$assert(\in_array('center', $class_names, \true), 'center-wrapper-class-survives', \implode(', ', $class_names));
+$assert(isset($button_blocks[0]['attrs']['className']) && $button_blocks[0]['attrs']['className'] === 'btn primary', 'cta-button-classes-survive', $button_blocks[0]['attrs']['className'] ?? '');
+$assert(isset($button_blocks[0]['attrs']['url']) && $button_blocks[0]['attrs']['url'] === 'http://localhost:8881/comparison/', 'cta-url-preserved', $button_blocks[0]['attrs']['url'] ?? '');
+$assert(isset($button_blocks[0]['attrs']['text']) && $button_blocks[0]['attrs']['text'] === 'Compare it to the old way →', 'cta-text-preserved', $button_blocks[0]['attrs']['text'] ?? '');
+$assert(\substr_count($serialized, 'Compare it to the old way →') === 1, 'cta-text-serialized-once', $serialized);
+$assert(\substr_count($serialized, 'http://localhost:8881/comparison/') === 1, 'cta-url-serialized-once', $serialized);
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;
