@@ -584,9 +584,9 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Source cleanup is available for callers that do not need import artifacts.
+	 * Source cleanup is the default after a clean import.
 	 */
-	public function test_delete_source_removes_source_directory_after_clean_import(): void {
+	public function test_source_directory_is_deleted_after_clean_import(): void {
 		$html_path  = $this->write_temp_fixture(
 			'index.html',
 			'<!doctype html><html><head><title>Clean Import</title></head><body><main><h1>Clean Import</h1><p>Body copy.</p></main></body></html>'
@@ -600,7 +600,6 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 				'slug'          => 'clean-import-cleanup',
 				'overwrite'     => true,
 				'activate'      => false,
-				'delete_source' => true,
 			)
 		);
 
@@ -613,9 +612,38 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Broken imports keep source artifacts even when cleanup is requested.
+	 * Developers can keep source artifacts for debugging and iteration.
 	 */
-	public function test_delete_source_preserves_source_directory_when_quality_fails(): void {
+	public function test_keep_source_preserves_source_directory_after_clean_import(): void {
+		$html_path  = $this->write_temp_fixture(
+			'index.html',
+			'<!doctype html><html><head><title>Kept Import</title></head><body><main><h1>Kept Import</h1><p>Body copy.</p></main></body></html>'
+		);
+		$source_dir = dirname( $html_path );
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'        => 'Kept Import Source',
+				'slug'        => 'kept-import-source',
+				'overwrite'   => true,
+				'activate'    => false,
+				'keep_source' => true,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+		$this->assertTrue( $result['quality']['pass'] ?? false );
+		$this->assertFalse( $result['source_deleted'] ?? true );
+		$this->assertSame( '', $result['source_cleanup_error'] ?? null );
+		$this->assertTrue( file_exists( $source_dir ), 'Clean import source directory should be preserved when requested.' );
+	}
+
+	/**
+	 * Broken imports always keep source artifacts.
+	 */
+	public function test_source_directory_is_preserved_when_quality_fails(): void {
 		$html_path  = $this->write_temp_fixture(
 			'index.html',
 			'<!doctype html><html><head><title>Broken Import</title></head><body><main><h1>Broken Import</h1><svg viewBox="0 0 24 24"><script>alert(1)</script><path d="M0 0h24v24H0z"/></svg></main></body></html>'
@@ -629,7 +657,6 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 				'slug'          => 'broken-import-cleanup',
 				'overwrite'     => true,
 				'activate'      => false,
-				'delete_source' => true,
 			)
 		);
 
