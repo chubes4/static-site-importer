@@ -50,7 +50,7 @@ class Static_Site_Importer_Document {
 	 * @return self|WP_Error
 	 */
 	public static function from_file( string $path ) {
-		if ( ! is_readable( $path ) ) {
+		if ( ! is_file( $path ) ) {
 			return new WP_Error( 'static_site_importer_unreadable_file', sprintf( 'HTML file is not readable: %s', $path ) );
 		}
 
