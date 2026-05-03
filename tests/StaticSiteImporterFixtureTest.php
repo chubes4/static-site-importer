@@ -619,6 +619,60 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Empty decorative hero background chrome in theme parts serializes as native groups.
+	 */
+	public function test_empty_hero_background_chrome_in_header_part_uses_native_blocks(): void {
+		$html_path = $this->write_temp_fixture(
+			'relay-atlas-header-hero-bg.html',
+			'<!doctype html><html><head><title>Relay Atlas Header Hero Background</title><style>' .
+			'.site-header { position: relative; overflow: hidden; min-height: 72vh; }' .
+			'.hero-bg { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at top right, rgba(88,166,255,.28), transparent 42%); }' .
+			'.hero-copy { position: relative; z-index: 1; }' .
+			'</style></head><body>' .
+			'<header class="site-header"><div class="hero-bg"></div><nav><a href="#features">Features</a></nav><div class="hero-copy"><h1>Relay Atlas</h1><p>Map every launch handoff.</p></div></header>' .
+			'<main id="features"><section><h2>Features</h2><p>Benchmark evidence for issue 92.</p></section></main>' .
+			'</body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Relay Atlas Header Hero Background',
+				'slug'      => 'relay-atlas-header-hero-bg',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$header    = $this->read_file( $theme_dir . '/parts/header.html' );
+		$style     = $this->read_file( $theme_dir . '/style.css' );
+		$report    = json_decode( $this->read_file( $result['report_path'] ), true );
+
+		$this->assertStringContainsString( '<!-- wp:group {"className":"hero-bg static-site-importer-decorative-layer"}', $header );
+		$this->assertStringContainsString( '<div class="wp-block-group hero-bg static-site-importer-decorative-layer"></div>', $header );
+		$this->assertStringNotContainsString( '<!-- wp:html --><div class="hero-bg"></div><!-- /wp:html -->', $header );
+		$this->assertStringNotContainsString( '<!-- wp:html -->', $header );
+		$this->assertStringContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .hero-bg)', $style );
+		$this->assertSame( 0, $report['quality']['fallback_count'] ?? null );
+		$this->assertSame( 0, $report['quality']['core_html_block_count'] ?? null );
+		$this->assertSame( 0, $report['quality']['invalid_block_count'] ?? null );
+
+		$header_document = null;
+		foreach ( $report['generated_theme']['block_documents'] ?? array() as $document ) {
+			if ( 'parts/header.html' === ( $document['path'] ?? '' ) ) {
+				$header_document = $document;
+				break;
+			}
+		}
+		$this->assertIsArray( $header_document );
+		$this->assertSame( 0, $header_document['core_html_block_count'] ?? null );
+	}
+
+	/**
 	 * Normal empty groups without decorative CSS are not marked for hidden editor controls.
 	 */
 	public function test_normal_empty_groups_remain_unmarked_for_editor_controls(): void {
