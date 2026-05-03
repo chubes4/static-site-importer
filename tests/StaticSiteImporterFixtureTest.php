@@ -225,6 +225,45 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Footer-like content inside a page section is content, not an empty shared footer part.
+	 */
+	public function test_nested_footer_bar_does_not_emit_empty_footer_part(): void {
+		$html_path = $this->write_temp_fixture(
+			'nested-footer-bar.html',
+			'<!doctype html><html><head><title>Nested Footer Bar</title></head><body>' .
+			'<nav class="top-nav"><a href="/">Home</a></nav>' .
+			'<main><section class="cta"><h1>Ship the site</h1><p>CTA body.</p><div class="footer-bar"><span>Fine print stays with the CTA.</span></div></section></main>' .
+			'</body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Nested Footer Bar',
+				'slug'      => 'nested-footer-bar',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$pattern   = $this->pattern_blocks( $this->read_file( $theme_dir . '/patterns/page-nested-footer-bar.php' ) );
+		$page      = $this->read_file( $theme_dir . '/templates/page.html' );
+		$template  = $this->read_file( $theme_dir . '/templates/page-nested-footer-bar.html' );
+		$report    = json_decode( $this->read_file( $result['report_path'] ), true );
+
+		$this->assertFileDoesNotExist( $theme_dir . '/parts/footer.html' );
+		$this->assertStringNotContainsString( '"slug":"footer"', $page );
+		$this->assertStringNotContainsString( '"slug":"footer"', $template );
+		$this->assertStringContainsString( 'footer-bar', $pattern );
+		$this->assertStringContainsString( 'Fine print stays with the CTA.', $pattern );
+		$this->assertNotContains( 'parts/footer.html', $report['visual_fidelity']['comparison_targets'][0]['comparison_hooks']['generated_files'] ?? array() );
+	}
+
+	/**
 	 * Source button styles are moved to the inner link without restyling the core/button wrapper.
 	 */
 	public function test_source_button_class_styles_do_not_double_apply_to_core_button_wrapper(): void {

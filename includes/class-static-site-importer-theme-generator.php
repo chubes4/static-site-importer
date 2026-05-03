@@ -111,7 +111,8 @@ class Static_Site_Importer_Theme_Generator {
 
 		$background_blocks = self::convert_fragment( self::rewrite_internal_links( $fragments['background'], $permalinks ), 'background:index.html' );
 		$header_blocks     = self::convert_header_fragment( self::strip_active_classes( self::rewrite_internal_links( $fragments['header'], $permalinks ) ), $theme_slug );
-		$footer_blocks     = self::convert_footer_fragment( self::rewrite_internal_links( $fragments['footer'], $permalinks ), $theme_slug );
+		$has_footer_part   = '' !== trim( $fragments['footer'] );
+		$footer_blocks     = $has_footer_part ? self::convert_footer_fragment( self::rewrite_internal_links( $fragments['footer'], $permalinks ), $theme_slug ) : '';
 
 		$page_artifacts = self::page_artifacts( $pages, $permalinks, $theme_slug );
 
@@ -126,11 +127,13 @@ class Static_Site_Importer_Theme_Generator {
 			$theme_dir . '/functions.php'             => self::functions_php( $theme_slug ),
 			$theme_dir . '/theme.json'                => self::theme_json( $theme_name, $site_css ),
 			$theme_dir . '/parts/header.html'         => $header_blocks,
-			$theme_dir . '/parts/footer.html'         => $footer_blocks,
-			$theme_dir . '/templates/front-page.html' => self::page_pattern_template( $background_blocks, $page_artifacts['patterns']['index.html'] ?? '' ),
-			$theme_dir . '/templates/page.html'       => self::content_template( $background_blocks ),
-			$theme_dir . '/templates/index.html'      => self::content_template( $background_blocks ),
+			$theme_dir . '/templates/front-page.html' => self::page_pattern_template( $background_blocks, $page_artifacts['patterns']['index.html'] ?? '', $has_footer_part ),
+			$theme_dir . '/templates/page.html'       => self::content_template( $background_blocks, $has_footer_part ),
+			$theme_dir . '/templates/index.html'      => self::content_template( $background_blocks, $has_footer_part ),
 		);
+		if ( $has_footer_part ) {
+			$writes[ $theme_dir . '/parts/footer.html' ] = $footer_blocks;
+		}
 
 		foreach ( $page_artifacts['patterns'] as $filename => $pattern_slug ) {
 			$slug = self::page_slug( $filename );
@@ -138,7 +141,7 @@ class Static_Site_Importer_Theme_Generator {
 				continue;
 			}
 
-			$writes[ $theme_dir . '/templates/page-' . $slug . '.html' ] = self::page_pattern_template( $background_blocks, $pattern_slug );
+			$writes[ $theme_dir . '/templates/page-' . $slug . '.html' ] = self::page_pattern_template( $background_blocks, $pattern_slug, $has_footer_part );
 			$writes[ $theme_dir . '/patterns/page-' . $slug . '.php' ]   = $page_artifacts['files'][ $filename ] ?? '';
 		}
 
@@ -153,6 +156,10 @@ class Static_Site_Importer_Theme_Generator {
 		$report_json = wp_json_encode( self::$conversion_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 		if ( false === $report_json ) {
 			return new WP_Error( 'static_site_importer_report_encode_failed', 'Failed to encode import report JSON.' );
+		}
+
+		if ( ! $has_footer_part && file_exists( $theme_dir . '/parts/footer.html' ) && ! wp_delete_file( $theme_dir . '/parts/footer.html' ) ) {
+			return new WP_Error( 'static_site_importer_stale_footer_delete_failed', 'Failed to remove stale footer template part.' );
 		}
 
 		$writes[ $theme_dir . '/import-report.json' ] = $report_json . "\n";
@@ -1324,6 +1331,7 @@ class Static_Site_Importer_Theme_Generator {
 			$template    = '' === $slug ? '' : 'templates/page-' . $slug . '.html';
 			$pattern     = '' === $slug ? '' : 'patterns/page-' . $slug . '.php';
 			$generated   = self::generated_visual_probe_markup( $writes, $theme_prefix, $pattern );
+			$footer_part = isset( $writes[ $theme_prefix . 'parts/footer.html' ] ) ? 'parts/footer.html' : '';
 
 			self::$conversion_report['visual_fidelity']['comparison_targets'][] = array(
 				'source_file'            => $page['path'],
@@ -1342,7 +1350,7 @@ class Static_Site_Importer_Theme_Generator {
 					'hero'            => array( '.hero', 'header', '[class*=hero]' ),
 					'buttons'         => array( 'a[class*=btn]', 'a[class*=button]', 'a[class*=cta]', 'button', '.wp-block-button__link' ),
 					'visible_chrome'  => array( 'nav', 'header', 'footer' ),
-					'generated_files' => array_values( array_filter( array( $template, $pattern, 'parts/header.html', 'parts/footer.html', 'style.css' ) ) ),
+					'generated_files' => array_values( array_filter( array( $template, $pattern, 'parts/header.html', $footer_part, 'style.css' ) ) ),
 				),
 			);
 		}
@@ -2577,14 +2585,17 @@ class Static_Site_Importer_Theme_Generator {
 	 * Build a template that renders imported page content.
 	 *
 	 * @param string $background_blocks Background decoration blocks.
+	 * @param bool   $has_footer_part   Whether a shared footer template part was generated.
 	 * @return string
 	 */
-	private static function content_template( string $background_blocks ): string {
+	private static function content_template( string $background_blocks, bool $has_footer_part ): string {
+		$footer_part = $has_footer_part ? '<!-- wp:template-part {"slug":"footer","tagName":"footer"} /-->' : '';
+
 		return trim(
 			'<!-- wp:template-part {"slug":"header","tagName":"header"} /-->' . "\n\n" .
 			$background_blocks . "\n\n" .
 			'<!-- wp:post-content /-->' . "\n\n" .
-			'<!-- wp:template-part {"slug":"footer","tagName":"footer"} /-->'
+			$footer_part
 		) . "\n";
 	}
 
@@ -2593,16 +2604,18 @@ class Static_Site_Importer_Theme_Generator {
 	 *
 	 * @param string $background_blocks Background decoration blocks.
 	 * @param string $pattern_slug      Pattern slug.
+	 * @param bool   $has_footer_part   Whether a shared footer template part was generated.
 	 * @return string
 	 */
-	private static function page_pattern_template( string $background_blocks, string $pattern_slug ): string {
-		$body = '' === $pattern_slug ? '<!-- wp:post-content /-->' : '<!-- wp:pattern {"slug":"' . esc_attr( $pattern_slug ) . '"} /-->';
+	private static function page_pattern_template( string $background_blocks, string $pattern_slug, bool $has_footer_part ): string {
+		$body        = '' === $pattern_slug ? '<!-- wp:post-content /-->' : '<!-- wp:pattern {"slug":"' . esc_attr( $pattern_slug ) . '"} /-->';
+		$footer_part = $has_footer_part ? '<!-- wp:template-part {"slug":"footer","tagName":"footer"} /-->' : '';
 
 		return trim(
 			'<!-- wp:template-part {"slug":"header","tagName":"header"} /-->' . "\n\n" .
 			$background_blocks . "\n\n" .
 			$body . "\n\n" .
-			'<!-- wp:template-part {"slug":"footer","tagName":"footer"} /-->'
+			$footer_part
 		) . "\n";
 	}
 

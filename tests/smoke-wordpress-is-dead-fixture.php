@@ -354,13 +354,52 @@ if ( false !== $wrote_nested_header ) {
 	);
 	$assert( ! is_wp_error( $nested_header_result ), 'nested-header-import-succeeds', is_wp_error( $nested_header_result ) ? $nested_header_result->get_error_message() : '' );
 	if ( ! is_wp_error( $nested_header_result ) ) {
-		$nested_header = $read( $nested_header_result['theme_dir'] . '/parts/header.html' );
+		$nested_header  = $read( $nested_header_result['theme_dir'] . '/parts/header.html' );
 		$nested_pattern = $pattern_blocks( $read( $nested_header_result['theme_dir'] . '/patterns/page-static-site-importer-nested-section-header.php' ) );
 		$assert( ! str_contains( $nested_header, 'proof-header' ), 'nested-section-header-not-extracted-to-global-header' );
 		$assert( ! str_contains( $nested_header, 'Six reasons the assumptions are wrong.' ), 'nested-section-heading-not-extracted-to-global-header' );
 		$assert( str_contains( $nested_pattern, 'proof-header' ), 'nested-section-header-class-stays-in-page-content' );
 		$assert( str_contains( $nested_pattern, 'Why It Actually Works' ), 'nested-section-label-stays-in-page-content' );
 		$assert( str_contains( $nested_pattern, 'Six reasons the assumptions are wrong.' ), 'nested-section-heading-stays-in-page-content' );
+	}
+}
+
+$nested_footer_dir     = trailingslashit( get_temp_dir() ) . 'static-site-importer-nested-footer-' . wp_generate_uuid4();
+$nested_footer_fixture = trailingslashit( $nested_footer_dir ) . 'index.html';
+wp_mkdir_p( $nested_footer_dir );
+$wrote_nested_footer   = file_put_contents(
+	$nested_footer_fixture,
+	'<!doctype html><html><head><title>Nested Footer Bar</title></head><body>' .
+	'<nav class="top-nav"><a href="/">Home</a></nav>' .
+	'<main><section class="cta"><h1>Ship the site</h1><p>CTA body.</p><div class="footer-bar"><span>Fine print stays with the CTA.</span></div></section></main>' .
+	'</body></html>'
+);
+$assert( false !== $wrote_nested_footer, 'nested-footer-fixture-written' );
+
+if ( false !== $wrote_nested_footer ) {
+	$nested_footer_result = Static_Site_Importer_Theme_Generator::import_theme(
+		$nested_footer_fixture,
+		array(
+			'name'      => 'Nested Footer Bar',
+			'slug'      => 'nested-footer-bar',
+			'overwrite' => true,
+			'activate'  => false,
+		)
+	);
+	$assert( ! is_wp_error( $nested_footer_result ), 'nested-footer-import-succeeds', is_wp_error( $nested_footer_result ) ? $nested_footer_result->get_error_message() : '' );
+	if ( ! is_wp_error( $nested_footer_result ) ) {
+		$nested_footer_theme_dir = $nested_footer_result['theme_dir'];
+		$nested_footer_pattern   = $pattern_blocks( $read( $nested_footer_theme_dir . '/patterns/page-home.php' ) );
+		$nested_footer_page      = $read( $nested_footer_theme_dir . '/templates/page.html' );
+		$nested_footer_template  = $read( $nested_footer_theme_dir . '/templates/front-page.html' );
+		$nested_footer_report    = json_decode( $read( $nested_footer_result['report_path'] ?? '' ), true );
+
+		$assert( ! file_exists( $nested_footer_theme_dir . '/parts/footer.html' ), 'nested-footer-does-not-emit-empty-footer-part' );
+		$assert( ! str_contains( $nested_footer_page, '"slug":"footer"' ), 'nested-footer-page-template-does-not-reference-footer-part' );
+		$assert( ! str_contains( $nested_footer_template, '"slug":"footer"' ), 'nested-footer-specific-template-does-not-reference-footer-part' );
+		$assert( str_contains( $nested_footer_pattern, 'footer-bar' ), 'nested-footer-bar-remains-in-page-content' );
+		$assert( str_contains( $nested_footer_pattern, 'Fine print stays with the CTA.' ), 'nested-footer-copy-remains-in-page-content' );
+		$assert( ! in_array( 'parts/footer.html', $nested_footer_report['visual_fidelity']['comparison_targets'][0]['comparison_hooks']['generated_files'] ?? array(), true ), 'nested-footer-report-omits-footer-part-file' );
 	}
 }
 
