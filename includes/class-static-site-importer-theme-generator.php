@@ -1779,17 +1779,65 @@ class Static_Site_Importer_Theme_Generator {
 				'source_probe_counts'    => self::visual_probe_counts( $source_html ),
 				'generated_probe_counts' => self::visual_probe_counts( $generated ),
 				'comparison_hooks'       => array(
-					'screenshot'      => array(
-						'source'    => $page['path'],
-						'generated' => $permalinks[ $filename ] ?? '',
+					'screenshot'       => array(
+						'source'          => $page['path'],
+						'frontend'        => $permalinks[ $filename ] ?? '',
+						'generated'       => $permalinks[ $filename ] ?? '',
+						'editor_surface' => 'site_editor_canvas',
 					),
-					'hero'            => array( '.hero', 'header', '[class*=hero]' ),
-					'buttons'         => array( 'a[class*=btn]', 'a[class*=button]', 'a[class*=cta]', 'button', '.wp-block-button__link' ),
-					'visible_chrome'  => array( 'nav', 'header', 'footer' ),
-					'generated_files' => array_values( array_filter( array( $template, $pattern, 'parts/header.html', $footer_part, 'style.css' ) ) ),
+					'render_surfaces'  => array(
+						'source_static'      => array(
+							'type' => 'file',
+							'url'  => $page['path'],
+						),
+						'wordpress_frontend' => array(
+							'type' => 'url',
+							'url'  => $permalinks[ $filename ] ?? '',
+						),
+						'site_editor_canvas' => array(
+							'type'              => 'wp-admin',
+							'url'               => admin_url( 'site-editor.php' ),
+							'wordpress_page_id' => $page_ids[ $filename ] ?? null,
+						),
+					),
+					'layout_probes'    => self::visual_layout_probes(),
+					'hero'             => array( '.hero', 'header', '[class*=hero]' ),
+					'buttons'          => array( 'a[class*=btn]', 'a[class*=button]', 'a[class*=cta]', 'button', '.wp-block-button__link' ),
+					'visible_chrome'   => array( 'nav', 'header', 'footer', '.site-header', '.nav-shell', '.top-nav' ),
+					'code_visuals'     => array( '.code-window', '.terminal', '[class*=code-window]', '[class*=terminal]', 'pre[class*=code]' ),
+					'problem_grids'    => array( '.problem-grid', '.problems-grid', '.problem-cards', '[class*=problem][class*=grid]', '[class*=problem][class*=cards]' ),
+					'generated_files'  => array_values( array_filter( array( $template, $pattern, 'parts/header.html', $footer_part, 'style.css' ) ) ),
 				),
 			);
 		}
+	}
+
+	/**
+	 * Browser-level visual probes the benchmark harness should run for every target.
+	 *
+	 * @return array<string, array<string, mixed>>
+	 */
+	private static function visual_layout_probes(): array {
+		return array(
+			'nav_chrome'    => array(
+				'selectors'  => array( 'nav', '.site-header', '.nav-shell', '.top-nav', '[class*=nav]' ),
+				'assertions' => array( 'visible', 'bounding_box_nonzero', 'frontend_editor_box_parity', 'frontend_editor_display_parity' ),
+			),
+			'code_visual'   => array(
+				'selectors'  => array( '.code-window', '.terminal', '[class*=code-window]', '[class*=terminal]', 'pre[class*=code]' ),
+				'assertions' => array( 'visible', 'bounding_box_nonzero', 'frontend_editor_visibility_parity' ),
+			),
+			'problem_grid'  => array(
+				'selectors'            => array( '.problem-grid', '.problems-grid', '.problem-cards', '[class*=problem][class*=grid]', '[class*=problem][class*=cards]' ),
+				'desktop_min_width_px' => 960,
+				'min_columns'          => 2,
+				'assertions'           => array( 'visible', 'children_same_row_desktop', 'frontend_editor_column_parity' ),
+			),
+			'hero_region'   => array(
+				'selectors'  => array( '.hero', 'header', '[class*=hero]' ),
+				'assertions' => array( 'visible', 'bounding_box_nonzero', 'source_frontend_editor_box_parity' ),
+			),
+		);
 	}
 
 	/**
@@ -1836,11 +1884,13 @@ class Static_Site_Importer_Theme_Generator {
 	 */
 	private static function visual_probe_counts( string $html ): array {
 		return array(
-			'hero_candidates'    => self::visual_probe_count( $html, 'hero' ),
-			'button_candidates'  => self::visual_probe_count( $html, 'button' ),
-			'nav_candidates'     => self::visual_probe_count( $html, 'nav' ),
-			'footer_candidates'  => self::visual_probe_count( $html, 'footer' ),
-			'core_button_blocks' => self::count_block_name_in_markup( $html, 'core/button' ),
+			'hero_candidates'        => self::visual_probe_count( $html, 'hero' ),
+			'button_candidates'      => self::visual_probe_count( $html, 'button' ),
+			'nav_candidates'         => self::visual_probe_count( $html, 'nav' ),
+			'footer_candidates'      => self::visual_probe_count( $html, 'footer' ),
+			'code_visual_candidates' => self::visual_probe_count( $html, 'code_visual' ),
+			'grid_candidates'        => self::visual_probe_count( $html, 'grid' ),
+			'core_button_blocks'     => self::count_block_name_in_markup( $html, 'core/button' ),
 		);
 	}
 
@@ -1901,6 +1951,14 @@ class Static_Site_Importer_Theme_Generator {
 
 		if ( 'footer' === $probe ) {
 			return 'footer' === $tag || self::class_tokens_contain_fragment( $classes, 'footer' );
+		}
+
+		if ( 'code_visual' === $probe ) {
+			return self::class_tokens_contain_any_fragment( $classes, array( 'code-window', 'terminal' ) ) || ( 'pre' === $tag && self::class_tokens_contain_fragment( $classes, 'code' ) );
+		}
+
+		if ( 'grid' === $probe ) {
+			return self::class_tokens_contain_any_fragment( $classes, array( 'grid', 'cards' ) );
 		}
 
 		return false;
