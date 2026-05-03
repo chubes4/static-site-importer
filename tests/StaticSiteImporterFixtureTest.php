@@ -359,7 +359,7 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( '.hero-rip { position: absolute;', $style );
 		$this->assertStringContainsString( '.hero .container { position: relative; z-index: 1;', $style );
 		$this->assertStringContainsString( 'Static Site Importer: let Site Editor wrappers preserve imported absolute overlay stacking.', $style );
-		$this->assertStringContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .hero-rip) { display: contents; }', $style );
+		$this->assertStringContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .hero-rip)', $style );
 		$this->assertSame( 0, $report['quality']['fallback_count'] ?? null );
 		$this->assertSame( 0, $report['quality']['core_html_block_count'] ?? null );
 		$this->assertSame( 0, $report['quality']['invalid_block_count'] ?? null );
@@ -404,6 +404,9 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 			$this->assertStringContainsString( 'wp-block-group ' . $class_name . ' static-site-importer-decorative-layer', $pattern );
 			$this->assertStringContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .' . $class_name . ')', $style );
 		}
+		$this->assertStringContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .wp-block-group.static-site-importer-decorative-layer)', $style );
+		$this->assertStringContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block.wp-block-group.static-site-importer-decorative-layer', $style );
+		$this->assertStringNotContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block.wp-block-group { display: contents; }', $style );
 
 		$this->assertStringContainsString( 'Static Site Importer: hide empty decorative layer group controls in the Site Editor.', $style );
 		$this->assertStringContainsString( '.editor-styles-wrapper .wp-block-group.static-site-importer-decorative-layer .block-editor-block-variation-picker', $style );
