@@ -299,6 +299,45 @@ if ( false !== $wrote_fixture ) {
 	}
 }
 
+$rsm_nav_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-rsm-nav-wrapper.html';
+$wrote_rsm_nav   = file_put_contents(
+	$rsm_nav_fixture,
+	'<!doctype html><html><head><title>RSM Nav Wrapper</title><style>' .
+	'nav { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; }' .
+	'nav .nav-logo { font-weight: 800; }' .
+	'@media (max-width: 700px) { nav { position: sticky; } }' .
+	'</style></head><body>' .
+	'<nav><div class="nav-logo"><span>RSM</span> / Static Site Importer</div><ul class="nav-links"><li><a href="#context">Context</a></li><li><a href="#impact">Studio Impact</a></li></ul></nav>' .
+	'<main><section id="context"><h1>RSM import</h1><p>Body copy.</p></section><section id="impact"><h2>Impact</h2><p>More copy.</p></section></main>' .
+	'</body></html>'
+);
+$assert( false !== $wrote_rsm_nav, 'rsm-nav-fixture-written' );
+
+if ( false !== $wrote_rsm_nav ) {
+	$rsm_nav_result = Static_Site_Importer_Theme_Generator::import_theme(
+		$rsm_nav_fixture,
+		array(
+			'name'      => 'RSM Nav Wrapper',
+			'slug'      => 'rsm-nav-wrapper',
+			'overwrite' => true,
+			'activate'  => false,
+		)
+	);
+	$assert( ! is_wp_error( $rsm_nav_result ), 'rsm-nav-import-succeeds', is_wp_error( $rsm_nav_result ) ? $rsm_nav_result->get_error_message() : '' );
+	if ( ! is_wp_error( $rsm_nav_result ) ) {
+		$rsm_nav_header = $read( $rsm_nav_result['theme_dir'] . '/parts/header.html' );
+		$rsm_nav_style  = $read( $rsm_nav_result['theme_dir'] . '/style.css' );
+		$rsm_nav_post   = get_page_by_path( 'rsm-nav-wrapper-header-navigation', OBJECT, 'wp_navigation' );
+		$assert( str_contains( $rsm_nav_header, 'static-site-importer-source-nav' ), 'rsm-nav-wrapper-gets-source-nav-class' );
+		$assert( str_contains( $rsm_nav_header, '<!-- wp:navigation ' ), 'rsm-nav-header-uses-navigation-block' );
+		$assert( ! str_contains( $rsm_nav_header, '"tagName":"nav"' ), 'rsm-nav-header-avoids-nested-nav-wrapper' );
+		$assert( str_contains( $rsm_nav_style, '.static-site-importer-source-nav { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; }' ), 'rsm-nav-bridge-preserves-bare-nav-rule' );
+		$assert( str_contains( $rsm_nav_style, '.static-site-importer-source-nav .nav-logo { font-weight: 800; }' ), 'rsm-nav-bridge-preserves-descendant-nav-rule' );
+		$assert( str_contains( $rsm_nav_style, '@media (max-width: 700px) { .static-site-importer-source-nav { position: sticky; } }' ), 'rsm-nav-bridge-preserves-media-nav-rule' );
+		$assert( $rsm_nav_post instanceof WP_Post, 'rsm-nav-post-exists' );
+	}
+}
+
 $footer_chrome_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-footer-chrome.html';
 $wrote_footer_chrome   = file_put_contents(
 	$footer_chrome_fixture,
