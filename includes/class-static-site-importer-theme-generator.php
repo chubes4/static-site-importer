@@ -578,7 +578,7 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		if ( 'a' === $tag ) {
-			return self::link_element_block( $doc, $element );
+			return self::link_element_block( $doc, $element, $location );
 		}
 
 		if ( 'img' === $tag ) {
@@ -587,6 +587,17 @@ class Static_Site_Importer_Theme_Generator {
 
 		if ( self::is_link_cluster_container( $element ) ) {
 			return self::group_block( self::theme_part_child_blocks( $doc, $element, $theme_slug, $location ), $element->getAttribute( 'class' ) );
+		}
+
+		if ( self::is_identity_chrome_element( $element ) && self::element_has_only_phrasing_content( $element ) ) {
+			self::record_theme_part_semantic_diagnostic(
+				$location,
+				$element,
+				'native_group_wrapper_preserved_identity_class',
+				'Classed theme-part identity chrome was represented as a native group wrapper so the source class does not move onto a paragraph block.'
+			);
+
+			return self::group_block( self::paragraph_block( self::node_inner_html( $doc, $element ) ), $element->getAttribute( 'class' ) );
 		}
 
 		if ( self::element_has_only_phrasing_content( $element ) ) {
@@ -794,6 +805,21 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Check whether an element is classed brand/logo chrome in a shared theme part.
+	 *
+	 * @param DOMElement $element Source element.
+	 * @return bool
+	 */
+	private static function is_identity_chrome_element( DOMElement $element ): bool {
+		$tag = strtolower( $element->tagName );
+		if ( ! in_array( $tag, array( 'div', 'span' ), true ) ) {
+			return false;
+		}
+
+		return preg_match( '/(^|[-_\s])(brand|logo)([-_\s]|$)/i', $element->getAttribute( 'class' ) ) === 1;
+	}
+
+	/**
 	 * Check whether an element can be represented as one paragraph with inline markup.
 	 *
 	 * @param DOMElement $element Source element.
@@ -852,7 +878,7 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param DOMElement  $element Anchor element.
 	 * @return string
 	 */
-	private static function link_element_block( DOMDocument $doc, DOMElement $element ): string {
+	private static function link_element_block( DOMDocument $doc, DOMElement $element, string $location = '' ): string {
 		$href  = trim( $element->getAttribute( 'href' ) );
 		$label = trim( $element->textContent );
 		if ( '' === $href || '' === $label ) {
@@ -863,6 +889,13 @@ class Static_Site_Importer_Theme_Generator {
 		if ( preg_match( '/(^|[-_\s])(brand|logo)([-_\s]|$)/i', $class ) ) {
 			$brand_anchor = self::brand_anchor_inline_block( $doc, $element );
 			if ( null !== $brand_anchor ) {
+				self::record_theme_part_semantic_diagnostic(
+					$location,
+					$element,
+					'paragraph_wrapper_required_for_identity_anchor',
+					'Classed theme-part identity anchors have no valid native group wrapper that preserves anchor element ownership, so SSI keeps the source anchor markup inside an editable paragraph and records the approximation.'
+				);
+
 				return $brand_anchor;
 			}
 
@@ -975,6 +1008,30 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return $attributes;
+	}
+
+	/**
+	 * Record an explicit semantic approximation/recovery diagnostic for theme-part chrome.
+	 *
+	 * @param string     $location Theme part location.
+	 * @param DOMElement $element  Source element.
+	 * @param string     $code     Diagnostic code.
+	 * @param string     $message  Diagnostic message.
+	 * @return void
+	 */
+	private static function record_theme_part_semantic_diagnostic( string $location, DOMElement $element, string $code, string $message ): void {
+		if ( empty( self::$conversion_report ) ) {
+			return;
+		}
+
+		self::$conversion_report['diagnostics'][] = array(
+			'type'       => 'theme_part_semantic_fidelity',
+			'code'       => $code,
+			'source'     => 'theme-part:' . ( '' !== $location ? $location : 'unknown' ),
+			'element'    => strtolower( $element->tagName ),
+			'class_name' => trim( $element->getAttribute( 'class' ) ),
+			'message'    => $message,
+		);
 	}
 
 	/**

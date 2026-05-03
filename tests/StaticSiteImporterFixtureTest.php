@@ -415,6 +415,44 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Classed header/footer identity chrome does not silently move classes onto paragraphs.
+	 */
+	public function test_classed_header_footer_identity_chrome_reports_or_preserves_ownership(): void {
+		$html_path = $this->write_temp_fixture(
+			'homeboy-chrome-identity.html',
+			'<!doctype html><html><head><title>Homeboy Chrome Identity</title></head><body>' .
+			'<header><nav class="site-nav"><a href="#" class="nav-logo">HOME<span>BOY</span></a><ul><li><a href="#evidence">Evidence</a></li></ul></nav></header>' .
+			'<main id="evidence"><h1>Evidence</h1><p>Body copy.</p></main>' .
+			'<footer><div class="footer-logo">HOMEBOY</div><p>Developer operations for engineers who ship with evidence.</p></footer>' .
+			'</body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Homeboy Chrome Identity',
+				'slug'      => 'homeboy-chrome-identity',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$header    = $this->read_file( $theme_dir . '/parts/header.html' );
+		$footer    = $this->read_file( $theme_dir . '/parts/footer.html' );
+		$report    = json_decode( $this->read_file( $result['report_path'] ), true );
+
+		$this->assertStringContainsString( '<a href="#" class="nav-logo">HOME<span>BOY</span></a>', $header );
+		$this->assertStringContainsString( 'paragraph_wrapper_required_for_identity_anchor', wp_json_encode( $report['diagnostics'] ?? array() ) ?: '' );
+		$this->assertStringNotContainsString( '<!-- wp:paragraph {"className":"footer-logo"} --><p class="footer-logo">HOMEBOY</p>', $footer );
+		$this->assertStringContainsString( '<!-- wp:group {"className":"footer-logo"} --><div class="wp-block-group footer-logo"><!-- wp:paragraph --><p>HOMEBOY</p><!-- /wp:paragraph --></div><!-- /wp:group -->', $footer );
+		$this->assertStringContainsString( 'native_group_wrapper_preserved_identity_class', wp_json_encode( $report['diagnostics'] ?? array() ) ?: '' );
+	}
+
+	/**
 	 * Nested section headers are page content, not shared site chrome.
 	 */
 	public function test_nested_section_header_stays_in_page_content(): void {
