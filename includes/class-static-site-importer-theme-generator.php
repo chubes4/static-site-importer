@@ -50,6 +50,13 @@ class Static_Site_Importer_Theme_Generator {
 	private static array $button_wrapper_classes = array();
 
 	/**
+	 * CSS classes that identify absolute-positioned imported visual layers.
+	 *
+	 * @var array<string, true>
+	 */
+	private static array $decorative_empty_group_classes = array();
+
+	/**
 	 * Import an HTML file as a block theme.
 	 *
 	 * @param string $html_path  HTML file path.
@@ -109,6 +116,12 @@ class Static_Site_Importer_Theme_Generator {
 		self::$materialized_svg_assets = array();
 		self::$button_wrapper_classes  = array();
 
+		$site_css                             = self::site_css( $site_dir, $document );
+		self::$decorative_empty_group_classes = array_fill_keys(
+			self::absolute_position_classes_from_css( $site_css ),
+			true
+		);
+
 		$background_blocks = self::convert_fragment( self::rewrite_internal_links( $fragments['background'], $permalinks ), 'background:index.html' );
 		$header_blocks     = self::convert_header_fragment( self::strip_active_classes( self::rewrite_internal_links( $fragments['header'], $permalinks ) ), $theme_slug );
 		$has_footer_part   = '' !== trim( $fragments['footer'] );
@@ -121,8 +134,7 @@ class Static_Site_Importer_Theme_Generator {
 			return $result;
 		}
 
-		$site_css = self::site_css( $site_dir, $document );
-		$writes   = array(
+		$writes = array(
 			$theme_dir . '/style.css'                 => self::style_css( $theme_name, $site_css, array_keys( self::$button_wrapper_classes ) ),
 			$theme_dir . '/functions.php'             => self::functions_php( $theme_slug ),
 			$theme_dir . '/theme.json'                => self::theme_json( $theme_name, $site_css ),
@@ -1261,9 +1273,309 @@ class Static_Site_Importer_Theme_Generator {
 		if ( '' === $blocks ) {
 			self::record_conversion_empty( $source, $html );
 		}
+		$blocks = self::mark_empty_decorative_group_blocks( $blocks, $source );
 		self::finish_conversion_fragment( $source, $blocks );
 
 		return '' === $blocks ? '<!-- wp:html -->' . "\n" . $html . "\n" . '<!-- /wp:html -->' : $blocks;
+	}
+
+	/**
+	 * Mark empty absolute-positioned groups so editor CSS can hide only decorative placeholders.
+	 *
+	 * @param string $block_markup Serialized block markup.
+	 * @return string Serialized block markup.
+	 */
+	private static function mark_empty_decorative_group_blocks( string $block_markup, string $source = '' ): string {
+		if ( '' === trim( $block_markup ) || empty( self::$decorative_empty_group_classes ) || ! function_exists( 'parse_blocks' ) || ! function_exists( 'serialize_blocks' ) ) {
+			return $block_markup;
+		}
+
+		/** @var array<int, array<string, mixed>> $blocks */
+		$blocks                 = parse_blocks( $block_markup );
+		$changed                = false;
+		$normalized_html_blocks = 0;
+		self::normalize_decorative_html_blocks_in_tree( $blocks, $changed, $normalized_html_blocks );
+		if ( $normalized_html_blocks > 0 && '' !== $source ) {
+			self::clear_normalized_decorative_fallbacks( $source, $normalized_html_blocks );
+		}
+		self::mark_empty_decorative_group_blocks_in_tree( $blocks, $changed );
+
+		// @phpstan-ignore-next-line argument.type -- Parsed blocks are normalized before serializing.
+		return $changed ? serialize_blocks( $blocks ) : $block_markup;
+	}
+
+	/**
+	 * Convert raw HTML islands made only of decorative empty divs into native groups.
+	 *
+	 * @param array<int, array<string, mixed>> $blocks  Parsed blocks.
+	 * @param bool                            $changed Whether any block changed.
+	 * @return void
+	 */
+	private static function normalize_decorative_html_blocks_in_tree( array &$blocks, bool &$changed, int &$normalized_html_blocks ): void {
+		$block_total = count( $blocks );
+		for ( $index = 0; $index < $block_total; ++$index ) {
+			if ( ! empty( $blocks[ $index ]['innerBlocks'] ) && is_array( $blocks[ $index ]['innerBlocks'] ) ) {
+				self::normalize_decorative_html_blocks_in_tree( $blocks[ $index ]['innerBlocks'], $changed, $normalized_html_blocks );
+			}
+
+			if ( 'core/html' !== ( $blocks[ $index ]['blockName'] ?? '' ) ) {
+				continue;
+			}
+
+			$replacement = self::decorative_group_blocks_from_html( (string) ( $blocks[ $index ]['innerHTML'] ?? '' ) );
+			if ( null === $replacement ) {
+				continue;
+			}
+
+			array_splice( $blocks, $index, 1, $replacement );
+			$replacement_count = count( $replacement );
+			$index            += $replacement_count - 1;
+			$block_total      += $replacement_count - 1;
+			$changed           = true;
+			++$normalized_html_blocks;
+		}
+	}
+
+	/**
+	 * Remove fallback diagnostics that were recovered as native decorative group blocks.
+	 *
+	 * @param string $source Source fragment label.
+	 * @param int    $count  Number of normalized fallback blocks.
+	 * @return void
+	 */
+	private static function clear_normalized_decorative_fallbacks( string $source, int $count ): void {
+		self::$conversion_report['quality']['fallback_count'] = max( 0, (int) self::$conversion_report['quality']['fallback_count'] - $count );
+		if ( isset( self::$conversion_report['conversion_fragments'][ $source ]['fallback_count'] ) ) {
+			self::$conversion_report['conversion_fragments'][ $source ]['fallback_count'] = max( 0, (int) self::$conversion_report['conversion_fragments'][ $source ]['fallback_count'] - $count );
+		}
+
+		for ( $index = count( self::$conversion_report['diagnostics'] ) - 1; $index >= 0 && $count > 0; --$index ) {
+			$diagnostic = self::$conversion_report['diagnostics'][ $index ];
+			if ( 'unsupported_html_fallback' !== ( $diagnostic['type'] ?? '' ) || ( $diagnostic['source'] ?? '' ) !== $source ) {
+				continue;
+			}
+
+			array_splice( self::$conversion_report['diagnostics'], $index, 1 );
+			--$count;
+		}
+	}
+
+	/**
+	 * Convert an HTML fragment to group blocks when it only contains decorative empty div layers.
+	 *
+	 * @param string $html HTML fragment.
+	 * @return array<int, array<string, mixed>>|null Replacement group blocks, or null when not safe.
+	 */
+	private static function decorative_group_blocks_from_html( string $html ): ?array {
+		if ( '' === trim( $html ) || ! str_contains( $html, '<div' ) ) {
+			return null;
+		}
+
+		$doc      = self::load_fragment_document( $html );
+		$root     = $doc->documentElement;
+		$blocks   = array();
+		$matched  = false;
+		$has_node = false;
+		if ( ! $root instanceof DOMElement ) {
+			return null;
+		}
+
+		foreach ( $root->childNodes as $child ) {
+			if ( $child instanceof DOMText && '' === trim( $child->textContent ) ) {
+				continue;
+			}
+
+			if ( ! $child instanceof DOMElement ) {
+				return null;
+			}
+
+			$has_node = true;
+			$block    = self::decorative_group_block_from_element( $child, $matched );
+			if ( null === $block ) {
+				return null;
+			}
+
+			$blocks[] = $block;
+		}
+
+		return $has_node && $matched ? $blocks : null;
+	}
+
+	/**
+	 * Convert one empty decorative div tree to a parsed group block.
+	 *
+	 * @param DOMElement $element Source element.
+	 * @param bool       $matched Whether a decorative class was found.
+	 * @return array<string, mixed>|null Parsed block, or null when not safe.
+	 */
+	private static function decorative_group_block_from_element( DOMElement $element, bool &$matched ): ?array {
+		if ( 'div' !== strtolower( $element->tagName ) ) {
+			return null;
+		}
+
+		$children = array();
+		foreach ( $element->childNodes as $child ) {
+			if ( $child instanceof DOMText && '' === trim( $child->textContent ) ) {
+				continue;
+			}
+
+			if ( ! $child instanceof DOMElement ) {
+				return null;
+			}
+
+			$child_block = self::decorative_group_block_from_element( $child, $matched );
+			if ( null === $child_block ) {
+				return null;
+			}
+
+			$children[] = $child_block;
+		}
+
+		$class_name = trim( $element->getAttribute( 'class' ) );
+		$classes    = preg_split( '/\s+/', $class_name );
+		$classes    = false === $classes ? array() : $classes;
+		$is_layer   = false;
+		foreach ( $classes as $class ) {
+			if ( isset( self::$decorative_empty_group_classes[ $class ] ) ) {
+				$is_layer = true;
+				$matched  = true;
+				break;
+			}
+		}
+
+		if ( empty( $children ) && $is_layer ) {
+			$class_name = self::append_class_token( $class_name, 'static-site-importer-decorative-layer' );
+		}
+
+		$attrs = array();
+		if ( '' !== $class_name ) {
+			$attrs['className'] = $class_name;
+		}
+
+		$class_attr    = esc_attr( trim( 'wp-block-group ' . $class_name ) );
+		$inner_content = array( '<div class="' . $class_attr . '">' );
+		foreach ( $children as $_child ) {
+			$inner_content[] = null;
+		}
+		$inner_content[] = '</div>';
+
+		if ( empty( $children ) ) {
+			$inner_content = array( '<div class="' . $class_attr . '"></div>' );
+		}
+
+		return array(
+			'blockName'    => 'core/group',
+			'attrs'        => $attrs,
+			'innerBlocks'  => $children,
+			'innerHTML'    => implode( '', array_filter( $inner_content, 'is_string' ) ),
+			'innerContent' => $inner_content,
+		);
+	}
+
+	/**
+	 * Recursively mark empty decorative group blocks.
+	 *
+	 * @param array<int, array<string, mixed>> $blocks  Parsed blocks.
+	 * @param bool                            $changed Whether any block changed.
+	 * @return void
+	 */
+	private static function mark_empty_decorative_group_blocks_in_tree( array &$blocks, bool &$changed ): void {
+		foreach ( $blocks as &$block ) {
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				self::mark_empty_decorative_group_blocks_in_tree( $block['innerBlocks'], $changed );
+			}
+
+			if ( 'core/group' !== ( $block['blockName'] ?? '' ) || ! self::is_empty_decorative_group_block( $block ) ) {
+				continue;
+			}
+
+			$attrs              = is_array( $block['attrs'] ?? null ) ? $block['attrs'] : array();
+			$attrs['className'] = self::append_class_token( (string) ( $attrs['className'] ?? '' ), 'static-site-importer-decorative-layer' );
+			$block['attrs']     = $attrs;
+
+			foreach ( array( 'innerHTML' ) as $key ) {
+				if ( isset( $block[ $key ] ) && is_string( $block[ $key ] ) ) {
+					$block[ $key ] = self::append_class_to_first_html_class_attribute( $block[ $key ], 'static-site-importer-decorative-layer' );
+				}
+			}
+
+			if ( isset( $block['innerContent'] ) && is_array( $block['innerContent'] ) ) {
+				foreach ( $block['innerContent'] as &$content ) {
+					if ( is_string( $content ) ) {
+						$content = self::append_class_to_first_html_class_attribute( $content, 'static-site-importer-decorative-layer' );
+					}
+				}
+				unset( $content );
+			}
+
+			$changed = true;
+		}
+		unset( $block );
+	}
+
+	/**
+	 * Check whether a parsed group block is empty and styled as a decorative layer.
+	 *
+	 * @param array<string, mixed> $block Parsed block.
+	 * @return bool Whether the block is an empty decorative group.
+	 */
+	private static function is_empty_decorative_group_block( array $block ): bool {
+		if ( ! empty( $block['innerBlocks'] ) ) {
+			return false;
+		}
+
+		$inner_html = (string) ( $block['innerHTML'] ?? '' );
+		if ( '' !== trim( wp_strip_all_tags( $inner_html ) ) ) {
+			return false;
+		}
+
+		$attrs   = is_array( $block['attrs'] ?? null ) ? $block['attrs'] : array();
+		$classes = preg_split( '/\s+/', trim( (string) ( $attrs['className'] ?? '' ) ) );
+		$classes = false === $classes ? array() : $classes;
+		foreach ( $classes as $class ) {
+			if ( isset( self::$decorative_empty_group_classes[ $class ] ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Append a class token if it is not already present.
+	 *
+	 * @param string $classes Existing classes.
+	 * @param string $class_name_to_append Class to append.
+	 * @return string Updated classes.
+	 */
+	private static function append_class_token( string $classes, string $class_name_to_append ): string {
+		$tokens = preg_split( '/\s+/', trim( $classes ) );
+		$tokens = false === $tokens ? array() : $tokens;
+		if ( ! in_array( $class_name_to_append, $tokens, true ) ) {
+			$tokens[] = $class_name_to_append;
+		}
+
+		return trim( implode( ' ', array_filter( $tokens ) ) );
+	}
+
+	/**
+	 * Append a class to the first HTML class attribute in a serialized block fragment.
+	 *
+	 * @param string $html  HTML fragment.
+	 * @param string $class_name_to_append Class to append.
+	 * @return string Updated HTML fragment.
+	 */
+	private static function append_class_to_first_html_class_attribute( string $html, string $class_name_to_append ): string {
+		$updated = preg_replace_callback(
+			'/class="([^"]*)"/',
+			static function ( array $matches ) use ( $class_name_to_append ): string {
+				return 'class="' . esc_attr( self::append_class_token( html_entity_decode( $matches[1], ENT_QUOTES ), $class_name_to_append ) ) . '"';
+			},
+			$html,
+			1
+		);
+
+		return null === $updated ? $html : $updated;
 	}
 
 	/**
@@ -2125,7 +2437,18 @@ class Static_Site_Importer_Theme_Generator {
 			return '';
 		}
 
-		return "\n/* Static Site Importer: let Site Editor wrappers preserve imported absolute overlay stacking. */\n" . implode( ', ', array_unique( $selectors ) ) . ' { display: contents; }' . "\n";
+		$group_selector    = '.editor-styles-wrapper .wp-block-group.static-site-importer-decorative-layer';
+		$placeholder_rules = array(
+			$group_selector . ' .block-editor-block-variation-picker',
+			$group_selector . ' .components-placeholder',
+			$group_selector . ' .block-list-appender',
+			$group_selector . ' .block-editor-button-block-appender',
+		);
+
+		$css  = "\n/* Static Site Importer: let Site Editor wrappers preserve imported absolute overlay stacking. */\n" . implode( ', ', array_unique( $selectors ) ) . ' { display: contents; }' . "\n";
+		$css .= "\n/* Static Site Importer: hide empty decorative layer group controls in the Site Editor. */\n" . implode( ', ', array_unique( $placeholder_rules ) ) . ' { display: none; }' . "\n";
+
+		return $css;
 	}
 
 	/**
