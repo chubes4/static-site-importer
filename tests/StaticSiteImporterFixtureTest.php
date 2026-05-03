@@ -684,6 +684,45 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Safe decorative SVG waves are materialized instead of falling back to core/html.
+	 */
+	public function test_decorative_svg_waves_materialize_as_theme_assets(): void {
+		$html_path = $this->write_temp_fixture(
+			'decorative-svg-wave.html',
+			'<!doctype html><html><head><title>Decorative SVG Wave</title></head><body><main><section class="hero"><h1>Harbor Steps</h1><svg viewBox="0 0 1440 120" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path d="M0,60 C240,100 480,20 720,60 C960,100 1200,20 1440,60 L1440,120 L0,120 Z" fill="#F6EFE1" opacity="0.06"></path></svg><p>Body copy.</p></section></main></body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Decorative SVG Wave',
+				'slug'      => 'decorative-svg-wave',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$pattern   = $this->pattern_blocks( $this->read_file( $theme_dir . '/patterns/page-decorative-svg-wave.php' ) );
+		$report    = json_decode( $this->read_file( $result['report_path'] ), true );
+
+		$this->assertStringContainsString( '<!-- wp:image ', $pattern );
+		$this->assertStringNotContainsString( '<!-- wp:html', $pattern );
+		$this->assertStringContainsString( '/assets/icons/', $pattern );
+		$this->assertSame( 0, $report['quality']['fallback_count'] ?? null );
+		$this->assertSame( 0, $report['quality']['unsafe_svg_count'] ?? null );
+		$this->assertNotEmpty( $report['assets']['svg_icons'] ?? array() );
+
+		$asset = $report['assets']['svg_icons'][0] ?? array();
+		$this->assertSame( 'core/image', $asset['block'] ?? '' );
+		$this->assertFileExists( $theme_dir . '/' . ( $asset['path'] ?? '' ) );
+		$this->assertStringContainsString( 'preserveAspectRatio="none"', $this->read_file( $theme_dir . '/' . ( $asset['path'] ?? '' ) ) );
+	}
+
+	/**
 	 * Unsafe inline SVG remains visible in the import report instead of being accepted silently.
 	 */
 	public function test_unsafe_inline_svg_is_reported(): void {
