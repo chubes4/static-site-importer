@@ -111,6 +111,13 @@ $smoke_assert(\count($custom_button_block['innerBlocks']) === 1, 'custom-button-
 $smoke_assert($custom_button_block['innerBlocks'][0]['blockName'] === 'core/button', 'custom-button-anchor-child-block-name');
 $smoke_assert($custom_button_block['innerBlocks'][0]['attrs']['url'] === '#order', 'custom-button-anchor-url-preserved');
 $smoke_assert($custom_button_block['innerBlocks'][0]['attrs']['className'] === 'btn btn-primary', 'custom-button-anchor-class-preserved');
+$nav_cta_paragraph = new HTML_To_Blocks_HTML_Element('p', [], '<p><a href="#try" class="btn nav-cta">Request Access</a></p>', '<a href="#try" class="btn nav-cta">Request Access</a>');
+$nav_cta_transform = $find_transform($nav_cta_paragraph);
+$nav_cta_block = \call_user_func($nav_cta_transform['transform'], $nav_cta_paragraph, $handler);
+$smoke_assert($nav_cta_transform['blockName'] === 'core/buttons', 'nav-cta-button-anchor-becomes-buttons');
+$smoke_assert(\count($nav_cta_block['innerBlocks']) === 1, 'nav-cta-button-anchor-has-one-button');
+$smoke_assert($nav_cta_block['innerBlocks'][0]['attrs']['url'] === '#try', 'nav-cta-button-anchor-url-preserved');
+$smoke_assert($nav_cta_block['innerBlocks'][0]['attrs']['className'] === 'btn nav-cta', 'nav-cta-button-anchor-class-preserved');
 $custom_button_row = new HTML_To_Blocks_HTML_Element('div', ['class' => 'hero-actions'], '<div class="hero-actions"><a href="#order" class="btn btn-primary">Order Online</a><a href="#our-bakes" class="btn btn-ghost">See Our Bakes</a></div>', '<a href="#order" class="btn btn-primary">Order Online</a><a href="#our-bakes" class="btn btn-ghost">See Our Bakes</a>');
 $custom_button_row_transform = $find_transform($custom_button_row);
 $custom_button_row_block = \call_user_func($custom_button_row_transform['transform'], $custom_button_row, $handler);

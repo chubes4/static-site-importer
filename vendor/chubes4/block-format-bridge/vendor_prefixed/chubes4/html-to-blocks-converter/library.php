@@ -20,7 +20,7 @@ if (!\defined('ABSPATH')) {
     return;
 }
 $html_to_blocks_library_path = __DIR__;
-$html_to_blocks_library_version = '0.6.10';
+$html_to_blocks_library_version = '0.6.12';
 if (!\class_exists('BlockFormatBridge\Vendor\HTML_To_Blocks_Versions', \false)) {
     require_once $html_to_blocks_library_path . '/includes/class-html-to-blocks-versions.php';
 }

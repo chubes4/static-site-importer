@@ -299,11 +299,14 @@ function html_to_blocks_normalize_parsed_image_html_blocks(array $blocks): array
         } elseif (isset($block['innerHTML']) && \is_string($block['innerHTML'])) {
             $html = $block['innerHTML'];
         }
-        if (!html_to_blocks_is_image_only_html_fragment($html)) {
+        $convertible_html = $html;
+        if (html_to_blocks_is_decorative_inline_span_fragment($html)) {
+            $convertible_html = html_to_blocks_normalise_blocks($html);
+        } elseif (!html_to_blocks_is_image_only_html_fragment($html)) {
             $normalized[] = $block;
             continue;
         }
-        $converted = html_to_blocks_convert($html);
+        $converted = html_to_blocks_convert($convertible_html);
         if (empty($converted) || html_to_blocks_contains_block_name($converted, 'core/html')) {
             $normalized[] = $block;
             continue;
@@ -311,6 +314,46 @@ function html_to_blocks_normalize_parsed_image_html_blocks(array $blocks): array
         $normalized = \array_merge($normalized, $converted);
     }
     return $normalized;
+}
+/**
+ * Checks whether an HTML fragment is one safe, empty decorative inline span.
+ *
+ * @param string $html HTML fragment.
+ * @return bool True when the fragment can be materialized as editable inline content.
+ */
+function html_to_blocks_is_decorative_inline_span_fragment(string $html): bool
+{
+    $element = HTML_To_Blocks_HTML_Element::from_html($html);
+    if (!$element || $element->get_tag_name() !== 'SPAN') {
+        return \false;
+    }
+    if (\trim(wp_strip_all_tags($element->get_inner_html())) !== '' || array() !== $element->get_child_elements()) {
+        return \false;
+    }
+    $attributes = $element->get_attributes();
+    $class_name = isset($attributes['class']) ? (string) $attributes['class'] : '';
+    $style = isset($attributes['style']) ? (string) $attributes['style'] : '';
+    $role = isset($attributes['role']) ? \strtolower(\trim((string) $attributes['role'])) : '';
+    foreach ($attributes as $name => $value) {
+        $name = \strtolower((string) $name);
+        if (\preg_match('/^on/i', $name)) {
+            return \false;
+        }
+        if (!\in_array($name, ['class', 'style', 'id', 'aria-hidden', 'role'], \true)) {
+            return \false;
+        }
+    }
+    if ($role !== '' && !\in_array($role, ['none', 'presentation'], \true)) {
+        return \false;
+    }
+    if (\preg_match('/(?:url\s*\(|expression\s*\(|javascript\s*:|behavior\s*:)/i', $style)) {
+        return \false;
+    }
+    $decorative_class_pattern = '/(?:^|[-_\s])(icon|ico|glyph|symbol|accent|bar|divider|separator|sep|rule|line|orb|blob|dot|glow)(?:$|[-_\s]|\d)/i';
+    if (\preg_match($decorative_class_pattern, $class_name) === 1) {
+        return \true;
+    }
+    return $style !== '' && \preg_match('/(?:^|;)\s*display\s*:\s*inline-block\b/i', $style) === 1 && \preg_match('/(?:^|;)\s*width\s*:\s*[^;]+/i', $style) === 1 && \preg_match('/(?:^|;)\s*height\s*:\s*[^;]+/i', $style) === 1 && \preg_match('/(?:^|;)\s*(?:background|background-color)\s*:\s*[^;]+/i', $style) === 1;
 }
 /**
  * Checks whether an HTML fragment is only an image, optionally inside one wrapper.
@@ -570,9 +613,6 @@ function html_to_blocks_normalise_blocks($html)
             $element_html = html_to_blocks_extract_element_at_occurrence($html, $tag_name, $tag_positions[$tag_name], $occurrence);
             if ($element_html) {
                 $element = HTML_To_Blocks_HTML_Element::from_html($element_html);
-                if ($element && html_to_blocks_should_ignore_empty_decorative_placeholder($element)) {
-                    continue;
-                }
                 if ($element && html_to_blocks_is_blocky_span($element)) {
                     if ($in_paragraph && !empty(\trim($paragraph_buffer))) {
                         $output .= '<p>' . \trim($paragraph_buffer) . '</p>';

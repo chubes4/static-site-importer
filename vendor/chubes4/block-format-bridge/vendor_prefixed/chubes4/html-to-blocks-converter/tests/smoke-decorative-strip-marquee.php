@@ -146,6 +146,30 @@ $assert(\str_contains($serialized, 'html → blocks'), 'unicode-label-survives',
 $assert(\str_contains($serialized, 'wp:group + wp:paragraph'), 'block-syntax-label-survives', $serialized);
 $assert(!\str_contains($serialized, 'strip-sep'), 'decorative-separators-are-dropped', $serialized);
 $assert(!\str_contains($serialized, '<p><span'), 'no-span-wrapped-block-markup-in-paragraph', $serialized);
+$studio_code_html = <<<'HTML'
+<div class="hero-scroll-band">
+  <div class="scroll-track">
+    <span class="scroll-item">HTML-first generation</span>
+    <span class="scroll-item">Block theme output</span>
+    <span class="scroll-item">Static Site Importer</span>
+    <span class="scroll-item">One-shot site builds</span>
+  </div>
+</div>
+HTML;
+$studio_code_blocks = html_to_blocks_raw_handler(['HTML' => $studio_code_html]);
+$studio_code_flat = $flatten_blocks($studio_code_blocks);
+$studio_code_names = \array_map(static function ($block) {
+    return $block['blockName'] ?? '';
+}, $studio_code_flat);
+$studio_code_serialized = serialize_blocks($studio_code_blocks);
+$assert(!\in_array('core/html', $studio_code_names, \true), 'studio-code-scroller-does-not-use-core-html', \implode(', ', $studio_code_names));
+$assert(\count($fallback_events) === 0, 'studio-code-scroller-emits-no-fallback-events', (string) \count($fallback_events));
+$assert(\substr_count(\implode(',', $studio_code_names), 'core/group') === 2, 'studio-code-band-and-track-become-groups', \implode(', ', $studio_code_names));
+$assert(\substr_count(\implode(',', $studio_code_names), 'core/paragraph') === 4, 'studio-code-scroll-items-stay-separate-paragraphs', \implode(', ', $studio_code_names));
+$assert(\str_contains($studio_code_serialized, 'hero-scroll-band'), 'studio-code-band-class-survives', $studio_code_serialized);
+$assert(\str_contains($studio_code_serialized, 'scroll-track'), 'studio-code-track-class-survives', $studio_code_serialized);
+$assert(\substr_count($studio_code_serialized, '<p class="scroll-item">') === 4, 'studio-code-item-classes-survive-individually', $studio_code_serialized);
+$assert(!\str_contains($studio_code_serialized, '<p><span class="scroll-item">'), 'studio-code-items-not-collapsed-into-one-paragraph', $studio_code_serialized);
 $fallback_events = [];
 $separator_only = html_to_blocks_raw_handler(['HTML' => '<div class="strip-sep"></div>']);
 $assert($separator_only === [], 'standalone-strip-separator-is-ignored');

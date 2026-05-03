@@ -170,6 +170,16 @@ $quote_accent_serialized = serialize_blocks(html_to_blocks_raw_handler(['HTML' =
 $assert(!\str_contains($quote_accent_serialized, '<!-- wp:html -->'), 'quote-accent-bar-avoids-core-html-fallback', $quote_accent_serialized);
 $assert(!\str_contains($quote_accent_serialized, 'quote-accent-bar'), 'quote-accent-bar-is-dropped', $quote_accent_serialized);
 $assert(\str_contains($quote_accent_serialized, 'Blocks over fallbacks.'), 'quote-accent-neighbor-text-survives', $quote_accent_serialized);
+$decorative_inline_html = '<span class="topbar-logo-dot"></span><span style="width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block;"></span>';
+$decorative_inline_serialized = serialize_blocks(html_to_blocks_raw_handler(['HTML' => $decorative_inline_html]));
+$assert(!\str_contains($decorative_inline_serialized, '<!-- wp:html -->'), 'decorative-inline-spans-avoid-core-html-fallback', $decorative_inline_serialized);
+$assert(\str_contains($decorative_inline_serialized, '<!-- wp:paragraph -->'), 'decorative-inline-spans-use-editable-paragraph', $decorative_inline_serialized);
+$assert(\str_contains($decorative_inline_serialized, '<span class="topbar-logo-dot"></span>'), 'decorative-inline-class-dot-survives', $decorative_inline_serialized);
+$assert(\str_contains($decorative_inline_serialized, 'width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block;'), 'decorative-inline-style-dot-survives', $decorative_inline_serialized);
+$parsed_decorative_inline_serialized = serialize_blocks(html_to_blocks_normalize_parsed_image_html_blocks([HTML_To_Blocks_Block_Factory::create_block('core/html', ['content' => '<span class="topbar-logo-dot"></span>']), HTML_To_Blocks_Block_Factory::create_block('core/html', ['content' => '<span style="width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block;"></span>'])]));
+$assert(!\str_contains($parsed_decorative_inline_serialized, '<!-- wp:html -->'), 'parsed-decorative-inline-spans-avoid-core-html-fallback', $parsed_decorative_inline_serialized);
+$assert(\str_contains($parsed_decorative_inline_serialized, '<span class="topbar-logo-dot"></span>'), 'parsed-decorative-inline-class-dot-survives', $parsed_decorative_inline_serialized);
+$assert(\str_contains($parsed_decorative_inline_serialized, 'width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block;'), 'parsed-decorative-inline-style-dot-survives', $parsed_decorative_inline_serialized);
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;
