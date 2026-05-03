@@ -61,7 +61,7 @@ class Static_Site_Importer_Theme_Generator {
 	 *
 	 * @param string $html_path  HTML file path.
 	 * @param array  $args       Import args.
-	 * @return array{theme_slug:string,theme_name:string,theme_dir:string,report_path:string,external_report_path:string,pages:array<string,int>,quality:array<string,mixed>}|WP_Error
+	 * @return array{theme_slug:string,theme_name:string,theme_dir:string,report_path:string,external_report_path:string,source_dir:string,source_deleted:bool,source_cleanup_error:string,pages:array<string,int>,quality:array<string,mixed>}|WP_Error
 	 */
 	public static function import_theme( string $html_path, array $args = array() ) {
 		if ( ! function_exists( 'bfb_convert' ) ) {
@@ -201,12 +201,30 @@ class Static_Site_Importer_Theme_Generator {
 			}
 		}
 
+		$source_deleted       = false;
+		$source_cleanup_error = '';
+		if ( ! empty( $args['delete_source'] ) ) {
+			if ( ! empty( $quality['pass'] ) ) {
+				$cleanup_result = self::delete_source_dir( $site_dir, $html_path );
+				if ( is_wp_error( $cleanup_result ) ) {
+					$source_cleanup_error = $cleanup_result->get_error_message();
+				} else {
+					$source_deleted = true;
+				}
+			} else {
+				$source_cleanup_error = 'import quality checks reported issues';
+			}
+		}
+
 		return array(
 			'theme_slug'           => $theme_slug,
 			'theme_name'           => $theme_name,
 			'theme_dir'            => $theme_dir,
 			'report_path'          => $theme_dir . '/import-report.json',
 			'external_report_path' => $external_report_path,
+			'source_dir'           => $site_dir,
+			'source_deleted'       => $source_deleted,
+			'source_cleanup_error' => $source_cleanup_error,
 			'pages'                => $page_ids,
 			'quality'              => $quality,
 		);
@@ -2250,6 +2268,66 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return self::write_file( $path, $content );
+	}
+
+	/**
+	 * Delete the source static-site directory after a clean import.
+	 *
+	 * @param string $site_dir  Static site source directory.
+	 * @param string $html_path Entry HTML file path.
+	 * @return true|WP_Error
+	 */
+	private static function delete_source_dir( string $site_dir, string $html_path ) {
+		$source_dir = realpath( $site_dir );
+		$entry_file = realpath( $html_path );
+		if ( false === $source_dir || false === $entry_file || ! is_dir( $source_dir ) ) {
+			return new WP_Error( 'static_site_importer_source_cleanup_missing', 'Source directory is not available.' );
+		}
+
+		if ( 0 !== strpos( $entry_file, trailingslashit( $source_dir ) ) ) {
+			return new WP_Error( 'static_site_importer_source_cleanup_mismatch', 'Entry HTML file is not inside the source directory.' );
+		}
+
+		$protected_dirs = array_filter(
+			array_map(
+				'realpath',
+				array(
+					ABSPATH,
+					WP_CONTENT_DIR,
+					get_theme_root(),
+				)
+			)
+		);
+		if ( DIRECTORY_SEPARATOR === $source_dir || in_array( $source_dir, $protected_dirs, true ) ) {
+			return new WP_Error( 'static_site_importer_source_cleanup_protected', sprintf( 'Refusing to delete protected source directory: %s', $source_dir ) );
+		}
+
+		$iterator = new RecursiveIteratorIterator(
+			new RecursiveDirectoryIterator( $source_dir, FilesystemIterator::SKIP_DOTS ),
+			RecursiveIteratorIterator::CHILD_FIRST
+		);
+
+		foreach ( $iterator as $item ) {
+			$path = $item->getPathname();
+			if ( $item->isDir() && ! $item->isLink() ) {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- Removes caller-provided temporary static-site source directories after a clean import.
+				if ( ! rmdir( $path ) ) {
+					return new WP_Error( 'static_site_importer_source_cleanup_failed', sprintf( 'Failed to remove source directory: %s', $path ) );
+				}
+				continue;
+			}
+
+			if ( ! wp_delete_file( $path ) ) {
+				return new WP_Error( 'static_site_importer_source_cleanup_failed', sprintf( 'Failed to remove source file: %s', $path ) );
+			}
+		}
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- Removes caller-provided temporary static-site source directories after a clean import.
+		if ( ! rmdir( $source_dir ) ) {
+			return new WP_Error( 'static_site_importer_source_cleanup_failed', sprintf( 'Failed to remove source directory: %s', $source_dir ) );
+		}
+
+		return true;
 	}
 
 	/**
