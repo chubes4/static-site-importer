@@ -49,10 +49,13 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$home_pat   = $this->read_file( $theme_dir . '/patterns/page-home.php' );
 		$proof_pat  = $this->read_file( $theme_dir . '/patterns/page-proof.php' );
 
-		$this->assertStringContainsString( 'wordpress-is-dead-fixture/page-home', $front_page );
+		$this->assertStringContainsString( '<!-- wp:post-content', $front_page );
+		$this->assertStringNotContainsString( '<!-- wp:pattern', $front_page );
 		$this->assertStringContainsString( '<!-- wp:post-content', $page );
-		$this->assertStringContainsString( 'wordpress-is-dead-fixture/page-home', $home_tmpl );
-		$this->assertStringContainsString( 'wordpress-is-dead-fixture/page-proof', $proof_tmpl );
+		$this->assertStringContainsString( '<!-- wp:post-content', $home_tmpl );
+		$this->assertStringContainsString( '<!-- wp:post-content', $proof_tmpl );
+		$this->assertStringNotContainsString( '<!-- wp:pattern', $home_tmpl );
+		$this->assertStringNotContainsString( '<!-- wp:pattern', $proof_tmpl );
 		$this->assertStringContainsString( 'Slug: wordpress-is-dead-fixture/page-home', $home_pat );
 		$this->assertStringContainsString( 'Slug: wordpress-is-dead-fixture/page-proof', $proof_pat );
 		$this->assertStringNotContainsString( '<!-- wp:html /-->', $front_page );
@@ -120,14 +123,25 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 			$this->assertInstanceOf( WP_Post::class, $post, 'Missing imported page post for ' . $filename );
 			$slug         = 'index.html' === $filename ? 'home' : preg_replace( '/\.html?$/i', '', $filename );
 			$pattern_body = $this->pattern_blocks( $this->read_file( $theme_dir . '/patterns/page-' . $slug . '.php' ) );
-			$this->assertStringContainsString( 'Imported page layout lives in this page', $post->post_content );
-			$this->assertFalse( $this->contains_selector( $post->post_content, '.hero' ) );
-			$this->assertNotEmpty( parse_blocks( $pattern_body ), 'Pattern block parse failed for ' . $filename );
+			$this->assertStringNotContainsString( 'Imported page layout lives in this page', $post->post_content );
+			$this->assertTrue( $this->contains_selector( $post->post_content, '.hero' ) );
+			$this->assertNotEmpty( parse_blocks( $post->post_content ), 'Page block parse failed for ' . $filename );
+			$this->assertNotEmpty( parse_blocks( $pattern_body ), 'Pattern snapshot block parse failed for ' . $filename );
+			$this->assertSame( trim( $pattern_body ), trim( $post->post_content ), 'Pattern snapshot should match page content for ' . $filename );
 			$pages[ $filename ] = array(
-				'stored'   => $pattern_body,
-				'rendered' => do_blocks( $pattern_body ),
+				'stored'   => $post->post_content,
+				'rendered' => do_blocks( $post->post_content ),
 			);
 		}
+
+		$previous_theme = get_stylesheet();
+		switch_theme( $result['theme_slug'] );
+		$home_post         = get_post( $result['pages']['index.html'] );
+		$frontend_rendered = $home_post instanceof WP_Post ? $this->render_template_for_post( $front_page, $home_post ) : '';
+		switch_theme( $previous_theme );
+		$this->assertStringContainsString( 'WordPress', $frontend_rendered );
+		$this->assertTrue( $this->contains_selector( $frontend_rendered, '.hero' ) );
+		$this->assertStringContainsString( 'Prompt Liberation Front', $frontend_rendered );
 
 		$this->assertStringNotContainsString( 'href="index.html"', $pages['proof.html']['stored'] );
 		$this->assert_selector_matrix( $pages );
@@ -903,6 +917,28 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$parts = explode( '?>', $pattern_file, 2 );
 
 		return trim( 2 === count( $parts ) ? $parts[1] : $pattern_file );
+	}
+
+	/**
+	 * Renders a block template with page context, matching the frontend post-content path.
+	 */
+	private function render_template_for_post( string $template, WP_Post $post ): string {
+		$rendered = '';
+		$context  = array(
+			'postId'   => $post->ID,
+			'postType' => $post->post_type,
+		);
+
+		foreach ( parse_blocks( $template ) as $block ) {
+			if ( 'core/post-content' === ( $block['blockName'] ?? '' ) ) {
+				$rendered .= do_blocks( $post->post_content );
+				continue;
+			}
+
+			$rendered .= ( new WP_Block( $block, $context ) )->render();
+		}
+
+		return $rendered;
 	}
 
 	/**
