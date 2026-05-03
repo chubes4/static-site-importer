@@ -122,6 +122,7 @@ $html = <<<'HTML'
   <div class="finance-fill" style="width: 74%"></div>
   <div class="finance-fill seafoam" style="width: 17%"></div>
   <div class="finance-fill sand" style="width: 9%"></div>
+  <div class="timeline-fill static-site-importer-decorative-layer" style="width:62%"></div>
 </div>
 HTML;
 $blocks = html_to_blocks_raw_handler(['HTML' => $html]);
@@ -138,13 +139,15 @@ $widths = \array_values(\array_filter(\array_map(static function ($block) {
 $serialized = serialize_blocks($blocks);
 $assert(!\in_array('core/html', $names, \true), 'progress-fill-divs-do-not-use-core-html', \implode(', ', $names));
 $assert(\count($fallback_events) === 0, 'progress-fill-divs-emit-no-fallback-events', (string) \count($fallback_events));
-$assert(\substr_count(\implode(',', $names), 'core/group') === 4, 'progress-fill-divs-use-group-blocks', \implode(', ', $names));
+$assert(\substr_count(\implode(',', $names), 'core/group') === 5, 'progress-fill-divs-use-group-blocks', \implode(', ', $names));
 $assert(\in_array('finance-bar', $class_names, \true), 'progress-wrapper-class-survives', \implode(', ', $class_names));
 $assert(\in_array('finance-fill', $class_names, \true), 'progress-fill-class-survives', \implode(', ', $class_names));
 $assert(\in_array('finance-fill seafoam', $class_names, \true), 'progress-fill-extra-class-survives', \implode(', ', $class_names));
 $assert(\in_array('finance-fill sand', $class_names, \true), 'progress-fill-second-extra-class-survives', \implode(', ', $class_names));
-$assert($widths === ['74%', '17%', '9%'], 'progress-fill-widths-survive', \implode(', ', $widths));
-$assert(\str_contains($serialized, 'style="width:74%"'), 'serialized-progress-width-survives', $serialized);
+$assert(\in_array('timeline-fill static-site-importer-decorative-layer', $class_names, \true), 'timeline-fill-class-survives', \implode(', ', $class_names));
+$assert($widths === [], 'empty-decorative-fill-widths-are-dropped', \implode(', ', $widths));
+$assert(!\str_contains($serialized, 'style="width:'), 'serialized-fill-widths-are-dropped', $serialized);
+$assert(\str_contains($serialized, '<div class="wp-block-group timeline-fill static-site-importer-decorative-layer"></div>'), 'serialized-timeline-fill-has-no-raw-style', $serialized);
 $assert(!\str_contains($serialized, '<!-- wp:html -->'), 'serialized-output-has-no-wp-html', $serialized);
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {

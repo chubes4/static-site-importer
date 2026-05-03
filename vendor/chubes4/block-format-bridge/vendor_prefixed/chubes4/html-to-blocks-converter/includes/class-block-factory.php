@@ -93,11 +93,11 @@ class HTML_To_Blocks_Block_Factory
      * @param array $attrs HTML attribute map.
      * @return string Leading-space-prefixed HTML attributes.
      */
-    private static function html_attrs(array $attrs): string
+    private static function html_attrs(array $attrs, array $include_empty = []): string
     {
         $html = '';
         foreach ($attrs as $name => $value) {
-            if ($value === null || $value === '' || $value === \false) {
+            if ($value === null || $value === '' && !\in_array($name, $include_empty, \true) || $value === \false) {
                 continue;
             }
             if ($value === \true) {
@@ -261,7 +261,14 @@ class HTML_To_Blocks_Block_Factory
             return '';
         }
         $img_attrs = ['src' => esc_url($url), 'alt' => $attributes['alt'] ?? '', 'title' => $attributes['title'] ?? null, 'srcset' => $attributes['srcset'] ?? null, 'sizes' => $attributes['sizes'] ?? null, 'width' => $attributes['width'] ?? null, 'height' => $attributes['height'] ?? null];
-        $img = '<img' . self::html_attrs($img_attrs) . '/>';
+        $is_svg_image = \preg_match('/\.svg(?:$|[?#])/i', (string) $url) === 1;
+        $is_resized = $is_svg_image && !empty($attributes['width']) && !empty($attributes['height']);
+        if ($is_resized) {
+            $img_attrs['style'] = 'width:' . $attributes['width'] . ';height:' . $attributes['height'];
+            $img_attrs['width'] = null;
+            $img_attrs['height'] = null;
+        }
+        $img = '<img' . self::html_attrs($img_attrs, ['alt']) . '/>';
         if (!empty($attributes['href'])) {
             $rel = !empty($attributes['rel']) ? ' rel="' . esc_attr($attributes['rel']) . '"' : '';
             $img = '<a href="' . esc_url($attributes['href']) . '"' . $rel . '>' . $img . '</a>';
@@ -270,7 +277,7 @@ class HTML_To_Blocks_Block_Factory
         if (!empty($attributes['caption'])) {
             $figcaption = '<figcaption class="wp-element-caption">' . $attributes['caption'] . '</figcaption>';
         }
-        $class = self::merge_block_class('wp-block-image', $attributes);
+        $class = self::merge_block_class($is_resized ? 'wp-block-image is-resized' : 'wp-block-image', $attributes);
         if (!empty($attributes['align'])) {
             $class .= ' align' . $attributes['align'];
         }

@@ -153,6 +153,17 @@ $assert(\str_contains($newsletter_serialized, 'Find events'), 'parsed-newsletter
 $assert(\str_contains($newsletter_serialized, '<!-- wp:html --><form class="newsletter-form"'), 'parsed-newsletter-form-is-local-core-html-island', $newsletter_serialized);
 $assert(\count($fallback_events) === 1, 'parsed-newsletter-grid-emits-one-local-form-fallback', (string) \count($fallback_events));
 $assert(($fallback_events[0][1]['tag_name'] ?? '') === 'FORM', 'parsed-newsletter-fallback-context-is-form', \print_r($fallback_events, \true));
+$generic_wrapped_form = '<div class="content-shell edge-wrapper"><section class="search-panel"><div class="search-copy"><h2>Find anything</h2><p>Search the archive.</p></div><form class="search-form" action="/" method="get"><input type="search" name="s" /><button type="submit">Search</button></form><p><a href="/archive/">Browse archive</a></p></section></div>';
+$fallback_events = [];
+$wrapped_form_serialized = serialize_blocks(html_to_blocks_raw_handler(['HTML' => $generic_wrapped_form]));
+$assert(!\str_contains($wrapped_form_serialized, '<!-- wp:html --><div class="content-shell edge-wrapper"'), 'generic-form-wrapper-is-not-core-html', $wrapped_form_serialized);
+$assert(\str_contains($wrapped_form_serialized, '<div class="wp-block-group content-shell edge-wrapper">'), 'generic-form-wrapper-becomes-group', $wrapped_form_serialized);
+$assert(\str_contains($wrapped_form_serialized, '<section class="wp-block-group search-panel">'), 'generic-form-section-becomes-group', $wrapped_form_serialized);
+$assert(\str_contains($wrapped_form_serialized, 'Find anything'), 'generic-form-heading-remains-editable', $wrapped_form_serialized);
+$assert(\str_contains($wrapped_form_serialized, 'Browse archive'), 'generic-form-link-text-survives', $wrapped_form_serialized);
+$assert(\str_contains($wrapped_form_serialized, '<!-- wp:html --><form class="search-form"'), 'generic-form-is-local-core-html-island', $wrapped_form_serialized);
+$assert(\count($fallback_events) === 1, 'generic-form-wrapper-emits-one-local-form-fallback', (string) \count($fallback_events));
+$assert(($fallback_events[0][1]['tag_name'] ?? '') === 'FORM', 'generic-form-fallback-context-is-form', \print_r($fallback_events, \true));
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

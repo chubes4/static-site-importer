@@ -199,6 +199,18 @@ $assert(\strpos($serialized_network, 'Extra Chill Events') !== \false, 'network-
 $assert(\strpos($serialized_network, 'Concert listings and community calendars') !== \false, 'network-preserves-description');
 $assert(\strpos($serialized_network, 'Events') !== \false, 'network-preserves-badge');
 $assert(\strpos($serialized_network, 'https://events.extrachill.com') !== \false, 'network-preserves-cta-link');
+$generic_wrapped_grid = '<div class="full-width-breakout edge-shell"><div class="article-grid"><article class="story-card"><h3>First story</h3><p>One.</p></article><article class="story-card"><h3>Second story</h3><p>Two.</p></article></div></div>';
+$unsupported_fallback_events = [];
+$wrapped_blocks = html_to_blocks_raw_handler(['HTML' => $generic_wrapped_grid]);
+$wrapped_serialized = serialize_blocks($wrapped_blocks);
+$wrapped_names = $flatten_block_names($wrapped_blocks);
+$assert(\count($wrapped_blocks) === 1, 'generic-wrapper-single-block');
+$assert(($wrapped_blocks[0]['blockName'] ?? '') === 'core/group', 'generic-wrapper-becomes-group');
+$assert(\strpos($wrapped_serialized, 'full-width-breakout edge-shell') !== \false, 'generic-wrapper-preserves-shell-classes', $wrapped_serialized);
+$assert(\strpos($wrapped_serialized, 'article-grid') !== \false, 'generic-wrapper-preserves-child-grid-class', $wrapped_serialized);
+$assert(\strpos($wrapped_serialized, 'First story') !== \false && \strpos($wrapped_serialized, 'Second story') !== \false, 'generic-wrapper-preserves-card-content', $wrapped_serialized);
+$assert(!\in_array('core/html', $wrapped_names, \true), 'generic-wrapper-does-not-fallback-to-core-html', 'Blocks: ' . \implode(', ', $wrapped_names));
+$assert(\count($unsupported_fallback_events) === 0, 'generic-wrapper-emits-no-unsupported-fallback-events', (string) \count($unsupported_fallback_events));
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;
