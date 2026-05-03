@@ -83,6 +83,46 @@ if ( ! is_wp_error( $safe_result ) ) {
 	$assert( isset( $asset['path'] ) && is_readable( $theme_dir . '/' . $asset['path'] ), 'safe-svg-asset-written' );
 }
 
+$sprite_path = $write_fixture(
+	'svg-sprite-icons.html',
+	'<!doctype html><html><head><title>SVG Sprite Icons</title></head><body>' .
+	'<svg style="display:none" aria-hidden="true" focusable="false"><symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m16 16 5 5" stroke="currentColor" stroke-width="2"/></symbol></svg>' .
+	'<header class="site-header"><nav><a href="/" class="brand">Sprite Site</a><span class="search-toggle"><svg class="ec-icon search-top" aria-hidden="true"><use href="#search"></use></svg><span>Search</span></span></nav></header>' .
+	'<main><h1>Sprite Icons</h1><p><svg class="ec-icon search-inline" aria-hidden="true"><use href="#search"></use></svg> Search works.</p></main>' .
+	'</body></html>'
+);
+
+$sprite_result = Static_Site_Importer_Theme_Generator::import_theme(
+	$sprite_path,
+	array(
+		'name'      => 'SVG Sprite Icons',
+		'slug'      => 'svg-sprite-icons-smoke',
+		'overwrite' => true,
+		'activate'  => false,
+	)
+);
+
+$assert( ! is_wp_error( $sprite_result ), 'sprite-import-succeeds', is_wp_error( $sprite_result ) ? $sprite_result->get_error_message() : '' );
+if ( ! is_wp_error( $sprite_result ) ) {
+	$theme_dir = $sprite_result['theme_dir'];
+	$header    = $read( $theme_dir . '/parts/header.html' );
+	$pattern   = $pattern_blocks( $read( $theme_dir . '/patterns/page-svg-sprite-icons.php' ) );
+	$report    = json_decode( $read( $sprite_result['report_path'] ), true );
+	$sprite    = $report['assets']['svg_sprites'][0] ?? array();
+	$icons     = $report['assets']['svg_icons'] ?? array();
+
+	$assert( ! str_contains( $pattern, '<symbol id="search"' ), 'sprite-removed-from-page-content' );
+	$assert( str_contains( $header, '/assets/icons/' ), 'header-use-reference-materialized' );
+	$assert( str_contains( $pattern, '/assets/icons/' ), 'content-use-reference-materialized' );
+	$assert( ! str_contains( $header . $pattern, '<use href="#search"' ), 'use-references-replaced' );
+	$assert( 0 === ( $report['quality']['fallback_count'] ?? null ), 'sprite-has-zero-fallbacks' );
+	$assert( 0 === ( $report['quality']['unsafe_svg_count'] ?? null ), 'sprite-has-zero-unsafe-svg-count' );
+	$assert( 0 === ( $report['quality']['core_html_block_count'] ?? null ), 'sprite-has-zero-core-html-blocks' );
+	$assert( isset( $sprite['path'] ) && is_readable( $theme_dir . '/' . $sprite['path'] ), 'sprite-asset-written' );
+	$assert( in_array( 'search', $sprite['symbol_ids'] ?? array(), true ), 'sprite-report-records-symbol-id' );
+	$assert( count( $icons ) >= 1, 'sprite-use-icons-materialized' );
+}
+
 $unsafe_path = $write_fixture(
 	'unsafe-svg-icons.html',
 	'<!doctype html><html><head><title>Unsafe SVG Icons</title></head><body><main><section><h1>Unsafe</h1><svg viewBox="0 0 24 24"><script>alert(1)</script><path d="M0 0h24v24H0z"/></svg></section></main></body></html>'

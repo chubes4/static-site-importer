@@ -43,6 +43,20 @@ class Static_Site_Importer_Theme_Generator {
 	private static array $materialized_svg_assets = array();
 
 	/**
+	 * Extracted safe SVG symbol sprites keyed by symbol id.
+	 *
+	 * @var array<string, array<string, string>>
+	 */
+	private static array $svg_sprite_symbols = array();
+
+	/**
+	 * Materialized SVG sprite files keyed by sprite content hash.
+	 *
+	 * @var array<string, array<string, mixed>>
+	 */
+	private static array $materialized_svg_sprites = array();
+
+	/**
 	 * Classes observed on generated core/button wrappers during this import.
 	 *
 	 * @var array<string, true>
@@ -111,16 +125,19 @@ class Static_Site_Importer_Theme_Generator {
 		$fragments               = $document->fragments();
 		self::$conversion_report = self::new_conversion_report( $html_path, isset( $args['source_metadata'] ) && is_array( $args['source_metadata'] ) ? $args['source_metadata'] : array() );
 
-		self::$active_theme_dir        = $theme_dir;
-		self::$active_theme_uri        = trailingslashit( get_theme_root_uri( $theme_slug ) ) . $theme_slug;
-		self::$materialized_svg_assets = array();
-		self::$button_wrapper_classes  = array();
+		self::$active_theme_dir         = $theme_dir;
+		self::$active_theme_uri         = trailingslashit( get_theme_root_uri( $theme_slug ) ) . $theme_slug;
+		self::$materialized_svg_assets  = array();
+		self::$svg_sprite_symbols       = array();
+		self::$materialized_svg_sprites = array();
+		self::$button_wrapper_classes   = array();
 
 		$site_css                             = self::site_css( $site_dir, $document );
 		self::$decorative_empty_group_classes = array_fill_keys(
 			self::absolute_position_classes_from_css( $site_css ),
 			true
 		);
+		self::pre_register_svg_symbol_sprites( $fragments, $pages );
 
 		$background_blocks = self::convert_fragment( self::rewrite_internal_links( $fragments['background'], $permalinks ), 'background:index.html' );
 		$header_blocks     = self::convert_header_fragment( self::strip_active_classes( self::rewrite_internal_links( $fragments['header'], $permalinks ) ), $theme_slug );
@@ -1283,45 +1300,60 @@ class Static_Site_Importer_Theme_Generator {
 		$sequence = 0;
 
 		foreach ( $svgs as $svg ) {
+			if ( ! $svg->parentNode instanceof DOMNode ) {
+				continue;
+			}
+
 			++$sequence;
 			$svg_html = self::node_html( $doc, $svg );
+			$sprite   = self::sanitize_svg_symbol_sprite( $svg_html );
+			if ( null !== $sprite ) {
+				$asset = self::write_svg_sprite_asset( $sprite['svg'], $sprite['symbols'], $source, $sequence );
+				if ( is_wp_error( $asset ) ) {
+					self::record_svg_materialization_failure( $source, $svg_html, $asset );
+					continue;
+				}
+
+				$svg->parentNode->removeChild( $svg );
+				$changed = true;
+				continue;
+			}
+
 			$style_dimensions = $svg->hasAttribute( 'style' ) ? self::safe_svg_dimension_style( $svg->getAttribute( 'style' ) ) : array();
+			$sprite_use_svg   = self::svg_from_sprite_use_reference( $doc, $svg );
+			if ( null !== $sprite_use_svg ) {
+				$asset = self::write_svg_icon_asset( $sprite_use_svg, $source, $sequence, 'svg_symbol_use' );
+				if ( is_wp_error( $asset ) ) {
+					self::record_svg_materialization_failure( $source, $svg_html, $asset );
+					continue;
+				}
+
+				$img = self::image_node_for_svg_asset( $doc, $svg, $asset, $style_dimensions );
+				$svg->parentNode->replaceChild( $img, $svg );
+				$changed = true;
+				continue;
+			}
+
+			if ( self::is_local_svg_use_reference( $svg ) ) {
+				self::record_svg_sprite_reference_failure( $source, $svg_html, 'missing_symbol' );
+				continue;
+			}
+
 			$safe_svg = self::sanitize_inline_svg( $svg_html );
 			if ( null === $safe_svg ) {
 				self::record_unsafe_inline_svg( $source, $svg_html );
 				continue;
 			}
 
-			$asset = self::write_svg_icon_asset( $safe_svg, $source, $sequence );
+			$asset = self::write_svg_icon_asset( $safe_svg, $source, $sequence, 'inline_svg_icon' );
 			if ( is_wp_error( $asset ) ) {
 				self::record_svg_materialization_failure( $source, $svg_html, $asset );
 				continue;
 			}
 
-			$img = $doc->createElement( 'img' );
-			$img->setAttribute( 'src', $asset['url'] );
-			$img->setAttribute( 'alt', self::svg_accessible_label( $svg ) );
-			$img->setAttribute( 'decoding', 'async' );
-			if ( $svg->hasAttribute( 'class' ) ) {
-				$img->setAttribute( 'class', $svg->getAttribute( 'class' ) );
-			}
-			foreach ( array( 'width', 'height', 'aria-hidden', 'role' ) as $attribute ) {
-				if ( $svg->hasAttribute( $attribute ) ) {
-					$img->setAttribute( $attribute, $svg->getAttribute( $attribute ) );
-				}
-			}
-			if ( is_array( $style_dimensions ) ) {
-				foreach ( array( 'width', 'height' ) as $attribute ) {
-					if ( ! $img->hasAttribute( $attribute ) && isset( $style_dimensions[ $attribute ] ) ) {
-						$img->setAttribute( $attribute, $style_dimensions[ $attribute ] );
-					}
-				}
-			}
-
-			if ( $svg->parentNode instanceof DOMNode ) {
-				$svg->parentNode->replaceChild( $img, $svg );
-				$changed = true;
-			}
+			$img = self::image_node_for_svg_asset( $doc, $svg, $asset, $style_dimensions );
+			$svg->parentNode->replaceChild( $img, $svg );
+			$changed = true;
 		}
 
 		if ( ! $changed ) {
@@ -1342,6 +1374,263 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return '' === trim( $output ) ? $html : $output;
+	}
+
+	/**
+	 * Discover sprites before converting chrome so header/footer use references can resolve.
+	 *
+	 * @param array{background:string,header:string,main:string,footer:string}              $entry_fragments Entry document fragments.
+	 * @param array<string, array{path:string,document:Static_Site_Importer_Document}> $pages           Imported pages.
+	 * @return void
+	 */
+	private static function pre_register_svg_symbol_sprites( array $entry_fragments, array $pages ): void {
+		foreach ( $entry_fragments as $name => $html ) {
+			self::register_svg_symbol_sprites_from_html( (string) $html, $name . ':index.html' );
+		}
+
+		foreach ( $pages as $filename => $page ) {
+			$fragments = $page['document']->fragments();
+			self::register_svg_symbol_sprites_from_html( $fragments['main'], 'main:' . $filename );
+		}
+	}
+
+	/**
+	 * Register safe symbol sprites from a fragment without mutating that fragment.
+	 *
+	 * @param string $html   HTML fragment.
+	 * @param string $source Source fragment label.
+	 * @return void
+	 */
+	private static function register_svg_symbol_sprites_from_html( string $html, string $source ): void {
+		if ( '' === trim( $html ) || ! str_contains( strtolower( $html ), '<symbol' ) || '' === self::$active_theme_dir ) {
+			return;
+		}
+
+		$doc      = self::load_fragment_document( $html );
+		$svgs     = iterator_to_array( $doc->getElementsByTagName( 'svg' ) );
+		$sequence = 0;
+		foreach ( $svgs as $svg ) {
+			++$sequence;
+			$svg_html = self::node_html( $doc, $svg );
+			$sprite   = self::sanitize_svg_symbol_sprite( $svg_html );
+			if ( null === $sprite ) {
+				continue;
+			}
+
+			$asset = self::write_svg_sprite_asset( $sprite['svg'], $sprite['symbols'], $source, $sequence );
+			if ( is_wp_error( $asset ) ) {
+				self::record_svg_materialization_failure( $source, $svg_html, $asset );
+			}
+		}
+	}
+
+	/**
+	 * Build an image node for a materialized SVG asset while preserving visual hooks.
+	 *
+	 * @param DOMDocument                $doc              Fragment document.
+	 * @param DOMElement                 $svg              Source SVG element.
+	 * @param array<string, string>      $asset            Materialized asset metadata.
+	 * @param array{width?:string,height?:string}|null $style_dimensions Safe dimensions parsed from style.
+	 * @return DOMElement
+	 */
+	private static function image_node_for_svg_asset( DOMDocument $doc, DOMElement $svg, array $asset, ?array $style_dimensions ): DOMElement {
+		$img = $doc->createElement( 'img' );
+		$img->setAttribute( 'src', $asset['url'] );
+		$img->setAttribute( 'alt', self::svg_accessible_label( $svg ) );
+		$img->setAttribute( 'decoding', 'async' );
+		if ( $svg->hasAttribute( 'class' ) ) {
+			$img->setAttribute( 'class', $svg->getAttribute( 'class' ) );
+		}
+		foreach ( array( 'width', 'height', 'aria-hidden', 'role' ) as $attribute ) {
+			if ( $svg->hasAttribute( $attribute ) ) {
+				$img->setAttribute( $attribute, $svg->getAttribute( $attribute ) );
+			}
+		}
+		if ( is_array( $style_dimensions ) ) {
+			foreach ( array( 'width', 'height' ) as $attribute ) {
+				if ( ! $img->hasAttribute( $attribute ) && isset( $style_dimensions[ $attribute ] ) ) {
+					$img->setAttribute( $attribute, $style_dimensions[ $attribute ] );
+				}
+			}
+		}
+
+		return $img;
+	}
+
+	/**
+	 * Sanitize an inline SVG symbol sprite and return symbol metadata.
+	 *
+	 * @param string $svg_html SVG markup.
+	 * @return array{svg:string,symbols:array<string,array<string,string>>}|null Sanitized sprite, or null when not a safe sprite.
+	 */
+	private static function sanitize_svg_symbol_sprite( string $svg_html ): ?array {
+		if ( ! str_contains( strtolower( $svg_html ), '<symbol' ) ) {
+			return null;
+		}
+
+		$doc      = new DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$loaded   = $doc->loadXML( trim( $svg_html ), LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+		if ( ! $loaded || ! $doc->documentElement instanceof DOMElement || 'svg' !== strtolower( $doc->documentElement->tagName ) ) {
+			return null;
+		}
+
+		$allowed_tags = array_fill_keys(
+			array( 'svg', 'symbol', 'g', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse', 'title', 'desc' ),
+			true
+		);
+		$symbols      = array();
+		foreach ( $doc->getElementsByTagName( '*' ) as $node ) {
+			if ( ! isset( $allowed_tags[ $node->tagName ] ) ) {
+				return null;
+			}
+
+			foreach ( iterator_to_array( $node->attributes ) as $attribute ) {
+				$name  = $attribute->name;
+				$lower = strtolower( $name );
+				$value = $attribute->value;
+				if ( 'style' === $lower && self::is_hidden_svg_sprite_style( $value ) ) {
+					$node->removeAttribute( $name );
+					continue;
+				}
+
+				if ( str_starts_with( $lower, 'on' ) || preg_match( '/(?:javascript:|data:|url\s*\(|href\s*=)/i', $value ) ) {
+					return null;
+				}
+
+				if ( ! in_array( $name, array( 'xmlns', 'id', 'viewBox', 'viewbox', 'width', 'height', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'd', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'points', 'transform', 'opacity', 'class', 'role', 'aria-hidden', 'aria-label', 'focusable' ), true ) ) {
+					return null;
+				}
+			}
+		}
+
+		foreach ( $doc->getElementsByTagName( 'symbol' ) as $symbol ) {
+			$id = trim( $symbol->getAttribute( 'id' ) );
+			if ( '' === $id || ! preg_match( '/^[A-Za-z][A-Za-z0-9_-]*$/', $id ) ) {
+				return null;
+			}
+
+			$view_box       = $symbol->hasAttribute( 'viewBox' ) ? $symbol->getAttribute( 'viewBox' ) : $symbol->getAttribute( 'viewbox' );
+			$symbols[ $id ] = array(
+				'id'      => $id,
+				'viewBox' => $view_box,
+				'inner'   => self::node_inner_html( $doc, $symbol ),
+			);
+		}
+
+		if ( empty( $symbols ) ) {
+			return null;
+		}
+
+		if ( ! $doc->documentElement->hasAttribute( 'xmlns' ) ) {
+			$doc->documentElement->setAttribute( 'xmlns', 'http://www.w3.org/2000/svg' );
+		}
+
+		$svg = $doc->saveXML( $doc->documentElement );
+		return false === $svg ? null : array(
+			'svg'     => $svg,
+			'symbols' => $symbols,
+		);
+	}
+
+	/**
+	 * Check whether a sprite style only hides the symbol definitions from layout.
+	 *
+	 * @param string $style Style attribute value.
+	 * @return bool
+	 */
+	private static function is_hidden_svg_sprite_style( string $style ): bool {
+		$declarations = array_filter( array_map( 'trim', explode( ';', strtolower( $style ) ) ) );
+		if ( empty( $declarations ) ) {
+			return false;
+		}
+
+		foreach ( $declarations as $declaration ) {
+			if ( ! in_array( $declaration, array( 'display:none', 'display: none', 'visibility:hidden', 'visibility: hidden' ), true ) ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Resolve a local SVG use reference into a standalone safe SVG icon asset payload.
+	 *
+	 * @param DOMDocument $doc Fragment document.
+	 * @param DOMElement  $svg Source SVG element.
+	 * @return string|null Standalone SVG, or null when not backed by an extracted sprite symbol.
+	 */
+	private static function svg_from_sprite_use_reference( DOMDocument $doc, DOMElement $svg ): ?string {
+		$href = self::local_svg_use_href( $svg );
+		if ( null === $href || ! isset( self::$svg_sprite_symbols[ $href ] ) ) {
+			return null;
+		}
+
+		$symbol = self::$svg_sprite_symbols[ $href ];
+		$attrs  = array(
+			'xmlns' => 'http://www.w3.org/2000/svg',
+		);
+		foreach ( array( 'viewBox', 'width', 'height', 'fill', 'stroke', 'role', 'aria-hidden', 'aria-label', 'class' ) as $attribute ) {
+			if ( $svg->hasAttribute( $attribute ) ) {
+				$attrs[ $attribute ] = $svg->getAttribute( $attribute );
+			}
+		}
+		if ( empty( $attrs['viewBox'] ) && ! empty( $symbol['viewBox'] ) ) {
+			$attrs['viewBox'] = $symbol['viewBox'];
+		}
+
+		$markup = '<svg';
+		foreach ( $attrs as $name => $value ) {
+			if ( '' !== trim( $value ) ) {
+				$markup .= ' ' . $name . '="' . esc_attr( $value ) . '"';
+			}
+		}
+		$markup .= '>' . $symbol['inner'] . '</svg>';
+
+		return self::sanitize_inline_svg( $markup );
+	}
+
+	/**
+	 * Check whether an SVG is a local symbol use reference.
+	 *
+	 * @param DOMElement $svg Source SVG element.
+	 * @return bool
+	 */
+	private static function is_local_svg_use_reference( DOMElement $svg ): bool {
+		return null !== self::local_svg_use_href( $svg );
+	}
+
+	/**
+	 * Extract a single local symbol href from an SVG use-reference icon.
+	 *
+	 * @param DOMElement $svg Source SVG element.
+	 * @return string|null Symbol id without the # prefix.
+	 */
+	private static function local_svg_use_href( DOMElement $svg ): ?string {
+		$uses = $svg->getElementsByTagName( 'use' );
+		if ( 1 !== $uses->length ) {
+			return null;
+		}
+
+		$use = $uses->item( 0 );
+		if ( ! $use instanceof DOMElement ) {
+			return null;
+		}
+
+		$href = trim( $use->getAttribute( 'href' ) );
+		if ( '' === $href ) {
+			$href = trim( $use->getAttribute( 'xlink:href' ) );
+		}
+
+		if ( ! str_starts_with( $href, '#' ) ) {
+			return null;
+		}
+
+		$id = substr( $href, 1 );
+		return preg_match( '/^[A-Za-z][A-Za-z0-9_-]*$/', $id ) ? $id : null;
 	}
 
 	/**
@@ -1494,14 +1783,67 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Write one sanitized SVG sprite asset and register its symbol ids.
+	 *
+	 * @param string                                          $svg      Sanitized sprite markup.
+	 * @param array<string, array<string, string>>            $symbols  Symbol metadata keyed by id.
+	 * @param string                                          $source   Source fragment label.
+	 * @param int                                             $sequence Sequence within the fragment.
+	 * @return array<string, mixed>|WP_Error
+	 */
+	private static function write_svg_sprite_asset( string $svg, array $symbols, string $source, int $sequence ) {
+		$hash = substr( hash( 'sha256', $svg ), 0, 16 );
+		if ( isset( self::$materialized_svg_sprites[ $hash ] ) ) {
+			foreach ( $symbols as $id => $symbol ) {
+				self::$svg_sprite_symbols[ $id ] = $symbol;
+			}
+
+			return self::$materialized_svg_sprites[ $hash ];
+		}
+
+		$name     = sanitize_title( preg_replace( '/[^A-Za-z0-9_-]+/', '-', $source ) . '-sprite-' . $sequence );
+		$name     = '' === $name ? 'svg-sprite-' . $sequence : $name;
+		$relative = 'assets/icons/' . $name . '-' . $hash . '.svg';
+		$path     = trailingslashit( self::$active_theme_dir ) . $relative;
+		$dir      = dirname( $path );
+		if ( ! wp_mkdir_p( $dir ) ) {
+			return new WP_Error( 'static_site_importer_svg_sprite_mkdir_failed', sprintf( 'Failed to create SVG sprite directory: %s', $dir ) );
+		}
+
+		$result = self::write_file( $path, $svg . "\n" );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		foreach ( $symbols as $id => $symbol ) {
+			self::$svg_sprite_symbols[ $id ] = $symbol;
+		}
+
+		// phpcs:ignore Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- Keep the compact local variable readable beside the longer static writes below.
+		$asset = array(
+			'name'       => basename( $relative ),
+			'path'       => $relative,
+			'url'        => trailingslashit( self::$active_theme_uri ) . $relative,
+			'hash'       => $hash,
+			'source'     => $source,
+			'symbol_ids' => array_keys( $symbols ),
+		);
+		self::$materialized_svg_sprites[ $hash ] = $asset;
+		self::$conversion_report['assets']['svg_sprites'][] = $asset;
+
+		return $asset;
+	}
+
+	/**
 	 * Write one sanitized SVG icon asset and return its generated metadata.
 	 *
-	 * @param string $svg      Sanitized SVG markup.
-	 * @param string $source   Source fragment label.
-	 * @param int    $sequence Sequence within the fragment.
+	 * @param string $svg            Sanitized SVG markup.
+	 * @param string $source         Source fragment label.
+	 * @param int    $sequence       Sequence within the fragment.
+	 * @param string $classification Upstream or SSI asset classification.
 	 * @return array<string, string>|WP_Error
 	 */
-	private static function write_svg_icon_asset( string $svg, string $source, int $sequence ) {
+	private static function write_svg_icon_asset( string $svg, string $source, int $sequence, string $classification ) {
 		$hash = substr( hash( 'sha256', $svg ), 0, 16 );
 		if ( isset( self::$materialized_svg_assets[ $hash ] ) ) {
 			return self::$materialized_svg_assets[ $hash ];
@@ -1523,12 +1865,13 @@ class Static_Site_Importer_Theme_Generator {
 
 		// phpcs:ignore Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- Keep the compact local variable readable beside the longer static writes below.
 		$asset = array(
-			'name'   => basename( $relative ),
-			'path'   => $relative,
-			'url'    => trailingslashit( self::$active_theme_uri ) . $relative,
-			'hash'   => $hash,
-			'source' => $source,
-			'block'  => 'core/image',
+			'name'           => basename( $relative ),
+			'path'           => $relative,
+			'url'            => trailingslashit( self::$active_theme_uri ) . $relative,
+			'hash'           => $hash,
+			'source'         => $source,
+			'block'          => 'core/image',
+			'classification' => $classification,
 		);
 		self::$materialized_svg_assets[ $hash ] = $asset;
 		self::$conversion_report['assets']['svg_icons'][] = $asset;
@@ -1588,6 +1931,25 @@ class Static_Site_Importer_Theme_Generator {
 			'error_message' => $error->get_error_message(),
 			'html_length'   => strlen( $svg_html ),
 			'html_excerpt'  => self::diagnostic_excerpt( $svg_html ),
+		);
+	}
+
+	/**
+	 * Record a local SVG use reference that could not be resolved from an extracted sprite.
+	 *
+	 * @param string $source   Source fragment label.
+	 * @param string $svg_html SVG markup.
+	 * @param string $reason   Failure reason.
+	 * @return void
+	 */
+	private static function record_svg_sprite_reference_failure( string $source, string $svg_html, string $reason ): void {
+		++self::$conversion_report['quality']['svg_sprite_reference_failure_count'];
+		self::$conversion_report['diagnostics'][] = array(
+			'type'         => 'svg_sprite_reference_failure',
+			'source'       => $source,
+			'reason'       => $reason,
+			'html_length'  => strlen( $svg_html ),
+			'html_excerpt' => self::diagnostic_excerpt( $svg_html ),
 		);
 	}
 
@@ -1944,20 +2306,22 @@ class Static_Site_Importer_Theme_Generator {
 				$source_metadata
 			),
 			'quality'              => array(
-				'pass'                              => true,
-				'fallback_count'                    => 0,
-				'content_loss_count'                => 0,
-				'empty_conversion_count'            => 0,
-				'core_html_block_count'             => 0,
-				'invalid_block_count'               => 0,
-				'invalid_block_document_count'      => 0,
-				'unsafe_svg_count'                  => 0,
-				'svg_materialization_failure_count' => 0,
-				'failure_reasons'                   => array(),
+				'pass'                               => true,
+				'fallback_count'                     => 0,
+				'content_loss_count'                 => 0,
+				'empty_conversion_count'             => 0,
+				'core_html_block_count'              => 0,
+				'invalid_block_count'                => 0,
+				'invalid_block_document_count'       => 0,
+				'unsafe_svg_count'                   => 0,
+				'svg_materialization_failure_count'  => 0,
+				'svg_sprite_reference_failure_count' => 0,
+				'failure_reasons'                    => array(),
 			),
 			'conversion_fragments' => array(),
 			'assets'               => array(
-				'svg_icons' => array(),
+				'svg_icons'   => array(),
+				'svg_sprites' => array(),
 			),
 			'generated_theme'      => array(
 				'block_documents' => array(),
@@ -2010,13 +2374,13 @@ class Static_Site_Importer_Theme_Generator {
 				'source_probe_counts'    => self::visual_probe_counts( $source_html ),
 				'generated_probe_counts' => self::visual_probe_counts( $generated ),
 				'comparison_hooks'       => array(
-					'screenshot'       => array(
-						'source'          => $page['path'],
-						'frontend'        => $permalinks[ $filename ] ?? '',
-						'generated'       => $permalinks[ $filename ] ?? '',
+					'screenshot'      => array(
+						'source'         => $page['path'],
+						'frontend'       => $permalinks[ $filename ] ?? '',
+						'generated'      => $permalinks[ $filename ] ?? '',
 						'editor_surface' => 'site_editor_canvas',
 					),
-					'render_surfaces'  => array(
+					'render_surfaces' => array(
 						'source_static'      => array(
 							'type' => 'file',
 							'url'  => $page['path'],
@@ -2031,13 +2395,13 @@ class Static_Site_Importer_Theme_Generator {
 							'wordpress_page_id' => $page_ids[ $filename ] ?? null,
 						),
 					),
-					'layout_probes'    => self::visual_layout_probes(),
-					'hero'             => array( '.hero', 'header', '[class*=hero]' ),
-					'buttons'          => array( 'a[class*=btn]', 'a[class*=button]', 'a[class*=cta]', 'button', '.wp-block-button__link' ),
-					'visible_chrome'   => array( 'nav', 'header', 'footer', '.site-header', '.nav-shell', '.top-nav' ),
-					'code_visuals'     => array( '.code-window', '.terminal', '[class*=code-window]', '[class*=terminal]', 'pre[class*=code]' ),
-					'problem_grids'    => array( '.problem-grid', '.problems-grid', '.problem-cards', '[class*=problem][class*=grid]', '[class*=problem][class*=cards]' ),
-					'generated_files'  => array_values( array_filter( array( $template, $pattern, 'parts/header.html', $footer_part, 'style.css' ) ) ),
+					'layout_probes'   => self::visual_layout_probes(),
+					'hero'            => array( '.hero', 'header', '[class*=hero]' ),
+					'buttons'         => array( 'a[class*=btn]', 'a[class*=button]', 'a[class*=cta]', 'button', '.wp-block-button__link' ),
+					'visible_chrome'  => array( 'nav', 'header', 'footer', '.site-header', '.nav-shell', '.top-nav' ),
+					'code_visuals'    => array( '.code-window', '.terminal', '[class*=code-window]', '[class*=terminal]', 'pre[class*=code]' ),
+					'problem_grids'   => array( '.problem-grid', '.problems-grid', '.problem-cards', '[class*=problem][class*=grid]', '[class*=problem][class*=cards]' ),
+					'generated_files' => array_values( array_filter( array( $template, $pattern, 'parts/header.html', $footer_part, 'style.css' ) ) ),
 				),
 			);
 		}
@@ -2050,21 +2414,21 @@ class Static_Site_Importer_Theme_Generator {
 	 */
 	private static function visual_layout_probes(): array {
 		return array(
-			'nav_chrome'    => array(
+			'nav_chrome'   => array(
 				'selectors'  => array( 'nav', '.site-header', '.nav-shell', '.top-nav', '[class*=nav]' ),
 				'assertions' => array( 'visible', 'bounding_box_nonzero', 'frontend_editor_box_parity', 'frontend_editor_display_parity' ),
 			),
-			'code_visual'   => array(
+			'code_visual'  => array(
 				'selectors'  => array( '.code-window', '.terminal', '[class*=code-window]', '[class*=terminal]', 'pre[class*=code]' ),
 				'assertions' => array( 'visible', 'bounding_box_nonzero', 'frontend_editor_visibility_parity' ),
 			),
-			'problem_grid'  => array(
+			'problem_grid' => array(
 				'selectors'            => array( '.problem-grid', '.problems-grid', '.problem-cards', '[class*=problem][class*=grid]', '[class*=problem][class*=cards]' ),
 				'desktop_min_width_px' => 960,
 				'min_columns'          => 2,
 				'assertions'           => array( 'visible', 'children_same_row_desktop', 'frontend_editor_column_parity' ),
 			),
-			'hero_region'   => array(
+			'hero_region'  => array(
 				'selectors'  => array( '.hero', 'header', '[class*=hero]' ),
 				'assertions' => array( 'visible', 'bounding_box_nonzero', 'source_frontend_editor_box_parity' ),
 			),
@@ -2588,6 +2952,9 @@ class Static_Site_Importer_Theme_Generator {
 		}
 		if ( $quality['svg_materialization_failure_count'] > 0 ) {
 			$reasons[] = 'svg_materialization_failure';
+		}
+		if ( $quality['svg_sprite_reference_failure_count'] > 0 ) {
+			$reasons[] = 'svg_sprite_reference_failure';
 		}
 
 		$quality['pass']            = empty( $reasons );
