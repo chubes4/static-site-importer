@@ -594,6 +594,10 @@ class Static_Site_Importer_Theme_Generator {
 
 		$children = self::theme_part_child_blocks( $doc, $element, $theme_slug, $location );
 		if ( '' === trim( $children ) ) {
+			if ( self::is_empty_decorative_theme_part_element( $element ) ) {
+				return self::group_block( '', self::append_class_token( $element->getAttribute( 'class' ), 'static-site-importer-decorative-layer' ) );
+			}
+
 			$text = trim( $element->textContent );
 			if ( '' !== $text ) {
 				return self::paragraph_block( esc_html( $text ), $element->getAttribute( 'class' ) );
@@ -645,6 +649,32 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return implode( '', array_filter( $blocks ) );
+	}
+
+	/**
+	 * Check whether an empty header/footer element is CSS-declared decorative chrome.
+	 *
+	 * @param DOMElement $element Source element.
+	 * @return bool
+	 */
+	private static function is_empty_decorative_theme_part_element( DOMElement $element ): bool {
+		if ( 'div' !== strtolower( $element->tagName ) || empty( self::$decorative_empty_group_classes ) ) {
+			return false;
+		}
+
+		if ( '' !== trim( $element->textContent ) || ! empty( self::direct_element_children( $element ) ) ) {
+			return false;
+		}
+
+		$classes = preg_split( '/\s+/', trim( $element->getAttribute( 'class' ) ) );
+		$classes = false === $classes ? array() : $classes;
+		foreach ( $classes as $class ) {
+			if ( isset( self::$decorative_empty_group_classes[ $class ] ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
