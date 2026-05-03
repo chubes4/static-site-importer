@@ -796,6 +796,45 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Safe inline SVG icons in extracted footer chrome are materialized as native image blocks.
+	 */
+	public function test_footer_template_part_svg_icons_materialize_as_theme_assets(): void {
+		$html_path = $this->write_temp_fixture(
+			'footer-svg-icon.html',
+			'<!doctype html><html><head><title>Footer SVG Icon</title></head><body><main><h1>Footer SVG Icon</h1><p>Body copy.</p></main><footer class="site-footer"><div class="footer-inner"><div class="footer-row"><div class="footer-brand"><span>Relay Atlas</span><svg viewbox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="width: 12px; height: 12px;"><path d="M8 2L14 5.5V10.5L8 14L2 10.5V5.5L8 2Z"></path></svg></div><ul class="footer-nav"><li><a href="/privacy.html">Privacy</a></li></ul></div></div></footer></body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Footer SVG Icon',
+				'slug'      => 'footer-svg-icon',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$footer    = $this->read_file( $theme_dir . '/parts/footer.html' );
+		$report    = json_decode( $this->read_file( $result['report_path'] ), true );
+
+		$this->assertStringContainsString( '<!-- wp:image ', $footer );
+		$this->assertStringNotContainsString( '<!-- wp:html', $footer );
+		$this->assertStringContainsString( '/assets/icons/', $footer );
+		$this->assertSame( 0, $report['quality']['unsafe_svg_count'] ?? null );
+		$this->assertSame( 0, $report['quality']['fallback_count'] ?? null );
+		$this->assertNotEmpty( $report['assets']['svg_icons'] ?? array() );
+
+		$asset = $report['assets']['svg_icons'][0] ?? array();
+		$this->assertSame( 'theme-part:footer', $asset['source'] ?? '' );
+		$this->assertSame( 'core/image', $asset['block'] ?? '' );
+		$this->assertFileExists( $theme_dir . '/' . ( $asset['path'] ?? '' ) );
+	}
+
+	/**
 	 * Unsafe inline SVG remains visible in the import report instead of being accepted silently.
 	 */
 	public function test_unsafe_inline_svg_is_reported(): void {
@@ -826,6 +865,39 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 				static fn ( array $diagnostic ): bool => 'unsafe_inline_svg' === ( $diagnostic['type'] ?? '' )
 			)
 		);
+	}
+
+	/**
+	 * Unsafe inline SVG in extracted footer chrome remains visible in diagnostics.
+	 */
+	public function test_unsafe_footer_template_part_svg_is_reported(): void {
+		$html_path = $this->write_temp_fixture(
+			'unsafe-footer-svg-icon.html',
+			'<!doctype html><html><head><title>Unsafe Footer SVG Icon</title></head><body><main><h1>Unsafe Footer SVG Icon</h1><p>Body copy.</p></main><footer><div><div><div><span>Brand</span><svg viewBox="0 0 24 24"><script>alert(1)</script><path d="M0 0h24v24H0z"></path></svg></div><ul><li><a href="/privacy.html">Privacy</a></li></ul></div></div></footer></body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Unsafe Footer SVG Icon',
+				'slug'      => 'unsafe-footer-svg-icon',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$report      = json_decode( $this->read_file( $result['report_path'] ), true );
+		$diagnostics = array_filter(
+			$report['diagnostics'] ?? array(),
+			static fn ( array $diagnostic ): bool => 'unsafe_inline_svg' === ( $diagnostic['type'] ?? '' ) && 'theme-part:footer' === ( $diagnostic['source'] ?? '' )
+		);
+
+		$this->assertSame( 1, $report['quality']['unsafe_svg_count'] ?? null );
+		$this->assertContains( 'unsafe_inline_svg', $report['quality']['failure_reasons'] ?? array() );
+		$this->assertNotEmpty( $diagnostics );
 	}
 
 	/**

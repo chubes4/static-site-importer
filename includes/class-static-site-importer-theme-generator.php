@@ -495,7 +495,7 @@ class Static_Site_Importer_Theme_Generator {
 			return self::theme_part_element_block( $doc, $header, $theme_slug, 'header' );
 		}
 
-		$inner_blocks = self::html_block( self::node_html( $doc, $inner_children[0] ) ) . $navigation_blocks;
+		$inner_blocks = self::theme_part_element_block( $doc, $inner_children[0], $theme_slug, 'header' ) . $navigation_blocks;
 		return self::group_block( self::group_block( $inner_blocks, $inner->getAttribute( 'class' ) ), $header->getAttribute( 'class' ), 'header' );
 	}
 
@@ -536,7 +536,7 @@ class Static_Site_Importer_Theme_Generator {
 			return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
 		}
 
-		$row_blocks       = self::html_block( self::node_html( $doc, $row_children[0] ) ) . $navigation_blocks;
+		$row_blocks       = self::theme_part_element_block( $doc, $row_children[0], $theme_slug, 'footer' ) . $navigation_blocks;
 		$container_blocks = self::group_block( $row_blocks, $row->getAttribute( 'class' ) );
 		return self::group_block( self::group_block( $container_blocks, $container->getAttribute( 'class' ) ), $footer->getAttribute( 'class' ), 'footer' );
 	}
@@ -561,6 +561,10 @@ class Static_Site_Importer_Theme_Generator {
 
 		if ( 'a' === $tag ) {
 			return self::link_element_block( $doc, $element );
+		}
+
+		if ( 'img' === $tag ) {
+			return self::image_element_block( $doc, $element );
 		}
 
 		if ( self::is_link_cluster_container( $element ) ) {
@@ -823,6 +827,49 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return self::paragraph_block( '<a href="' . esc_url( $href ) . '"' . ( '' !== $class ? ' class="' . esc_attr( $class ) . '"' : '' ) . '>' . esc_html( $label ) . '</a>' );
+	}
+
+	/**
+	 * Convert an image in shared chrome to a native image block.
+	 *
+	 * @param DOMDocument $doc     Source DOM document.
+	 * @param DOMElement  $element Image element.
+	 * @return string
+	 */
+	private static function image_element_block( DOMDocument $doc, DOMElement $element ): string {
+		$src = trim( $element->getAttribute( 'src' ) );
+		if ( '' === $src ) {
+			return self::html_block( self::node_html( $doc, $element ) );
+		}
+
+		$class = trim( $element->getAttribute( 'class' ) );
+		$attrs = array(
+			'url'      => esc_url_raw( $src ),
+			'sizeSlug' => 'large',
+		);
+		if ( '' !== $class ) {
+			$attrs['className'] = $class;
+		}
+
+		$figure_class = trim( 'wp-block-image size-large ' . $class );
+		$img_attrs    = array(
+			'src' => esc_url( $src ),
+			'alt' => esc_attr( $element->getAttribute( 'alt' ) ),
+		);
+		foreach ( array( 'width', 'height', 'decoding', 'loading' ) as $attribute ) {
+			$value = trim( $element->getAttribute( $attribute ) );
+			if ( '' !== $value ) {
+				$img_attrs[ $attribute ] = esc_attr( $value );
+			}
+		}
+
+		$img_markup = '<img';
+		foreach ( $img_attrs as $name => $value ) {
+			$img_markup .= ' ' . $name . '="' . $value . '"';
+		}
+		$img_markup .= '/>';
+
+		return '<!-- wp:image ' . wp_json_encode( $attrs, JSON_UNESCAPED_SLASHES ) . ' --><figure class="' . esc_attr( $figure_class ) . '">' . $img_markup . '</figure><!-- /wp:image -->';
 	}
 
 	/**
@@ -1151,6 +1198,7 @@ class Static_Site_Importer_Theme_Generator {
 		foreach ( $svgs as $svg ) {
 			++$sequence;
 			$svg_html = self::node_html( $doc, $svg );
+			$style_dimensions = $svg->hasAttribute( 'style' ) ? self::safe_svg_dimension_style( $svg->getAttribute( 'style' ) ) : array();
 			$safe_svg = self::sanitize_inline_svg( $svg_html );
 			if ( null === $safe_svg ) {
 				self::record_unsafe_inline_svg( $source, $svg_html );
@@ -1173,6 +1221,13 @@ class Static_Site_Importer_Theme_Generator {
 			foreach ( array( 'width', 'height', 'aria-hidden', 'role' ) as $attribute ) {
 				if ( $svg->hasAttribute( $attribute ) ) {
 					$img->setAttribute( $attribute, $svg->getAttribute( $attribute ) );
+				}
+			}
+			if ( is_array( $style_dimensions ) ) {
+				foreach ( array( 'width', 'height' ) as $attribute ) {
+					if ( ! $img->hasAttribute( $attribute ) && isset( $style_dimensions[ $attribute ] ) ) {
+						$img->setAttribute( $attribute, $style_dimensions[ $attribute ] );
+					}
 				}
 			}
 
@@ -1296,8 +1351,16 @@ class Static_Site_Importer_Theme_Generator {
 
 			foreach ( iterator_to_array( $node->attributes ) as $attribute ) {
 				$name  = $attribute->name;
+				$lower = strtolower( $name );
 				$value = $attribute->value;
-				if ( str_starts_with( strtolower( $name ), 'on' ) || ! isset( $allowed_attributes[ $name ] ) || preg_match( '/(?:javascript:|data:|url\s*\()/i', $value ) ) {
+				if ( 'style' === $lower ) {
+					if ( null === self::safe_svg_dimension_style( $value ) ) {
+						return null;
+					}
+					continue;
+				}
+
+				if ( str_starts_with( $lower, 'on' ) || ! isset( $allowed_attributes[ $name ] ) || preg_match( '/(?:javascript:|data:|url\s*\()/i', $value ) ) {
 					return null;
 				}
 			}
@@ -1317,6 +1380,30 @@ class Static_Site_Importer_Theme_Generator {
 
 		$svg = $doc->saveXML( $doc->documentElement );
 		return false === $svg ? null : $svg;
+	}
+
+	/**
+	 * Parse an inline SVG style attribute that only carries safe dimensions.
+	 *
+	 * @param string $style Style attribute value.
+	 * @return array{width?:string,height?:string}|null Dimensions, or null when unsafe/unsupported.
+	 */
+	private static function safe_svg_dimension_style( string $style ): ?array {
+		$dimensions = array();
+		foreach ( explode( ';', $style ) as $declaration ) {
+			$declaration = trim( $declaration );
+			if ( '' === $declaration ) {
+				continue;
+			}
+
+			if ( 1 !== preg_match( '/^(width|height)\s*:\s*([0-9]+(?:\.[0-9]+)?)px$/i', $declaration, $matches ) ) {
+				return null;
+			}
+
+			$dimensions[ strtolower( $matches[1] ) ] = $matches[2];
+		}
+
+		return $dimensions;
 	}
 
 	/**
