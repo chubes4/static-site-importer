@@ -149,6 +149,7 @@ class Static_Site_Importer_Document {
 		$header = $this->first_plausible_global_header( $root );
 		$nav    = $this->first_plausible_global_nav( $root, $header );
 		$footer = $this->first_element( 'footer' );
+		$main   = $this->first_element( 'main' );
 
 		$header_parts = array();
 		if ( $nav instanceof DOMElement && $header instanceof DOMElement && $this->is_leading_sibling( $root, $nav, $header ) ) {
@@ -167,6 +168,7 @@ class Static_Site_Importer_Document {
 
 		$main_parts = array();
 		$background = array();
+		$main_html  = $main instanceof DOMElement ? $this->inner_html( $main ) : '';
 
 		foreach ( iterator_to_array( $root->childNodes ) as $child ) {
 			if ( ! $child instanceof DOMElement ) {
@@ -178,7 +180,7 @@ class Static_Site_Importer_Document {
 				continue;
 			}
 
-			if ( $this->same_node( $child, $nav ) || $this->same_node( $child, $header ) || $this->same_node( $child, $footer ) ) {
+			if ( $this->same_node( $child, $nav ) || $this->same_node( $child, $header ) || $this->same_node( $child, $footer ) || $this->same_node( $child, $main ) ) {
 				continue;
 			}
 
@@ -187,13 +189,15 @@ class Static_Site_Importer_Document {
 				continue;
 			}
 
-			$main_parts[] = $this->outer_html( $child );
+			if ( ! $main instanceof DOMElement ) {
+				$main_parts[] = $this->outer_html( $child );
+			}
 		}
 
 		return array(
 			'background' => trim( implode( "\n", $background ) ),
 			'header'     => trim( $header_html ),
-			'main'       => trim( implode( "\n", $main_parts ) ),
+			'main'       => trim( $main instanceof DOMElement ? $main_html : implode( "\n", $main_parts ) ),
 			'footer'     => trim( $footer_html ),
 		);
 	}
@@ -327,6 +331,21 @@ class Static_Site_Importer_Document {
 	private function outer_html( DOMNode $node ): string {
 		$html = $this->dom->saveHTML( $node );
 		return false === $html ? '' : $html;
+	}
+
+	/**
+	 * Serialize a DOM element's child nodes.
+	 *
+	 * @param DOMElement $element Element.
+	 * @return string
+	 */
+	private function inner_html( DOMElement $element ): string {
+		$html = array();
+		foreach ( iterator_to_array( $element->childNodes ) as $child ) {
+			$html[] = $this->outer_html( $child );
+		}
+
+		return implode( '', $html );
 	}
 
 	/**
