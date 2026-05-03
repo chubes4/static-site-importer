@@ -260,9 +260,8 @@ class HTML_To_Blocks_Block_Factory
         if (empty($url)) {
             return '';
         }
-        $alt = esc_attr($attributes['alt'] ?? '');
-        $title = !empty($attributes['title']) ? ' title="' . esc_attr($attributes['title']) . '"' : '';
-        $img = '<img src="' . esc_url($url) . '" alt="' . $alt . '"' . $title . '/>';
+        $img_attrs = ['src' => esc_url($url), 'alt' => $attributes['alt'] ?? '', 'title' => $attributes['title'] ?? null, 'srcset' => $attributes['srcset'] ?? null, 'sizes' => $attributes['sizes'] ?? null, 'width' => $attributes['width'] ?? null, 'height' => $attributes['height'] ?? null];
+        $img = '<img' . self::html_attrs($img_attrs) . '/>';
         if (!empty($attributes['href'])) {
             $rel = !empty($attributes['rel']) ? ' rel="' . esc_attr($attributes['rel']) . '"' : '';
             $img = '<a href="' . esc_url($attributes['href']) . '"' . $rel . '>' . $img . '</a>';

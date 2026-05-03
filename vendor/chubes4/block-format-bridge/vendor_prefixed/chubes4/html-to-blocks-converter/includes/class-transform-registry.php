@@ -231,9 +231,7 @@ class HTML_To_Blocks_Transform_Registry
     private static function create_image_block_from_img($img, string $caption = ''): array
     {
         $attributes = ['url' => $img->get_attribute('src') ?? ''];
-        if ($img->has_attribute('alt')) {
-            $attributes['alt'] = $img->get_attribute('alt');
-        }
+        self::apply_image_element_attributes($attributes, $img);
         if ($caption !== '') {
             $attributes['caption'] = $caption;
         }
@@ -241,6 +239,20 @@ class HTML_To_Blocks_Transform_Registry
             $attributes['id'] = (int) $matches[1];
         }
         return HTML_To_Blocks_Block_Factory::create_block('core/image', $attributes);
+    }
+    /**
+     * Preserves direct img attributes that are safe and useful in static snapshots.
+     *
+     * @param array                       $attributes Block attributes.
+     * @param HTML_To_Blocks_HTML_Element $img        Source img element.
+     */
+    private static function apply_image_element_attributes(array &$attributes, $img): void
+    {
+        foreach (['alt', 'title', 'srcset', 'sizes', 'width', 'height'] as $attribute) {
+            if ($img->has_attribute($attribute)) {
+                $attributes[$attribute] = $img->get_attribute($attribute);
+            }
+        }
     }
     /**
      * Creates a media-text block from a recognized two-column wrapper.
@@ -942,12 +954,7 @@ class HTML_To_Blocks_Transform_Registry
             $img = $element->query_selector('img');
             $figcaption = $element->query_selector('figcaption');
             $attributes = ['url' => $img->get_attribute('src') ?? ''];
-            if ($img->has_attribute('alt')) {
-                $attributes['alt'] = $img->get_attribute('alt');
-            }
-            if ($img->has_attribute('title')) {
-                $attributes['title'] = $img->get_attribute('title');
-            }
+            self::apply_image_element_attributes($attributes, $img);
             if ($figcaption) {
                 $attributes['caption'] = $figcaption->get_inner_html();
             }
@@ -984,12 +991,7 @@ class HTML_To_Blocks_Transform_Registry
             return $element->get_tag_name() === 'IMG';
         }, 'transform' => function ($element) {
             $attributes = ['url' => $element->get_attribute('src') ?? ''];
-            if ($element->has_attribute('alt')) {
-                $attributes['alt'] = $element->get_attribute('alt');
-            }
-            if ($element->has_attribute('title')) {
-                $attributes['title'] = $element->get_attribute('title');
-            }
+            self::apply_image_element_attributes($attributes, $element);
             $class_name = $element->has_attribute('class') ? $element->get_attribute('class') : '';
             if (\preg_match('/(?:^|\s)align(left|center|right)(?:$|\s)/', $class_name, $matches)) {
                 $attributes['align'] = $matches[1];
@@ -1717,6 +1719,10 @@ class HTML_To_Blocks_Transform_Registry
                 $inner_blocks[] = HTML_To_Blocks_Block_Factory::create_block('core/column', $column_attributes, $column_blocks);
             }
             return HTML_To_Blocks_Block_Factory::create_block('core/columns', self::get_common_layout_attributes($element), $inner_blocks);
+        }], ['blockName' => 'core/group', 'priority' => 12, 'isMatch' => function ($element) {
+            return self::is_repeated_card_grid_element($element);
+        }, 'transform' => function ($element, $handler) {
+            return self::create_repeated_card_grid_group($element, $handler);
         }], ['blockName' => 'core/column', 'priority' => 14, 'isMatch' => function ($element) {
             return self::is_column_element($element);
         }, 'transform' => function ($element, $handler) {
@@ -2110,6 +2116,137 @@ class HTML_To_Blocks_Transform_Registry
         return self::is_empty_decorative_element($element);
     }
     /**
+     * Checks whether a wrapper is a repeated static card grid.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element The source element.
+     * @return bool True when direct children should become editable card groups.
+     */
+    private static function is_repeated_card_grid_element($element): bool
+    {
+        if (!\in_array($element->get_tag_name(), ['DIV', 'SECTION'], \true)) {
+            return \false;
+        }
+        if (!self::class_matches($element, '/(?:^|[-_\s])(?:grid|cards?|network|list)(?:$|[-_\s]|\d)/i')) {
+            return \false;
+        }
+        $card_count = 0;
+        foreach ($element->get_child_elements() as $child) {
+            if (self::is_empty_decorative_element($child)) {
+                continue;
+            }
+            if (!self::is_card_grid_item_element($child)) {
+                return \false;
+            }
+            $card_count++;
+        }
+        return $card_count >= 2;
+    }
+    /**
+     * Checks whether an element is one repeated card/grid item.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element The source element.
+     * @return bool True when the element is safe to convert as a card group.
+     */
+    private static function is_card_grid_item_element($element): bool
+    {
+        if (\in_array($element->get_tag_name(), ['ARTICLE', 'ASIDE'], \true)) {
+            return \true;
+        }
+        if ('A' === $element->get_tag_name() && array() !== $element->get_child_elements()) {
+            return \true;
+        }
+        if (!\in_array($element->get_tag_name(), ['DIV', 'SECTION'], \true)) {
+            return \false;
+        }
+        return self::class_matches($element, '/(?:^|[-_\s])(?:cards?|card|col|column|item|tile|entry|post|network|site|feature)(?:$|[-_\s]|\d)/i');
+    }
+    /**
+     * Creates an editable group hierarchy for repeated static card grids.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element The grid wrapper.
+     * @param callable                    $handler Recursive raw handler.
+     * @return array Block array.
+     */
+    private static function create_repeated_card_grid_group($element, callable $handler): array
+    {
+        $inner_blocks = [];
+        foreach ($element->get_child_elements() as $child) {
+            if (self::is_empty_decorative_element($child)) {
+                continue;
+            }
+            $inner_blocks[] = self::create_card_grid_item_group($child, $handler);
+        }
+        return HTML_To_Blocks_Block_Factory::create_block('core/group', self::get_common_layout_attributes($element), $inner_blocks);
+    }
+    /**
+     * Creates one editable card group, preserving whole-card links as CTA buttons.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element The card item.
+     * @param callable                    $handler Recursive raw handler.
+     * @return array Block array.
+     */
+    private static function create_card_grid_item_group($element, callable $handler): array
+    {
+        $link_element = 'A' === $element->get_tag_name() ? $element : self::get_single_complex_card_anchor_child($element);
+        $content_html = $link_element ? $link_element->get_inner_html() : $element->get_inner_html();
+        $inner_blocks = $handler(['HTML' => $content_html]);
+        if ($link_element && $link_element->has_attribute('href')) {
+            $inner_blocks[] = self::create_button_block_from_anchor(self::create_card_grid_cta_anchor($link_element));
+        }
+        return HTML_To_Blocks_Block_Factory::create_block('core/group', self::get_common_layout_attributes($element), $inner_blocks);
+    }
+    /**
+     * Gets a single whole-card anchor child when it is the card's only content.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element The card item.
+     * @return HTML_To_Blocks_HTML_Element|null Anchor child or null.
+     */
+    private static function get_single_complex_card_anchor_child($element): ?HTML_To_Blocks_HTML_Element
+    {
+        $children = \array_values(\array_filter($element->get_child_elements(), function ($child) {
+            return !self::is_empty_decorative_element($child);
+        }));
+        if (\count($children) !== 1 || 'A' !== $children[0]->get_tag_name() || array() === $children[0]->get_child_elements()) {
+            return null;
+        }
+        $remaining = \str_replace($children[0]->get_outer_html(), '', $element->get_inner_html());
+        return \trim(wp_strip_all_tags($remaining)) === '' ? $children[0] : null;
+    }
+    /**
+     * Creates a compact CTA anchor from a linked card wrapper.
+     *
+     * @param HTML_To_Blocks_HTML_Element $anchor The source card anchor.
+     * @return HTML_To_Blocks_HTML_Element Synthetic CTA anchor.
+     */
+    private static function create_card_grid_cta_anchor($anchor): HTML_To_Blocks_HTML_Element
+    {
+        $text = self::get_card_grid_link_label($anchor);
+        $attrs = ['href' => $anchor->get_attribute('href') ?? '', 'class' => self::merge_class_names($anchor->get_attribute('class') ?? '', 'card-grid-link')];
+        foreach (['target', 'rel'] as $attribute) {
+            if ($anchor->has_attribute($attribute)) {
+                $attrs[$attribute] = $anchor->get_attribute($attribute);
+            }
+        }
+        return new HTML_To_Blocks_HTML_Element('a', $attrs, '', esc_html($text));
+    }
+    /**
+     * Gets a stable link label for a whole-card CTA.
+     *
+     * @param HTML_To_Blocks_HTML_Element $anchor The source card anchor.
+     * @return string Link label.
+     */
+    private static function get_card_grid_link_label($anchor): string
+    {
+        foreach (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as $selector) {
+            $heading = $anchor->query_selector($selector);
+            if ($heading && \trim($heading->get_text_content()) !== '') {
+                return \trim($heading->get_text_content());
+            }
+        }
+        $text = \trim($anchor->get_text_content());
+        return $text !== '' ? $text : 'Read more';
+    }
+    /**
      * Checks whether an element is an image-only wrapper that should stay grouped.
      *
      * @param HTML_To_Blocks_HTML_Element $element The source element.
@@ -2209,7 +2346,7 @@ class HTML_To_Blocks_Transform_Registry
      */
     private static function is_empty_decorative_element($element): bool
     {
-        return self::is_empty_element($element) && self::class_matches($element, '/(?:^|[-_\s])(background|bg|pattern|texture|divider|separator|connector|rule|line|overlay|grain|noise|glow|gradient|dot|mark|bullet|icon|orb|blob|fill|progress|meter|gauge|today)(?:$|[-_\s]|\d)/i');
+        return self::is_empty_element($element) && self::class_matches($element, '/(?:^|[-_\s])(background|bg|pattern|texture|divider|separator|connector|rule|line|overlay|grain|noise|glow|gradient|dot|mark|bullet|icon|orb|blob|fill|progress|meter|gauge|today|traffic[-_]?light|tl[-_]?(?:red|yellow|green)|task[-_\s]?check)(?:$|[-_\s]|\d)/i');
     }
     /**
      * Checks whether an element has no meaningful text or child elements.

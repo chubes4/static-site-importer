@@ -300,20 +300,73 @@ function html_to_blocks_normalize_parsed_image_html_blocks(array $blocks): array
             $html = $block['innerHTML'];
         }
         $convertible_html = $html;
+        $is_decorative_inline_span = \false;
+        $is_image_only_fragment = \false;
+        $is_form_container = \false;
         if (html_to_blocks_is_decorative_inline_span_fragment($html)) {
+            $is_decorative_inline_span = \true;
             $convertible_html = html_to_blocks_normalise_blocks($html);
-        } elseif (!html_to_blocks_is_image_only_html_fragment($html)) {
+        } elseif (html_to_blocks_is_image_only_html_fragment($html)) {
+            $is_image_only_fragment = \true;
+        } elseif (html_to_blocks_is_form_containing_container_fragment($html)) {
+            $is_form_container = \true;
+        } else {
             $normalized[] = $block;
             continue;
         }
         $converted = html_to_blocks_convert($convertible_html);
-        if (empty($converted) || html_to_blocks_contains_block_name($converted, 'core/html')) {
+        if (empty($converted)) {
+            $normalized[] = $block;
+            continue;
+        }
+        if (($is_decorative_inline_span || $is_image_only_fragment) && html_to_blocks_contains_block_name($converted, 'core/html')) {
+            $normalized[] = $block;
+            continue;
+        }
+        if ($is_form_container && html_to_blocks_is_single_html_fallback_for_fragment($converted, $html)) {
             $normalized[] = $block;
             continue;
         }
         $normalized = \array_merge($normalized, $converted);
     }
     return $normalized;
+}
+/**
+ * Checks whether a raw HTML fallback wraps a larger static container with form controls.
+ *
+ * @param string $html HTML fragment.
+ * @return bool True when reconversion may shrink fallback to a form/control island.
+ */
+function html_to_blocks_is_form_containing_container_fragment(string $html): bool
+{
+    $element = HTML_To_Blocks_HTML_Element::from_html($html);
+    if (!$element) {
+        return \false;
+    }
+    if (!\in_array($element->get_tag_name(), array('SECTION', 'DIV', 'ARTICLE', 'ASIDE', 'HEADER', 'FOOTER', 'MAIN', 'NAV'), \true)) {
+        return \false;
+    }
+    foreach (array('form', 'input', 'textarea', 'select', 'button') as $selector) {
+        if ($element->query_selector($selector)) {
+            return \true;
+        }
+    }
+    return \false;
+}
+/**
+ * Checks whether conversion still produced the original opaque core/html fragment.
+ *
+ * @param array  $blocks Blocks produced by reconversion.
+ * @param string $html   Original HTML fragment.
+ * @return bool True when fallback scope did not shrink.
+ */
+function html_to_blocks_is_single_html_fallback_for_fragment(array $blocks, string $html): bool
+{
+    if (\count($blocks) !== 1 || ($blocks[0]['blockName'] ?? null) !== 'core/html') {
+        return \false;
+    }
+    $fallback_html = $blocks[0]['attrs']['content'] ?? $blocks[0]['innerHTML'] ?? '';
+    return \is_string($fallback_html) && \trim($fallback_html) === \trim($html);
 }
 /**
  * Checks whether an HTML fragment is one safe, empty decorative inline span.

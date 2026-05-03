@@ -2,17 +2,17 @@
     "packages": [
         {
             "name": "chubes4/block-format-bridge",
-            "version": "v0.7.5",
-            "version_normalized": "0.7.5.0",
+            "version": "v0.7.6",
+            "version_normalized": "0.7.6.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/chubes4/block-format-bridge.git",
-                "reference": "8e918c83425bda2afb3fc79c835c15dbd3d41d2e"
+                "reference": "6933efba54e57d570050933586f0cc860865c4ad"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/chubes4/block-format-bridge/zipball/8e918c83425bda2afb3fc79c835c15dbd3d41d2e",
-                "reference": "8e918c83425bda2afb3fc79c835c15dbd3d41d2e",
+                "url": "https://api.github.com/repos/chubes4/block-format-bridge/zipball/6933efba54e57d570050933586f0cc860865c4ad",
+                "reference": "6933efba54e57d570050933586f0cc860865c4ad",
                 "shasum": ""
             },
             "require": {
@@ -24,7 +24,7 @@
                 "chubes4/html-to-blocks-converter": "^0.6",
                 "humbug/php-scoper": "^0.18.19"
             },
-            "time": "2026-05-03T16:46:55+00:00",
+            "time": "2026-05-03T18:02:21+00:00",
             "type": "wordpress-plugin",
             "installation-source": "dist",
             "autoload": {
@@ -49,7 +49,7 @@
             "description": "WordPress plugin orchestrating bidirectional content format conversion (HTML, Blocks, Markdown) via a unified adapter API.",
             "homepage": "https://github.com/chubes4/block-format-bridge",
             "support": {
-                "source": "https://github.com/chubes4/block-format-bridge/tree/v0.7.5",
+                "source": "https://github.com/chubes4/block-format-bridge/tree/v0.7.6",
                 "issues": "https://github.com/chubes4/block-format-bridge/issues"
             },
             "install-path": "../chubes4/block-format-bridge"
