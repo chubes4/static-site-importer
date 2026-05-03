@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "products": [
+    {
+      "name": "Signal Hoodie",
+      "slug": "signal-hoodie",
+      "regular_price": "64.00",
+      "sale_price": "54.00",
+      "description": "Heavyweight hoodie for field work.",
+      "short_description": "Heavyweight hoodie.",
+      "categories": ["Apparel"],
+      "image": "assets/signal-hoodie.jpg",
+      "status": "publish",
+      "stock_status": "instock",
+      "stock_quantity": 12,
+      "source_selectors": ["[data-product-slug=\"signal-hoodie\"]"]
+    },
+    {
+      "name": "Field Notes",
+      "slug": "field-notes",
+      "regular_price": "12.00",
+      "categories": ["Accessories"],
+      "image": "assets/field-notes.jpg",
+      "stock_status": "instock"
+    }
+  ]
+}

@@ -118,9 +118,14 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'conversion_fragments', $report );
 		$this->assertArrayHasKey( 'generated_theme', $report );
 		$this->assertArrayHasKey( 'semantic_fidelity', $report );
+		$this->assertArrayHasKey( 'product_seeding', $report );
 		$this->assertArrayHasKey( 'diagnostics', $report );
+		$this->assertArrayNotHasKey( 'commerce', $report );
 		$this->assertSame( 0, $report['quality']['invalid_block_count'] ?? null );
 		$this->assertSame( 0, $report['quality']['invalid_block_document_count'] ?? null );
+		$this->assertSame( 'skipped', $report['product_seeding']['status'] ?? '' );
+		$this->assertSame( 'no_validated_manifest', $report['product_seeding']['reason'] ?? '' );
+		$this->assertSame( array( 'created' => 0, 'updated' => 0, 'skipped' => 0, 'error' => 0 ), $report['product_seeding']['counts'] ?? array() );
 		$this->assertNotEmpty( $report['generated_theme']['block_documents'] ?? array() );
 		$this->assertSame( 'requires_external_render_check', $report['semantic_fidelity']['status'] ?? '' );
 		$this->assertSame( 'benchmark_harness', $report['semantic_fidelity']['gate_owner'] ?? '' );
@@ -198,6 +203,95 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertNotWPError( $second_result );
 		$this->assertSame( $header_nav->ID, get_page_by_path( 'wordpress-is-dead-fixture-header-navigation', OBJECT, 'wp_navigation' )->ID );
 		$this->assertSame( $footer_nav->ID, get_page_by_path( 'wordpress-is-dead-fixture-footer-navigation', OBJECT, 'wp_navigation' )->ID );
+	}
+
+	/**
+	 * A generated store fixture records valid products.json metadata in the import report only.
+	 */
+	public function test_products_manifest_fixture_records_valid_contract_metadata(): void {
+		$plugin_root = dirname( __DIR__ );
+		$fixture     = $plugin_root . '/tests/fixtures/generated-store-valid/index.html';
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$fixture,
+			array(
+				'name'        => 'Generated Store Valid',
+				'slug'        => 'generated-store-valid',
+				'overwrite'   => true,
+				'activate'    => false,
+				'keep_source' => true,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$report   = json_decode( $this->read_file( $result['report_path'] ), true );
+		$manifest = $report['commerce']['products_manifest'] ?? array();
+
+		$this->assertIsArray( $report );
+		$this->assertSame( true, $manifest['present'] ?? null );
+		$this->assertSame( true, $manifest['valid'] ?? null );
+		$this->assertSame( 'static-site-importer/products.json', $manifest['contract']['schema'] ?? '' );
+		$this->assertSame( 1, $manifest['contract']['schema_version'] ?? null );
+		$this->assertSame( array( 'name', 'slug', 'regular_price' ), $manifest['contract']['required_fields'] ?? array() );
+		$this->assertSame( 2, $manifest['product_count'] ?? null );
+		$this->assertSame( array(), $manifest['errors'] ?? null );
+		$this->assertSame( 'Signal Hoodie', $manifest['products'][0]['name'] ?? '' );
+		$this->assertSame( 'signal-hoodie', $manifest['products'][0]['slug'] ?? '' );
+		$this->assertSame( '64.00', $manifest['products'][0]['regular_price'] ?? '' );
+		$this->assertSame( '54.00', $manifest['products'][0]['sale_price'] ?? '' );
+		$this->assertSame( array( 'Apparel' ), $manifest['products'][0]['categories'] ?? array() );
+		$this->assertSame( 'assets/signal-hoodie.jpg', $manifest['products'][0]['image'] ?? '' );
+		if ( ! class_exists( 'WC_Product_Simple' ) ) {
+			$this->assertSame( 'skipped', $report['product_seeding']['status'] ?? '' );
+			$this->assertSame( 'woocommerce_inactive', $report['product_seeding']['reason'] ?? '' );
+			$this->assertSame( array( 'created' => 0, 'updated' => 0, 'skipped' => 2, 'error' => 0 ), $report['product_seeding']['counts'] ?? array() );
+			$this->assertSame( 'signal-hoodie', $report['product_seeding']['products'][0]['slug'] ?? '' );
+		}
+	}
+
+	/**
+	 * Invalid generated store manifests report actionable diagnostics without aborting import.
+	 */
+	public function test_invalid_products_manifest_records_errors_without_blocking_import(): void {
+		$plugin_root = dirname( __DIR__ );
+		$fixture     = $plugin_root . '/tests/fixtures/generated-store-invalid/index.html';
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$fixture,
+			array(
+				'name'        => 'Generated Store Invalid',
+				'slug'        => 'generated-store-invalid',
+				'overwrite'   => true,
+				'activate'    => false,
+				'keep_source' => true,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$report      = json_decode( $this->read_file( $result['report_path'] ), true );
+		$manifest    = $report['commerce']['products_manifest'] ?? array();
+		$diagnostics = array_values(
+			array_filter(
+				$report['diagnostics'] ?? array(),
+				static fn ( $diagnostic ): bool => is_array( $diagnostic ) && 'products_manifest_invalid' === ( $diagnostic['code'] ?? '' )
+			)
+		);
+
+		$this->assertIsArray( $report );
+		$this->assertSame( true, $manifest['present'] ?? null );
+		$this->assertSame( false, $manifest['valid'] ?? null );
+		$this->assertSame( 0, $manifest['product_count'] ?? null );
+		$this->assertNotEmpty( $manifest['errors'] ?? array() );
+		$this->assertSame( '$.schema_version', $manifest['errors'][0]['path'] ?? '' );
+		$this->assertSame( '$.products[0].name', $manifest['errors'][1]['path'] ?? '' );
+		$this->assertSame( '$.products[0].slug', $manifest['errors'][2]['path'] ?? '' );
+		$this->assertSame( '$.products[0].regular_price', $manifest['errors'][3]['path'] ?? '' );
+		$this->assertNotEmpty( $diagnostics );
+		$this->assertSame( 'warning', $diagnostics[0]['severity'] ?? '' );
 	}
 
 	/**
