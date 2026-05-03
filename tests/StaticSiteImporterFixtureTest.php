@@ -463,6 +463,54 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Semantic main content is the page body when document-level chrome surrounds it.
+	 */
+	public function test_semantic_main_content_becomes_page_body_without_stray_chrome(): void {
+		$html_path = $this->write_temp_fixture(
+			'semantic-main-page-body.html',
+			'<!doctype html><html><head><title>Semantic Main Page Body</title></head><body>' .
+			'<svg aria-hidden="true" class="hidden"><symbol id="chrome-icon"><path d="M0 0h1v1H0z"></path></symbol></svg>' .
+			'<noscript><iframe src="https://example.com/tracker" title="Body Noscript Tracker"></iframe></noscript>' .
+			'<header class="site-header"><nav><a href="#story">Story</a></nav><button>Header Search</button></header>' .
+			'<div class="utility-chrome">Utility Sidebar</div>' .
+			'<main><section id="story" class="story-grid"><h1>Main Story</h1><p>Main copy only.</p></section></main>' .
+			'<footer><p>Footer Chrome</p></footer>' .
+			'</body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Semantic Main Page Body',
+				'slug'      => 'semantic-main-page-body',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$pattern   = $this->pattern_blocks( $this->read_file( $theme_dir . '/patterns/page-semantic-main-page-body.php' ) );
+		$header    = $this->read_file( $theme_dir . '/parts/header.html' );
+		$footer    = $this->read_file( $theme_dir . '/parts/footer.html' );
+		$post      = get_post( $result['pages']['semantic-main-page-body.html'] ?? 0 );
+
+		$this->assertInstanceOf( WP_Post::class, $post );
+		$this->assertStringContainsString( 'Main Story', $pattern );
+		$this->assertStringContainsString( 'Main copy only.', $pattern );
+		$this->assertStringContainsString( 'story-grid', $pattern );
+		$this->assertStringNotContainsString( 'Body Noscript Tracker', $pattern );
+		$this->assertStringNotContainsString( 'Header Search', $pattern );
+		$this->assertStringNotContainsString( 'Utility Sidebar', $pattern );
+		$this->assertStringNotContainsString( 'chrome-icon', $pattern );
+		$this->assertStringContainsString( 'Header Search', $header );
+		$this->assertStringContainsString( 'Footer Chrome', $footer );
+		$this->assertSame( trim( $pattern ), trim( $post->post_content ) );
+	}
+
+	/**
 	 * Source button styles are moved to the inner link without restyling the core/button wrapper.
 	 */
 	public function test_source_button_class_styles_do_not_double_apply_to_core_button_wrapper(): void {
