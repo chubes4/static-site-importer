@@ -668,6 +668,11 @@ class HTML_To_Blocks_Transform_Registry
             return \false;
         }
         if (self::is_action_link_container($element)) {
+            foreach ($children as $child) {
+                if (self::is_class_sensitive_cta_anchor($child)) {
+                    return \false;
+                }
+            }
             return \true;
         }
         foreach ($children as $child) {
@@ -876,6 +881,9 @@ class HTML_To_Blocks_Transform_Registry
         if (!$element || $element->get_tag_name() !== 'A') {
             return \false;
         }
+        if (self::is_class_sensitive_cta_anchor($element)) {
+            return \false;
+        }
         $class_name = $element->get_attribute('class') ?? '';
         if (\preg_match('/(?:^|\s)(?:wp-block-button__link|wp-element-button)(?:$|\s)/i', $class_name) === 1) {
             return \true;
@@ -887,6 +895,27 @@ class HTML_To_Blocks_Transform_Registry
             return \true;
         }
         return \preg_match('/(?:^|\s)[A-Za-z0-9]+-btn(?:-[A-Za-z0-9_-]+)?(?:$|\s)/i', $class_name) === 1;
+    }
+    /**
+     * Checks for CTA link classes whose selectors must remain anchor-owned.
+     *
+     * Gutenberg core/button serializes custom className on the wrapper div, not
+     * the inner link. Keep these anchors as inline paragraph content instead of
+     * silently changing selectors like `.cta-btn:hover` or `a.cta-link`.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Anchor element.
+     * @return bool True when class ownership is more important than button shape.
+     */
+    private static function is_class_sensitive_cta_anchor($element): bool
+    {
+        if (!$element || $element->get_tag_name() !== 'A') {
+            return \false;
+        }
+        $class_name = $element->get_attribute('class') ?? '';
+        if (\preg_match('/(?:^|\s)(?:wp-block-button__link|wp-element-button)(?:$|\s)/i', $class_name) === 1) {
+            return \false;
+        }
+        return \preg_match('/(?:^|\s)(?:cta-(?:btn|link)|(?:btn|link)-cta)(?:$|\s)/i', $class_name) === 1;
     }
     /**
      * Creates a buttons wrapper with one button child from an anchor.

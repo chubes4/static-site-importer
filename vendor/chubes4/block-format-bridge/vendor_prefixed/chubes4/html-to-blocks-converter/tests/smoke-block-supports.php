@@ -170,6 +170,12 @@ $separator_block = $separator_transform ? \call_user_func($separator_transform['
 $assert($separator_block && $separator_block['blockName'] === 'core/separator', 'separator-transform-found');
 $assert(($separator_block['attrs']['align'] ?? '') === 'wide', 'separator-align-wide');
 $assert(($separator_block['attrs']['className'] ?? '') === 'is-style-dots custom-separator', 'separator-preserves-safe-classes');
+$custom_separator = new Block_Supports_Smoke_Element('hr', ['class' => 'ep-divider']);
+$custom_separator_transform = $find_transform($custom_separator, 'core/separator');
+$custom_separator_block = $custom_separator_transform ? \call_user_func($custom_separator_transform['transform'], $custom_separator) : null;
+$assert($custom_separator_block && $custom_separator_block['blockName'] === 'core/separator', 'custom-separator-transform-found');
+$assert(($custom_separator_block['attrs']['className'] ?? '') === 'ep-divider', 'custom-separator-preserves-class');
+$assert(($custom_separator_block['innerHTML'] ?? '') === '<hr class="wp-block-separator has-css-opacity ep-divider"/>', 'custom-separator-serializes-gutenberg-default-opacity-class', $custom_separator_block['innerHTML'] ?? '');
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

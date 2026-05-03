@@ -145,6 +145,15 @@ $custom_cta_block = \call_user_func($custom_cta_transform['transform'], $custom_
 $smoke_assert($custom_cta_transform['blockName'] === 'core/paragraph', 'custom-cta-anchor-stays-paragraph');
 $smoke_assert(\strpos($custom_cta_block['attrs']['content'], '<a href="mailto:hello@saltandstar.com" class="btn-cta">Place an Order</a>') !== \false, 'custom-cta-anchor-preserved');
 $smoke_assert(\strpos($custom_cta_block['attrs']['content'], 'wp-element-button') === \false, 'custom-cta-anchor-avoids-wp-button-class');
+$class_sensitive_cta_anchor = new HTML_To_Blocks_HTML_Element('a', ['class' => 'cta-btn', 'href' => '#install'], '<a class="cta-btn" href="#install">Install Now</a>', 'Install Now');
+$class_sensitive_cta_transform = $find_transform($class_sensitive_cta_anchor);
+$class_sensitive_cta_block = \call_user_func($class_sensitive_cta_transform['transform'], $class_sensitive_cta_anchor, $handler);
+$smoke_assert($class_sensitive_cta_transform['blockName'] === 'core/paragraph', 'class-sensitive-cta-anchor-stays-paragraph');
+$smoke_assert(\strpos($class_sensitive_cta_block['attrs']['content'], '<a class="cta-btn" href="#install">Install Now</a>') !== \false, 'class-sensitive-cta-anchor-class-remains-on-link');
+$smoke_assert(\strpos($class_sensitive_cta_block['attrs']['content'], 'wp-block-button') === \false, 'class-sensitive-cta-anchor-avoids-button-wrapper');
+$class_sensitive_cta_row = new HTML_To_Blocks_HTML_Element('div', ['class' => 'cta-actions'], '<div class="cta-actions"><a class="cta-link" href="#commands">Browse the docs</a></div>', '<a class="cta-link" href="#commands">Browse the docs</a>');
+$class_sensitive_cta_row_transform = $find_transform($class_sensitive_cta_row);
+$smoke_assert($class_sensitive_cta_row_transform['blockName'] !== 'core/buttons', 'class-sensitive-cta-row-avoids-buttons');
 $ordinary_link = new HTML_To_Blocks_HTML_Element('p', [], '<p>Read <a href="/more">more</a>.</p>', 'Read <a href="/more">more</a>.');
 $ordinary_link_transform = $find_transform($ordinary_link);
 $smoke_assert($ordinary_link_transform['blockName'] === 'core/paragraph', 'ordinary-link-stays-paragraph');
