@@ -584,6 +584,64 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Source cleanup is available for callers that do not need import artifacts.
+	 */
+	public function test_delete_source_removes_source_directory_after_clean_import(): void {
+		$html_path  = $this->write_temp_fixture(
+			'index.html',
+			'<!doctype html><html><head><title>Clean Import</title></head><body><main><h1>Clean Import</h1><p>Body copy.</p></main></body></html>'
+		);
+		$source_dir = dirname( $html_path );
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'          => 'Clean Import Cleanup',
+				'slug'          => 'clean-import-cleanup',
+				'overwrite'     => true,
+				'activate'      => false,
+				'delete_source' => true,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+		$this->assertTrue( $result['quality']['pass'] ?? false );
+		$this->assertTrue( $result['source_deleted'] ?? false );
+		$this->assertSame( '', $result['source_cleanup_error'] ?? null );
+		$this->assertFalse( file_exists( $source_dir ), 'Clean import source directory should be deleted.' );
+	}
+
+	/**
+	 * Broken imports keep source artifacts even when cleanup is requested.
+	 */
+	public function test_delete_source_preserves_source_directory_when_quality_fails(): void {
+		$html_path  = $this->write_temp_fixture(
+			'index.html',
+			'<!doctype html><html><head><title>Broken Import</title></head><body><main><h1>Broken Import</h1><svg viewBox="0 0 24 24"><script>alert(1)</script><path d="M0 0h24v24H0z"/></svg></main></body></html>'
+		);
+		$source_dir = dirname( $html_path );
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'          => 'Broken Import Cleanup',
+				'slug'          => 'broken-import-cleanup',
+				'overwrite'     => true,
+				'activate'      => false,
+				'delete_source' => true,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+		$this->assertFalse( $result['quality']['pass'] ?? true );
+		$this->assertFalse( $result['source_deleted'] ?? true );
+		$this->assertSame( 'import quality checks reported issues', $result['source_cleanup_error'] ?? '' );
+		$this->assertTrue( file_exists( $source_dir ), 'Failed-quality import source directory should be preserved.' );
+	}
+
+	/**
 	 * Server-visible malformed block documents are counted in generated-theme quality.
 	 */
 	public function test_generated_theme_quality_reports_malformed_block_documents(): void {

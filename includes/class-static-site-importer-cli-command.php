@@ -36,8 +36,11 @@ class Static_Site_Importer_CLI_Command {
 	 * [--overwrite]
 	 * : Overwrite an existing theme directory.
 	 *
-		 * [--fail-on-quality]
-		 * : Exit non-zero when conversion quality checks report fallbacks, invalid blocks, or content loss.
+	 * [--delete-source]
+	 * : Delete the source static-site directory after a successful clean import. Sources are preserved when import quality checks report issues.
+	 *
+	 * [--fail-on-quality]
+	 * : Exit non-zero when conversion quality checks report fallbacks, invalid blocks, or content loss.
 	 *
 	 * [--max-fallbacks=<count>]
 	 * : Exit non-zero when unsupported HTML fallback count exceeds this threshold.
@@ -66,6 +69,7 @@ class Static_Site_Importer_CLI_Command {
 				'name'            => isset( $assoc_args['name'] ) ? (string) $assoc_args['name'] : '',
 				'activate'        => isset( $assoc_args['activate'] ),
 				'overwrite'       => isset( $assoc_args['overwrite'] ),
+				'delete_source'   => isset( $assoc_args['delete-source'] ),
 				'fail_on_quality' => isset( $assoc_args['fail-on-quality'] ),
 				'max_fallbacks'   => isset( $assoc_args['max-fallbacks'] ) ? (int) $assoc_args['max-fallbacks'] : null,
 				'report'          => isset( $assoc_args['report'] ) ? (string) $assoc_args['report'] : '',
@@ -87,6 +91,9 @@ class Static_Site_Importer_CLI_Command {
 		WP_CLI::line( sprintf( 'Import report: %s', $result['report_path'] ) );
 		if ( ! empty( $result['external_report_path'] ) ) {
 			WP_CLI::line( sprintf( 'External import report: %s', $result['external_report_path'] ) );
+		}
+		if ( ! empty( $result['source_cleanup_error'] ) ) {
+			WP_CLI::warning( sprintf( 'Source cleanup skipped: %s', $result['source_cleanup_error'] ) );
 		}
 		WP_CLI::line( sprintf( 'Conversion quality: %s (%d unsupported HTML fallbacks, %d invalid blocks, %d content-loss aborts).', $result['quality']['pass'] ? 'pass' : 'needs review', $result['quality']['fallback_count'], $result['quality']['invalid_block_count'], $result['quality']['content_loss_count'] ) );
 
