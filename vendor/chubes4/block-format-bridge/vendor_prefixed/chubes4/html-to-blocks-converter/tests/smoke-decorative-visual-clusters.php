@@ -1,0 +1,188 @@
+<?php
+
+namespace BlockFormatBridge\Vendor;
+
+/**
+ * Smoke test: decorative visual clusters avoid broad core/html fallback.
+ *
+ * Run: php tests/smoke-decorative-visual-clusters.php
+ */
+// phpcs:disable
+if (!\defined('ABSPATH')) {
+    \define('ABSPATH', __DIR__);
+}
+if (!\class_exists('WP_HTML_Processor', \false)) {
+    $wp_html_api_candidates = \array_filter([\getenv('WP_HTML_API_PATH') ?: '', '/wordpress/wp-includes/html-api', '/Users/chubes/Studio/intelligence-chubes4/wp-includes/html-api']);
+    $wp_html_api_path = '';
+    foreach ($wp_html_api_candidates as $candidate) {
+        if (\is_file(\rtrim($candidate, '/') . '/class-wp-html-processor.php')) {
+            $wp_html_api_path = \rtrim($candidate, '/');
+            break;
+        }
+    }
+    if ($wp_html_api_path === '') {
+        \fwrite(\STDERR, "FAIL: WP_HTML_Processor is unavailable. Set WP_HTML_API_PATH to wp-includes/html-api.\n");
+        exit(1);
+    }
+    foreach (['class-wp-html-attribute-token.php', 'class-wp-html-span.php', 'class-wp-html-text-replacement.php', 'class-wp-html-decoder.php', 'class-wp-html-doctype-info.php', 'class-wp-html-unsupported-exception.php', 'class-wp-html-token.php', 'class-wp-html-tag-processor.php', 'class-wp-html-stack-event.php', 'class-wp-html-open-elements.php', 'class-wp-html-active-formatting-elements.php', 'class-wp-html-processor-state.php', 'class-wp-html-processor.php'] as $file) {
+        require_once $wp_html_api_path . '/' . $file;
+    }
+}
+if (!\class_exists('WP_Block_Type_Registry', \false)) {
+    class WP_Block_Type_Registry
+    {
+        public static function get_instance()
+        {
+            return new self();
+        }
+        public function is_registered($name)
+        {
+            return \in_array($name, ['core/group', 'core/html', 'core/paragraph'], \true);
+        }
+        public function get_registered($name)
+        {
+            return (object) ['attributes' => []];
+        }
+    }
+    \class_alias('BlockFormatBridge\Vendor\WP_Block_Type_Registry', 'WP_Block_Type_Registry', \false);
+}
+foreach (['esc_attr', 'esc_html', 'esc_url'] as $function_name) {
+    if (!\function_exists($function_name)) {
+        eval('function ' . $function_name . '( $value ) { return htmlspecialchars( (string) $value, ENT_QUOTES, "UTF-8" ); }');
+    }
+}
+if (!\function_exists('BlockFormatBridge\Vendor\wp_strip_all_tags')) {
+    function wp_strip_all_tags($text)
+    {
+        return \strip_tags($text);
+    }
+}
+if (!\function_exists('BlockFormatBridge\Vendor\get_shortcode_regex')) {
+    function get_shortcode_regex()
+    {
+        return '(?!)';
+    }
+}
+if (!\function_exists('do_action')) {
+    function do_action($hook_name, ...$args)
+    {
+    }
+}
+if (!\function_exists('BlockFormatBridge\Vendor\serialize_blocks')) {
+    function serialize_blocks(array $blocks): string
+    {
+        $output = '';
+        foreach ($blocks as $block) {
+            $name = $block['blockName'] ?? '';
+            $attrs = \array_diff_key($block['attrs'] ?? [], ['content' => \true]);
+            $attrs_json = empty($attrs) ? '' : ' ' . \json_encode($attrs, \JSON_UNESCAPED_SLASHES);
+            if ($name === 'core/html') {
+                $output .= '<!-- wp:html -->' . ($block['attrs']['content'] ?? $block['innerHTML'] ?? '') . '<!-- /wp:html -->';
+                continue;
+            }
+            $output .= '<!-- wp:' . \substr($name, 5) . $attrs_json . ' -->';
+            $output .= $block['innerContent'][0] ?? $block['innerHTML'] ?? '';
+            $output .= serialize_blocks($block['innerBlocks'] ?? []);
+            $inner_content = $block['innerContent'] ?? [];
+            $output .= \end($inner_content) ?: '';
+            $output .= '<!-- /wp:' . \substr($name, 5) . ' -->';
+        }
+        return $output;
+    }
+}
+$repo_root = \dirname(__DIR__);
+require_once $repo_root . '/includes/class-block-factory.php';
+require_once $repo_root . '/includes/class-attribute-parser.php';
+require_once $repo_root . '/includes/class-html-element.php';
+require_once $repo_root . '/includes/class-transform-registry.php';
+require_once $repo_root . '/raw-handler.php';
+$failures = [];
+$assertions = 0;
+$assert = static function ($condition, $label, $detail = '') use (&$failures, &$assertions) {
+    $assertions++;
+    if (!$condition) {
+        $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
+    }
+};
+$collect_blocks = static function (array $blocks, string $name) use (&$collect_blocks): array {
+    $matches = [];
+    foreach ($blocks as $block) {
+        if (($block['blockName'] ?? '') === $name) {
+            $matches[] = $block;
+        }
+        if (!empty($block['innerBlocks']) && \is_array($block['innerBlocks'])) {
+            $matches = \array_merge($matches, $collect_blocks($block['innerBlocks'], $name));
+        }
+    }
+    return $matches;
+};
+$flatten_block_names = static function (array $blocks) use (&$flatten_block_names): array {
+    $names = [];
+    foreach ($blocks as $block) {
+        $names[] = $block['blockName'] ?? '';
+        $names = \array_merge($names, $flatten_block_names($block['innerBlocks'] ?? []));
+    }
+    return $names;
+};
+$scroll_html = <<<'HTML'
+<div class="ss-hero-scroll" aria-hidden="true">
+  <div class="ss-hero-scroll-line"></div>
+  <span>Scroll</span>
+</div>
+HTML;
+$scroll_blocks = html_to_blocks_raw_handler(['HTML' => $scroll_html]);
+$scroll_serialized = serialize_blocks($scroll_blocks);
+$scroll_names = $flatten_block_names($scroll_blocks);
+$assert(\str_contains($scroll_serialized, 'Scroll'), 'scroll-text-survives', $scroll_serialized);
+$assert(\str_contains($scroll_serialized, 'ss-hero-scroll'), 'scroll-wrapper-class-survives', $scroll_serialized);
+$assert(\in_array('core/group', $scroll_names, \true), 'scroll-wrapper-becomes-group', $scroll_serialized);
+$assert(\in_array('core/paragraph', $scroll_names, \true), 'scroll-text-becomes-paragraph', $scroll_serialized);
+$assert(!\in_array('core/html', $scroll_names, \true), 'scroll-has-no-html-fallback', $scroll_serialized);
+$product_html = <<<'HTML'
+<div class="ss-product-thumb ss-product-thumb-sourdough" aria-hidden="true">
+  <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <ellipse cx="40" cy="48" rx="32" ry="22" fill="rgba(255,255,255,0.15)"/>
+    <ellipse cx="40" cy="38" rx="24" ry="20" fill="rgba(255,255,255,0.2)"/>
+    <path d="M26 42 Q40 22 54 42" stroke="rgba(255,255,255,0.4)" stroke-width="2" fill="none"/>
+  </svg>
+</div>
+HTML;
+$product_blocks = html_to_blocks_raw_handler(['HTML' => $product_html]);
+$product_serialized = serialize_blocks($product_blocks);
+$product_names = $flatten_block_names($product_blocks);
+$product_fallbacks = $collect_blocks($product_blocks, 'core/html');
+$assert(\in_array('core/group', $product_names, \true), 'product-wrapper-becomes-group', $product_serialized);
+$assert(\str_contains($product_serialized, 'ss-product-thumb'), 'product-wrapper-class-survives', $product_serialized);
+$assert(\count($product_fallbacks) === 1, 'product-only-svg-falls-back', $product_serialized);
+$product_fallback_content = $product_fallbacks[0]['attrs']['content'] ?? '';
+$assert(\str_starts_with(\trim($product_fallback_content), '<svg'), 'product-fallback-starts-at-svg', $product_fallback_content);
+$assert(!\str_contains($product_fallback_content, 'ss-product-thumb'), 'product-fallback-does-not-wrap-thumb', $product_fallback_content);
+$stars_html = <<<'HTML'
+<div class="ss-quote-stars" aria-label="5 out of 5 stars">
+  <span aria-hidden="true">&#9733;</span>
+  <span aria-hidden="true">&#9733;</span>
+  <span aria-hidden="true">&#9733;</span>
+  <span aria-hidden="true">&#9733;</span>
+  <span aria-hidden="true">&#9733;</span>
+</div>
+HTML;
+$stars_blocks = html_to_blocks_raw_handler(['HTML' => $stars_html]);
+$stars_serialized = serialize_blocks($stars_blocks);
+$stars_names = $flatten_block_names($stars_blocks);
+$star_paragraphs = $collect_blocks($stars_blocks, 'core/paragraph');
+$star_content = $star_paragraphs[0]['attrs']['content'] ?? '';
+$assert(\in_array('core/group', $stars_names, \true), 'stars-wrapper-becomes-group', $stars_serialized);
+$assert(\str_contains($stars_serialized, 'ss-quote-stars'), 'stars-wrapper-class-survives', $stars_serialized);
+$assert(\str_contains($stars_serialized, '5 out of 5 stars'), 'stars-aria-label-survives', $stars_serialized);
+$assert(\substr_count(\html_entity_decode($star_content, \ENT_QUOTES, 'UTF-8'), '★') === 5, 'five-stars-survive', $star_content);
+$assert(!\in_array('core/html', $stars_names, \true), 'stars-have-no-html-fallback', $stars_serialized);
+echo 'Assertions: ' . $assertions . \PHP_EOL;
+if (empty($failures)) {
+    echo 'ALL PASS' . \PHP_EOL;
+    exit(0);
+}
+echo 'FAILURES (' . \count($failures) . '):' . \PHP_EOL;
+foreach ($failures as $failure) {
+    echo '  - ' . $failure . \PHP_EOL;
+}
+exit(1);

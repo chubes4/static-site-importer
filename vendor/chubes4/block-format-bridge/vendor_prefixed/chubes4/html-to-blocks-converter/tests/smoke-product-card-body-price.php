@@ -3,9 +3,9 @@
 namespace BlockFormatBridge\Vendor;
 
 /**
- * Smoke test: top-level raw conversion must not re-emit descendants as siblings.
+ * Smoke test: product-card body wrappers recurse to native blocks.
  *
- * Run: php tests/smoke-no-duplicate-descendants.php
+ * Run: php tests/smoke-product-card-body-price.php
  */
 // phpcs:disable
 if (!\defined('ABSPATH')) {
@@ -24,6 +24,13 @@ if (!\class_exists('WP_HTML_Processor', \false)) {
         \fwrite(\STDERR, "FAIL: WP_HTML_Processor is unavailable. Set WP_HTML_API_PATH to wp-includes/html-api.\n");
         exit(1);
     }
+    $core_root = \dirname($wp_html_api_path);
+    if (\is_file($core_root . '/class-wp-token-map.php')) {
+        require_once $core_root . '/class-wp-token-map.php';
+    }
+    if (\is_file($wp_html_api_path . '/html5-named-character-references.php')) {
+        require_once $wp_html_api_path . '/html5-named-character-references.php';
+    }
     foreach (['class-wp-html-attribute-token.php', 'class-wp-html-span.php', 'class-wp-html-text-replacement.php', 'class-wp-html-decoder.php', 'class-wp-html-doctype-info.php', 'class-wp-html-unsupported-exception.php', 'class-wp-html-token.php', 'class-wp-html-tag-processor.php', 'class-wp-html-stack-event.php', 'class-wp-html-open-elements.php', 'class-wp-html-active-formatting-elements.php', 'class-wp-html-processor-state.php', 'class-wp-html-processor.php'] as $file) {
         require_once $wp_html_api_path . '/' . $file;
     }
@@ -37,7 +44,7 @@ if (!\class_exists('WP_Block_Type_Registry', \false)) {
         }
         public function is_registered($name)
         {
-            return \in_array($name, ['core/column', 'core/columns', 'core/group', 'core/html', 'core/heading', 'core/list', 'core/list-item', 'core/paragraph'], \true);
+            return \in_array($name, ['core/group', 'core/heading', 'core/html', 'core/paragraph'], \true);
         }
         public function get_registered($name)
         {
@@ -102,60 +109,35 @@ $assert = static function ($condition, $label, $detail = '') use (&$failures, &$
         $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
     }
 };
-$assert_occurs_once = static function (string $haystack, string $needle, string $label) use ($assert) {
-    $count = \substr_count($haystack, $needle);
-    $assert($count === 1, $label, 'Expected one occurrence of ' . $needle . ', found ' . $count);
+$flatten_block_names = static function (array $blocks) use (&$flatten_block_names): array {
+    $names = [];
+    foreach ($blocks as $block) {
+        $names[] = $block['blockName'] ?? '';
+        $names = \array_merge($names, $flatten_block_names($block['innerBlocks'] ?? []));
+    }
+    return $names;
 };
-$assert_contains = static function (string $haystack, string $needle, string $label) use ($assert) {
-    $assert(\strpos($haystack, $needle) !== \false, $label, 'Missing ' . $needle);
-};
-$html = <<<HTML
-<div class="compare">
-  <div class="col-wp">
-    <h3>WordPress <span class="tag">2003-2026</span></h3>
-    <ul>
-      <li>Buy domain, buy hosting, install LAMP stack</li>
-      <li>Run 5-minute install</li>
-    </ul>
-  </div>
-  <div class="col-claude">
-    <h3>The Prompt <span class="tag">2026-</span></h3>
-    <ul>
-      <li>Open Claude Code in a folder</li>
-      <li>Type one sentence describing the site</li>
-    </ul>
-  </div>
+$html = <<<'HTML'
+<div class="ss-product-body">
+  <h3 class="ss-product-name">Country Sourdough</h3>
+  <p class="ss-product-desc">A 48-hour cold-fermented loaf milled from South Carolina red fife wheat. Crackling crust, open crumb, and a subtle tang that keeps you coming back.</p>
+  <span class="ss-product-price">$14 per loaf</span>
 </div>
-<div class="eulogy-frame">
-  <div class="dates">May 27, 2003 - April 29, 2026</div>
-  <h2>For WordPress, with love.</h2>
-  <p>It is rare that a piece of software earns the right to be eulogized.</p>
-  <p class="signoff">- Generated, with feeling, in one prompt.</p>
-</div>
-<ol class="manifesto-list">
-  <li>
-    <div>
-      <h3>The CMS was a workaround for not being able to write HTML.</h3>
-      <p>That excuse no longer holds.</p>
-    </div>
-  </li>
-  <li>
-    <div>
-      <h3>The plugin economy was a tax on not knowing JavaScript.</h3>
-      <p>You paid \$49/year so a contact form could send an email.</p>
-    </div>
-  </li>
-</ol>
 HTML;
-$serialized = serialize_blocks(html_to_blocks_raw_handler(['HTML' => $html]));
-$assert_contains($serialized, 'compare', 'compare-wrapper-preserved');
-$assert_contains($serialized, 'col-wp', 'col-wp-preserved');
-$assert_contains($serialized, 'col-claude', 'col-claude-preserved');
-$assert_occurs_once($serialized, '2003-2026', 'compare-heading-once');
-$assert_occurs_once($serialized, 'May 27, 2003', 'dates-once');
-$assert_occurs_once($serialized, 'It is rare that a piece of software earns the right to be eulogized.', 'eulogy-copy-once');
-$assert_occurs_once($serialized, 'The CMS was a workaround for not being able to write HTML.', 'manifesto-copy-once');
-$assert_contains($serialized, 'manifesto-list', 'classed-visual-list-wrapper-preserved');
+$blocks = html_to_blocks_raw_handler(['HTML' => $html]);
+$serialized = serialize_blocks($blocks);
+$names = $flatten_block_names($blocks);
+$assert(\count($blocks) === 1, 'single-product-body-wrapper');
+$assert(($blocks[0]['blockName'] ?? '') === 'core/group', 'product-body-wrapper-is-group');
+$assert(!\in_array('core/html', $names, \true), 'product-body-does-not-fallback-to-core-html');
+$assert($names === ['core/group', 'core/heading', 'core/paragraph', 'core/paragraph'], 'product-body-native-block-sequence', 'Blocks: ' . \implode(', ', $names));
+$assert(\strpos($serialized, 'Country Sourdough') !== \false, 'heading-text-preserved');
+$assert(\strpos($serialized, '48-hour cold-fermented loaf') !== \false, 'description-text-preserved');
+$assert(\strpos($serialized, '$14 per loaf') !== \false, 'price-text-preserved');
+$assert(\strpos($serialized, 'ss-product-body') !== \false, 'wrapper-class-preserved');
+$assert(\strpos($serialized, 'ss-product-name') !== \false, 'heading-class-preserved');
+$assert(\strpos($serialized, 'ss-product-desc') !== \false, 'description-class-preserved');
+$assert(\strpos($serialized, 'ss-product-price') !== \false, 'price-class-preserved');
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

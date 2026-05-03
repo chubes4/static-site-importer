@@ -370,6 +370,174 @@ MARKDOWN;
 	}
 
 	/**
+	 * Block analysis should expose fallback details without every consumer reimplementing metrics.
+	 */
+	public function test_block_analysis_reports_core_html_fallback_details(): void {
+		$blocks = array(
+			array(
+				'blockName'   => 'core/group',
+				'attrs'       => array(),
+				'innerBlocks' => array(
+					array(
+						'blockName' => 'core/html',
+						'attrs'     => array(
+							'content' => '<div class="widget"> Unsupported widget </div>',
+						),
+					),
+				),
+			),
+		);
+
+		$report = bfb_analyze_blocks( $blocks );
+
+		$this->assertSame( 2, $report['total_blocks'] );
+		$this->assertSame( 1, $report['core_html_blocks'] );
+		$this->assertSame( 1, $report['block_counts']['core/html'] ?? null );
+		$this->assertSame( '0.0', $report['fallbacks'][0]['path'] ?? null );
+		$this->assertStringContainsString( 'Unsupported widget', $report['fallbacks'][0]['preview'] ?? '' );
+	}
+
+	/**
+	 * Conversion reports should include h2bc fallback reasons captured during conversion.
+	 */
+	public function test_conversion_report_captures_h2bc_fallback_events(): void {
+		$report = bfb_conversion_report( '<iframe src="https://example.com/widget"></iframe>', 'html' );
+
+		$this->assertSame( 'html', $report['from'] );
+		$this->assertSame( 1, $report['total_blocks'] );
+		$this->assertSame( 1, $report['core_html_blocks'] );
+		$this->assertSame( 1, $report['fallback_event_count'] );
+		$this->assertSame( 'success_with_fallbacks', $report['status'] );
+		$this->assertSame( 'core_html_fallback', $report['diagnostics'][0]['code'] ?? null );
+		$this->assertStringContainsString( 'fallback_events', $report['agent_guidance'] ?? '' );
+		$this->assertSame( 'no_transform', $report['fallback_events'][0]['reason'] ?? null );
+		$this->assertSame( 'IFRAME', $report['fallback_events'][0]['tag_name'] ?? null );
+		$this->assertStringContainsString( '<!-- wp:html', $report['serialized_blocks'] );
+	}
+
+	/**
+	 * Conversion reports should surface generic downstream materialization requests.
+	 */
+	public function test_conversion_report_surfaces_safe_svg_materialization_metadata(): void {
+		$safe_svg = '<svg viewBox="0 0 24 24" aria-label="Check"><path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
+
+		$pre_result = static function ( $pre_result, string $content ): array {
+			unset( $pre_result );
+
+			do_action(
+				'html_to_blocks_materialization_request',
+				array(
+					'id'             => 'svg-icon-check',
+					'kind'           => 'asset',
+					'source'         => 'inline',
+					'classification' => 'safe_svg_icon',
+					'media_type'     => 'image/svg+xml',
+					'filename'       => 'svg-icon-check.svg',
+					'placeholder'    => 'bfb-materialization://svg-icon-check',
+					'payload'        => $content,
+					'alt'            => 'Check',
+					'replacement'    => array(
+						'block_name' => 'core/image',
+						'attrs'      => array(
+							'url' => 'bfb-materialization://svg-icon-check',
+							'alt' => 'Check',
+						),
+					),
+				)
+			);
+
+			return array(
+				array(
+					'blockName'    => 'core/image',
+					'attrs'        => array(
+						'url' => 'bfb-materialization://svg-icon-check',
+						'alt' => 'Check',
+					),
+					'innerBlocks'  => array(),
+					'innerHTML'    => '<figure class="wp-block-image"><img src="bfb-materialization://svg-icon-check" alt="Check"/></figure>',
+					'innerContent' => array( '<figure class="wp-block-image"><img src="bfb-materialization://svg-icon-check" alt="Check"/></figure>' ),
+				),
+			);
+		};
+
+		add_filter( 'bfb_html_to_blocks_pre_result', $pre_result, 10, 2 );
+		try {
+			$report = bfb_conversion_report( $safe_svg, 'html' );
+		} finally {
+			remove_filter( 'bfb_html_to_blocks_pre_result', $pre_result, 10 );
+		}
+
+		$this->assertSame( 1, $report['total_blocks'] );
+		$this->assertSame( 0, $report['core_html_blocks'] );
+		$this->assertSame( 0, $report['fallback_event_count'] );
+		$this->assertSame( 1, $report['materialization_request_count'] );
+		$this->assertSame( 'success_with_materialization_requests', $report['status'] );
+		$this->assertSame( 'materialization_requested', $report['diagnostics'][0]['code'] ?? null );
+		$this->assertSame( 'safe_svg_icon', $report['materialization_requests'][0]['classification'] ?? null );
+		$this->assertSame( 'image/svg+xml', $report['materialization_requests'][0]['media_type'] ?? null );
+		$this->assertStringContainsString( '<svg viewBox=', $report['materialization_requests'][0]['payload'] ?? '' );
+		$this->assertStringNotContainsString( '<!-- wp:html', $report['serialized_blocks'] );
+	}
+
+	/**
+	 * Unsafe SVG should stay on the explicit unsupported fallback path.
+	 */
+	public function test_conversion_report_keeps_unsafe_svg_as_fallback_diagnostic(): void {
+		$report = bfb_conversion_report( '<svg viewBox="0 0 24 24"><script>alert(1)</script><path d="M0 0h24v24H0z"/></svg>', 'html' );
+
+		$this->assertSame( 1, $report['core_html_blocks'] );
+		$this->assertSame( 1, $report['fallback_event_count'] );
+		$this->assertSame( 0, $report['materialization_request_count'] );
+		$this->assertSame( 'success_with_fallbacks', $report['status'] );
+		$this->assertSame( 'core_html_fallback', $report['diagnostics'][0]['code'] ?? null );
+		$this->assertSame( 'SVG', $report['fallback_events'][0]['tag_name'] ?? null );
+		$this->assertStringContainsString( '<!-- wp:html', $report['serialized_blocks'] );
+	}
+
+	/**
+	 * Conversion diagnostics should separate warning-only suspicion from explicit fallback evidence.
+	 */
+	public function test_conversion_diagnostics_classify_warning_only_suspicion(): void {
+		$diagnostics = bfb_build_conversion_diagnostics(
+			array(
+				'total_blocks'          => 1,
+				'core_html_blocks'      => 0,
+				'fallback_event_count'  => 0,
+				'source_bytes'          => 1400,
+				'source_text_bytes'     => 900,
+				'converted_text_bytes'  => 44,
+				'text_retention_ratio'  => 0.0489,
+			)
+		);
+
+		$this->assertSame( 'warning_only_suspicion', $diagnostics['status'] );
+		$this->assertSame( 'possible_text_loss', $diagnostics['diagnostics'][0]['code'] ?? null );
+		$this->assertSame( 'warning', $diagnostics['diagnostics'][0]['severity'] ?? null );
+		$this->assertStringContainsString( 'do not work around it by manually authoring wp:html blocks', $diagnostics['agent_guidance'] );
+	}
+
+	/**
+	 * Empty block output should remain an error, not a softened warning.
+	 */
+	public function test_conversion_diagnostics_classify_failed_conversion(): void {
+		$diagnostics = bfb_build_conversion_diagnostics(
+			array(
+				'total_blocks'          => 0,
+				'core_html_blocks'      => 0,
+				'fallback_event_count'  => 0,
+				'source_bytes'          => 20,
+				'source_text_bytes'     => 12,
+				'converted_text_bytes'  => 0,
+				'text_retention_ratio'  => 0.0,
+			)
+		);
+
+		$this->assertSame( 'failed', $diagnostics['status'] );
+		$this->assertSame( 'conversion_failed', $diagnostics['diagnostics'][0]['code'] ?? null );
+		$this->assertSame( 'error', $diagnostics['diagnostics'][0]['severity'] ?? null );
+	}
+
+	/**
 	 * Blocks should render to HTML through WordPress' real render_block() path.
 	 */
 	public function test_blocks_to_html_renders_static_and_dynamic_blocks(): void {

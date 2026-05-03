@@ -131,11 +131,11 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 
 		$this->assertStringNotContainsString( 'href="index.html"', $pages['proof.html']['stored'] );
 		$this->assert_selector_matrix( $pages );
-		$this->assertSame( 1, $this->selector_count( $pages['comparison.html']['stored'], '.compare' ) );
-		$this->assertSame( 1, $this->selector_count( $pages['comparison.html']['stored'], '.col-wp' ) );
-		$this->assertSame( 1, $this->selector_count( $pages['comparison.html']['stored'], '.col-claude' ) );
-		$this->assertSame( 1, $this->selector_count( $pages['eulogy.html']['stored'], '.eulogy-frame' ) );
-		$this->assertSame( 1, $this->selector_count( $pages['eulogy.html']['stored'], '.dates' ) );
+		$this->assertSame( 1, $this->selector_count( $pages['comparison.html']['rendered'], '.compare' ) );
+		$this->assertSame( 1, $this->selector_count( $pages['comparison.html']['rendered'], '.col-wp' ) );
+		$this->assertSame( 1, $this->selector_count( $pages['comparison.html']['rendered'], '.col-claude' ) );
+		$this->assertSame( 1, $this->selector_count( $pages['eulogy.html']['rendered'], '.eulogy-frame' ) );
+		$this->assertSame( 1, $this->selector_count( $pages['eulogy.html']['rendered'], '.dates' ) );
 
 		$second_result = Static_Site_Importer_Theme_Generator::import_theme(
 			$fixture,
@@ -439,7 +439,8 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$style     = $this->read_file( $theme_dir . '/style.css' );
 		$report    = json_decode( $this->read_file( $result['report_path'] ), true );
 
-		$this->assertStringContainsString( '<!-- wp:group {"className":"hero","tagName":"section"}', $pattern );
+		$this->assertStringContainsString( '"className":"hero"', $pattern );
+		$this->assertStringContainsString( '"tagName":"section"', $pattern );
 		$this->assertStringContainsString( 'hero-rip', $pattern );
 		$this->assertStringContainsString( '<!-- wp:group {"className":"container"}', $pattern );
 		$this->assertStringContainsString( '.hero-rip { position: absolute;', $style );

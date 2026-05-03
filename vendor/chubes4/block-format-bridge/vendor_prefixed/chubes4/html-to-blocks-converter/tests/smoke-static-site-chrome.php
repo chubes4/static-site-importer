@@ -37,7 +37,7 @@ if (!\class_exists('WP_Block_Type_Registry', \false)) {
         }
         public function is_registered($name)
         {
-            return \in_array($name, ['core/group', 'core/html', 'core/list', 'core/list-item', 'core/paragraph', 'core/preformatted'], \true);
+            return \in_array($name, ['core/group', 'core/html', 'core/list', 'core/list-item', 'core/paragraph', 'core/preformatted', 'core/quote'], \true);
         }
         public function get_registered($name)
         {
@@ -121,10 +121,55 @@ HTML;
 $serialized = serialize_blocks(html_to_blocks_raw_handler(['HTML' => $html]));
 $assert(\str_contains($serialized, 'wp:group'), 'static-chrome-uses-group-blocks');
 $assert(!\str_contains($serialized, 'wp:navigation'), 'static-nav-avoids-invalid-navigation-blocks', $serialized);
-$assert(\str_contains($serialized, '<!-- wp:html --><nav class="primary">'), 'static-nav-falls-back-to-core-html', $serialized);
+$assert(!\str_contains($serialized, '<!-- wp:html --><nav class="primary">'), 'static-nav-avoids-core-html-fallback', $serialized);
+$assert(\str_contains($serialized, '<nav class="wp-block-group primary">'), 'static-nav-uses-group-nav-tag', $serialized);
 $assert(\str_contains($serialized, 'wp:list'), 'footer-links-use-list-block');
 $assert(\str_contains($serialized, 'The Prompt Liberation Front'), 'text-only-div-preserves-footer-copy');
 $assert(\str_contains($serialized, 'class="wp-block-preformatted prompt"'), 'preformatted-rendered-html-preserves-source-class', $serialized);
+$salt_star_html = <<<HTML
+<nav class="site-nav" aria-label="Main navigation">
+  <a href="#" class="nav-logo">Salt &amp; Star</a>
+  <ul class="nav-links">
+    <li><a href="#our-bakes">Our Bakes</a></li>
+    <li><a href="#visit">Visit Us</a></li>
+    <li><a href="#order">Order</a></li>
+  </ul>
+</nav>
+HTML;
+$salt_star_serialized = serialize_blocks(html_to_blocks_raw_handler(['HTML' => $salt_star_html]));
+$assert(!\str_contains($salt_star_serialized, 'wp:html'), 'salt-star-nav-avoids-core-html-fallback', $salt_star_serialized);
+$assert(\str_contains($salt_star_serialized, '<nav class="wp-block-group site-nav" aria-label="Main navigation">'), 'salt-star-nav-preserves-wrapper', $salt_star_serialized);
+$assert(\str_contains($salt_star_serialized, '<a href="#" class="nav-logo">Salt &amp; Star</a>'), 'salt-star-nav-preserves-logo-link', $salt_star_serialized);
+$assert(\str_contains($salt_star_serialized, 'class="wp-block-list nav-links"'), 'salt-star-nav-preserves-list-class', $salt_star_serialized);
+$assert(\str_contains($salt_star_serialized, 'href="#our-bakes"'), 'salt-star-nav-preserves-our-bakes-href', $salt_star_serialized);
+$assert(\str_contains($salt_star_serialized, 'href="#visit"'), 'salt-star-nav-preserves-visit-href', $salt_star_serialized);
+$assert(\str_contains($salt_star_serialized, 'href="#order"'), 'salt-star-nav-preserves-order-href', $salt_star_serialized);
+$studio_code_nav_serialized = serialize_blocks(html_to_blocks_raw_handler(array('HTML' => '<nav><div class="nav-logo"><div class="dot"></div>Studio Code</div></nav>')));
+$assert(!\str_contains($studio_code_nav_serialized, '<!-- wp:html -->'), 'studio-code-nav-logo-dot-avoids-core-html', $studio_code_nav_serialized);
+$assert(\str_contains($studio_code_nav_serialized, '<nav class="wp-block-group">'), 'studio-code-nav-wrapper-survives', $studio_code_nav_serialized);
+$assert(\str_contains($studio_code_nav_serialized, 'class="wp-block-group nav-logo"'), 'studio-code-nav-logo-wrapper-survives', $studio_code_nav_serialized);
+$assert(\str_contains($studio_code_nav_serialized, 'Studio Code'), 'studio-code-nav-logo-text-survives', $studio_code_nav_serialized);
+$assert(!\str_contains($studio_code_nav_serialized, 'class="wp-block-group dot"'), 'studio-code-nav-logo-dot-is-dropped', $studio_code_nav_serialized);
+$inline_footer_serialized = serialize_blocks(html_to_blocks_raw_handler(['HTML' => '<footer>Hand-Coded · No Block Editor Was Harmed · Made With <span class="heart">🔥</span> And Spite</footer>']));
+$assert(\str_contains($inline_footer_serialized, 'Hand-Coded'), 'inline-footer-preserves-leading-text', $inline_footer_serialized);
+$assert(\str_contains($inline_footer_serialized, 'No Block Editor Was Harmed'), 'inline-footer-preserves-middle-text', $inline_footer_serialized);
+$assert(\str_contains($inline_footer_serialized, 'Made With <span class="heart">🔥</span> And Spite'), 'inline-footer-preserves-mixed-inline-content', $inline_footer_serialized);
+$text_div_footer_serialized = serialize_blocks(html_to_blocks_raw_handler(['HTML' => '<footer class="footer"><div class="footer-brand">Studio Code by Automattic</div><div class="footer-copy">Copyright 2026 Automattic Inc. All rights reserved.</div></footer>']));
+$assert(\str_contains($text_div_footer_serialized, 'Studio Code by Automattic'), 'footer-brand-div-text-survives', $text_div_footer_serialized);
+$assert(\str_contains($text_div_footer_serialized, 'Copyright 2026 Automattic Inc. All rights reserved.'), 'footer-copy-div-text-survives', $text_div_footer_serialized);
+$assert(\str_contains($text_div_footer_serialized, 'wp:paragraph'), 'footer-text-divs-become-paragraphs', $text_div_footer_serialized);
+$assert(!\str_contains($text_div_footer_serialized, '<div class="wp-block-group footer-brand">'), 'footer-brand-div-does-not-become-empty-wrapper', $text_div_footer_serialized);
+$badge_serialized = serialize_blocks(html_to_blocks_raw_handler(['HTML' => '<div class="hero-badge"><span class="hero-badge-dot"></span>Now in Beta - Studio by Automattic</div>']));
+$assert(!\str_contains($badge_serialized, '<!-- wp:html -->'), 'badge-cluster-avoids-core-html-fallback', $badge_serialized);
+$assert(\str_contains($badge_serialized, 'hero-badge-dot'), 'badge-dot-class-survives', $badge_serialized);
+$assert(\str_contains($badge_serialized, 'Now in Beta'), 'badge-text-survives', $badge_serialized);
+$dot_cluster_serialized = serialize_blocks(html_to_blocks_raw_handler(['HTML' => '<div class="diagram-dots"><div class="diagram-dot"></div><div class="diagram-dot"></div><div class="diagram-dot"></div></div>']));
+$assert(!\str_contains($dot_cluster_serialized, '<!-- wp:html -->'), 'empty-dot-cluster-avoids-core-html-fallback', $dot_cluster_serialized);
+$assert(\substr_count($dot_cluster_serialized, '<!-- wp:group') >= 4, 'empty-dot-cluster-uses-native-groups', $dot_cluster_serialized);
+$quote_accent_serialized = serialize_blocks(html_to_blocks_raw_handler(['HTML' => '<blockquote class="quote-card"><div class="quote-accent-bar"></div><p>Blocks over fallbacks.</p></blockquote>']));
+$assert(!\str_contains($quote_accent_serialized, '<!-- wp:html -->'), 'quote-accent-bar-avoids-core-html-fallback', $quote_accent_serialized);
+$assert(!\str_contains($quote_accent_serialized, 'quote-accent-bar'), 'quote-accent-bar-is-dropped', $quote_accent_serialized);
+$assert(\str_contains($quote_accent_serialized, 'Blocks over fallbacks.'), 'quote-accent-neighbor-text-survives', $quote_accent_serialized);
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

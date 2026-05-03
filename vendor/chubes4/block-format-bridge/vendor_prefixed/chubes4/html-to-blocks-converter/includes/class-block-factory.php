@@ -30,14 +30,18 @@ class HTML_To_Blocks_Block_Factory
         $block_type = $registry->get_registered($name);
         $inner_html = '';
         $inner_content = [];
-        if (!empty($inner_blocks)) {
-            $html_parts = self::generate_wrapper_html($name, $attributes);
+        $html_parts = self::generate_wrapper_html($name, $attributes);
+        if ('' !== $html_parts['opening'] || '' !== $html_parts['closing']) {
             $inner_html = $html_parts['opening'] . $html_parts['closing'];
-            $inner_content[] = $html_parts['opening'];
-            foreach ($inner_blocks as $index => $inner_block) {
-                $inner_content[] = null;
+            if (!empty($inner_blocks)) {
+                $inner_content[] = $html_parts['opening'];
+                foreach ($inner_blocks as $index => $inner_block) {
+                    $inner_content[] = null;
+                }
+                $inner_content[] = $html_parts['closing'];
+            } else {
+                $inner_content[] = $inner_html;
             }
-            $inner_content[] = $html_parts['closing'];
         } else {
             $block_html = self::generate_block_html($name, $attributes);
             if (!empty($block_html)) {
@@ -143,6 +147,10 @@ class HTML_To_Blocks_Block_Factory
                     }
                 }
             }
+        }
+        $min_height = $style['dimensions']['minHeight'] ?? null;
+        if (\is_string($min_height) && $min_height !== '') {
+            $declarations[] = 'min-height:' . $min_height;
         }
         return \implode(';', $declarations);
     }
@@ -440,7 +448,7 @@ class HTML_To_Blocks_Block_Factory
                 return ['opening' => '<details' . self::html_attrs(['class' => self::merge_block_class('wp-block-details', $attributes)]) . '><summary>' . $summary . '</summary>', 'closing' => '</details>'];
             case 'core/group':
                 $tag = self::tag_name('div', $attributes, ['div', 'section', 'main', 'article', 'aside', 'header', 'footer', 'nav']);
-                return ['opening' => '<' . $tag . self::html_attrs(['class' => self::merge_block_class('wp-block-group', $attributes), 'aria-label' => $attributes['ariaLabel'] ?? null]) . '>', 'closing' => '</' . $tag . '>'];
+                return ['opening' => '<' . $tag . self::html_attrs(['id' => $attributes['anchor'] ?? null, 'class' => self::merge_block_class('wp-block-group', $attributes), 'style' => self::style_attr($attributes), 'aria-label' => $attributes['ariaLabel'] ?? null]) . '>', 'closing' => '</' . $tag . '>'];
             case 'core/column':
                 return ['opening' => '<div' . self::html_attrs(['class' => self::merge_block_class('wp-block-column', $attributes)]) . '>', 'closing' => '</div>'];
             case 'core/columns':
@@ -481,6 +489,9 @@ class HTML_To_Blocks_Block_Factory
         $sanitized = [];
         foreach ($attributes as $key => $value) {
             if (!isset($block_type->attributes[$key])) {
+                if ('anchor' === $key) {
+                    $sanitized[$key] = $value;
+                }
                 continue;
             }
             $schema = $block_type->attributes[$key];

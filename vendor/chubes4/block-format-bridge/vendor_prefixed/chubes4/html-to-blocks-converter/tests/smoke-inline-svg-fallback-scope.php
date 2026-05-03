@@ -3,9 +3,9 @@
 namespace BlockFormatBridge\Vendor;
 
 /**
- * Smoke test: top-level raw conversion must not re-emit descendants as siblings.
+ * Smoke test: inline SVG fallback stays scoped to the SVG node.
  *
- * Run: php tests/smoke-no-duplicate-descendants.php
+ * Run: php tests/smoke-inline-svg-fallback-scope.php
  */
 // phpcs:disable
 if (!\defined('ABSPATH')) {
@@ -37,7 +37,7 @@ if (!\class_exists('WP_Block_Type_Registry', \false)) {
         }
         public function is_registered($name)
         {
-            return \in_array($name, ['core/column', 'core/columns', 'core/group', 'core/html', 'core/heading', 'core/list', 'core/list-item', 'core/paragraph'], \true);
+            return \in_array($name, ['core/group', 'core/html', 'core/paragraph', 'html-to-blocks/svg-icon'], \true);
         }
         public function get_registered($name)
         {
@@ -74,15 +74,15 @@ if (!\function_exists('BlockFormatBridge\Vendor\serialize_blocks')) {
         $output = '';
         foreach ($blocks as $block) {
             $name = $block['blockName'] ?? '';
-            $attrs = \array_diff_key($block['attrs'] ?? [], ['content' => \true]);
-            $attrs_json = empty($attrs) ? '' : ' ' . \json_encode($attrs, \JSON_UNESCAPED_SLASHES);
             if ($name === 'core/html') {
                 $output .= '<!-- wp:html -->' . ($block['attrs']['content'] ?? $block['innerHTML'] ?? '') . '<!-- /wp:html -->';
                 continue;
             }
-            $output .= '<!-- wp:' . \substr($name, 5) . $attrs_json . ' -->';
-            $output .= $block['innerHTML'] ?? '';
+            $output .= '<!-- wp:' . \substr($name, 5) . ' -->';
+            $output .= $block['innerContent'][0] ?? $block['innerHTML'] ?? '';
             $output .= serialize_blocks($block['innerBlocks'] ?? []);
+            $inner_content = $block['innerContent'] ?? [];
+            $output .= \end($inner_content) ?: '';
             $output .= '<!-- /wp:' . \substr($name, 5) . ' -->';
         }
         return $output;
@@ -92,6 +92,7 @@ $repo_root = \dirname(__DIR__);
 require_once $repo_root . '/includes/class-block-factory.php';
 require_once $repo_root . '/includes/class-attribute-parser.php';
 require_once $repo_root . '/includes/class-html-element.php';
+require_once $repo_root . '/includes/class-svg-icon-classifier.php';
 require_once $repo_root . '/includes/class-transform-registry.php';
 require_once $repo_root . '/raw-handler.php';
 $failures = [];
@@ -102,60 +103,43 @@ $assert = static function ($condition, $label, $detail = '') use (&$failures, &$
         $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
     }
 };
-$assert_occurs_once = static function (string $haystack, string $needle, string $label) use ($assert) {
-    $count = \substr_count($haystack, $needle);
-    $assert($count === 1, $label, 'Expected one occurrence of ' . $needle . ', found ' . $count);
-};
-$assert_contains = static function (string $haystack, string $needle, string $label) use ($assert) {
-    $assert(\strpos($haystack, $needle) !== \false, $label, 'Missing ' . $needle);
+$collect_blocks = static function (array $blocks, string $name) use (&$collect_blocks): array {
+    $matches = [];
+    foreach ($blocks as $block) {
+        if (($block['blockName'] ?? '') === $name) {
+            $matches[] = $block;
+        }
+        if (!empty($block['innerBlocks']) && \is_array($block['innerBlocks'])) {
+            $matches = \array_merge($matches, $collect_blocks($block['innerBlocks'], $name));
+        }
+    }
+    return $matches;
 };
 $html = <<<HTML
-<div class="compare">
-  <div class="col-wp">
-    <h3>WordPress <span class="tag">2003-2026</span></h3>
-    <ul>
-      <li>Buy domain, buy hosting, install LAMP stack</li>
-      <li>Run 5-minute install</li>
-    </ul>
-  </div>
-  <div class="col-claude">
-    <h3>The Prompt <span class="tag">2026-</span></h3>
-    <ul>
-      <li>Open Claude Code in a folder</li>
-      <li>Type one sentence describing the site</li>
-    </ul>
+<div class="ss-location-visual ss-reveal ss-reveal-delay-1">
+  <div class="ss-location-pin">
+    <svg class="ss-location-pin-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+    <span class="ss-location-pin-name">Salt &amp; Star</span>
   </div>
 </div>
-<div class="eulogy-frame">
-  <div class="dates">May 27, 2003 - April 29, 2026</div>
-  <h2>For WordPress, with love.</h2>
-  <p>It is rare that a piece of software earns the right to be eulogized.</p>
-  <p class="signoff">- Generated, with feeling, in one prompt.</p>
-</div>
-<ol class="manifesto-list">
-  <li>
-    <div>
-      <h3>The CMS was a workaround for not being able to write HTML.</h3>
-      <p>That excuse no longer holds.</p>
-    </div>
-  </li>
-  <li>
-    <div>
-      <h3>The plugin economy was a tax on not knowing JavaScript.</h3>
-      <p>You paid \$49/year so a contact form could send an email.</p>
-    </div>
-  </li>
-</ol>
 HTML;
-$serialized = serialize_blocks(html_to_blocks_raw_handler(['HTML' => $html]));
-$assert_contains($serialized, 'compare', 'compare-wrapper-preserved');
-$assert_contains($serialized, 'col-wp', 'col-wp-preserved');
-$assert_contains($serialized, 'col-claude', 'col-claude-preserved');
-$assert_occurs_once($serialized, '2003-2026', 'compare-heading-once');
-$assert_occurs_once($serialized, 'May 27, 2003', 'dates-once');
-$assert_occurs_once($serialized, 'It is rare that a piece of software earns the right to be eulogized.', 'eulogy-copy-once');
-$assert_occurs_once($serialized, 'The CMS was a workaround for not being able to write HTML.', 'manifesto-copy-once');
-$assert_contains($serialized, 'manifesto-list', 'classed-visual-list-wrapper-preserved');
+$blocks = html_to_blocks_raw_handler(['HTML' => $html]);
+$serialized = serialize_blocks($blocks);
+$groups = $collect_blocks($blocks, 'core/group');
+$fallbacks = $collect_blocks($blocks, 'core/html');
+$svg_icons = $collect_blocks($blocks, 'html-to-blocks/svg-icon');
+$assert(\count($groups) >= 2, 'visual-and-pin-wrappers-become-groups', $serialized);
+$assert(\str_contains($serialized, 'ss-location-visual'), 'visual-wrapper-class-survives', $serialized);
+$assert(\str_contains($serialized, 'ss-location-pin'), 'pin-wrapper-class-survives', $serialized);
+$assert(\str_contains($serialized, 'Salt &amp; Star'), 'pin-text-survives', $serialized);
+$assert(\str_contains($serialized, '<!-- wp:paragraph'), 'pin-text-becomes-native-paragraph', $serialized);
+$assert(\count($svg_icons) === 1, 'safe-svg-becomes-placeholder', $serialized);
+$assert(\count($fallbacks) === 0, 'safe-svg-does-not-fallback-to-html', $serialized);
+$svg_icon = $svg_icons[0]['attrs'] ?? [];
+$assert(\str_starts_with(\trim($svg_icon['svg'] ?? ''), '<svg'), 'placeholder-has-sanitized-svg', $svg_icon['svg'] ?? '');
+$assert(($svg_icon['metadata']['kind'] ?? '') === 'inline-svg-icon', 'placeholder-has-icon-metadata');
+$assert(!\str_contains($svg_icon['svg'] ?? '', 'ss-location-visual'), 'placeholder-does-not-wrap-visual', $svg_icon['svg'] ?? '');
+$assert(!\str_contains($svg_icon['svg'] ?? '', 'ss-location-pin-name'), 'placeholder-does-not-wrap-text', $svg_icon['svg'] ?? '');
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

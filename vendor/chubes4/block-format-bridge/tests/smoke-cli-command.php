@@ -30,6 +30,11 @@ bfb_cli_smoke_assert( strpos( $cli_source, 'public function capabilities' ) !== 
 bfb_cli_smoke_assert( strpos( $cli_source, 'bfb_capabilities()' ) !== false, 'Capabilities CLI should wrap the PHP report helper.' );
 bfb_cli_smoke_assert( strpos( $cli_source, "'json' === \$format" ) !== false, 'Capabilities CLI should support --format=json.' );
 bfb_cli_smoke_assert( strpos( $cli_source, 'public function convert' ) !== false, 'CLI should expose a convert subcommand.' );
+bfb_cli_smoke_assert( strpos( $cli_source, 'public function analyze' ) !== false, 'CLI should expose an analyze subcommand.' );
+bfb_cli_smoke_assert( strpos( $cli_source, 'bfb_conversion_report( $content, $from )' ) !== false, 'Analyze CLI should wrap the conversion report helper.' );
+bfb_cli_smoke_assert( strpos( $cli_source, 'Status: %s' ) !== false, 'Analyze summary should surface structured conversion status.' );
+bfb_cli_smoke_assert( strpos( $cli_source, 'Diagnostic: %s (%s) - %s' ) !== false, 'Analyze summary should surface structured diagnostics.' );
+bfb_cli_smoke_assert( strpos( $cli_source, 'Agent guidance: %s' ) !== false, 'Analyze summary should surface agent-safe guidance.' );
 bfb_cli_smoke_assert( strpos( $cli_source, "file_get_contents( 'php://stdin' )" ) !== false, 'CLI should read STDIN when --input is omitted.' );
 bfb_cli_smoke_assert( strpos( $cli_source, 'file_get_contents( $path )' ) !== false, 'CLI should read file input when --input is present.' );
 bfb_cli_smoke_assert( strpos( $cli_source, 'file_put_contents( $path, $content )' ) !== false, 'CLI should write file output when --output is present.' );

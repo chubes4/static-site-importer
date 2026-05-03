@@ -3,9 +3,9 @@
 namespace BlockFormatBridge\Vendor;
 
 /**
- * Smoke test: top-level raw conversion must not re-emit descendants as siblings.
+ * Smoke test: empty decorative glow divs convert to native blocks.
  *
- * Run: php tests/smoke-no-duplicate-descendants.php
+ * Run: php tests/smoke-empty-glow-decorative-divs.php
  */
 // phpcs:disable
 if (!\defined('ABSPATH')) {
@@ -37,7 +37,7 @@ if (!\class_exists('WP_Block_Type_Registry', \false)) {
         }
         public function is_registered($name)
         {
-            return \in_array($name, ['core/column', 'core/columns', 'core/group', 'core/html', 'core/heading', 'core/list', 'core/list-item', 'core/paragraph'], \true);
+            return \in_array($name, ['core/group', 'core/html', 'core/heading', 'core/paragraph'], \true);
         }
         public function get_registered($name)
         {
@@ -63,9 +63,14 @@ if (!\function_exists('BlockFormatBridge\Vendor\get_shortcode_regex')) {
         return '(?!)';
     }
 }
+$fallback_events = [];
 if (!\function_exists('do_action')) {
     function do_action($hook_name, ...$args)
     {
+        global $fallback_events;
+        if ($hook_name === 'html_to_blocks_unsupported_html_fallback') {
+            $fallback_events[] = $args;
+        }
     }
 }
 if (!\function_exists('BlockFormatBridge\Vendor\serialize_blocks')) {
@@ -81,8 +86,10 @@ if (!\function_exists('BlockFormatBridge\Vendor\serialize_blocks')) {
                 continue;
             }
             $output .= '<!-- wp:' . \substr($name, 5) . $attrs_json . ' -->';
-            $output .= $block['innerHTML'] ?? '';
+            $output .= $block['innerContent'][0] ?? $block['innerHTML'] ?? '';
             $output .= serialize_blocks($block['innerBlocks'] ?? []);
+            $inner_content = $block['innerContent'] ?? [];
+            $output .= \end($inner_content) ?: '';
             $output .= '<!-- /wp:' . \substr($name, 5) . ' -->';
         }
         return $output;
@@ -102,60 +109,52 @@ $assert = static function ($condition, $label, $detail = '') use (&$failures, &$
         $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
     }
 };
-$assert_occurs_once = static function (string $haystack, string $needle, string $label) use ($assert) {
-    $count = \substr_count($haystack, $needle);
-    $assert($count === 1, $label, 'Expected one occurrence of ' . $needle . ', found ' . $count);
+$flatten_blocks = static function (array $blocks) use (&$flatten_blocks): array {
+    $flat = [];
+    foreach ($blocks as $block) {
+        $flat[] = $block;
+        $flat = \array_merge($flat, $flatten_blocks($block['innerBlocks'] ?? []));
+    }
+    return $flat;
 };
-$assert_contains = static function (string $haystack, string $needle, string $label) use ($assert) {
-    $assert(\strpos($haystack, $needle) !== \false, $label, 'Missing ' . $needle);
-};
-$html = <<<HTML
-<div class="compare">
-  <div class="col-wp">
-    <h3>WordPress <span class="tag">2003-2026</span></h3>
-    <ul>
-      <li>Buy domain, buy hosting, install LAMP stack</li>
-      <li>Run 5-minute install</li>
-    </ul>
+$html = <<<'HTML'
+<section class="hero-shell">
+  <div class="hero-glow-1"></div>
+  <div class="hero-glow-2"></div>
+  <div class="hero-content">
+    <h1>Glow Native</h1>
+    <p>Decorative layers should stay editable.</p>
   </div>
-  <div class="col-claude">
-    <h3>The Prompt <span class="tag">2026-</span></h3>
-    <ul>
-      <li>Open Claude Code in a folder</li>
-      <li>Type one sentence describing the site</li>
-    </ul>
-  </div>
+</section>
+<div class="quote-card">
+  <div class="quote-glow"></div>
+  <p>Native quote chrome.</p>
 </div>
-<div class="eulogy-frame">
-  <div class="dates">May 27, 2003 - April 29, 2026</div>
-  <h2>For WordPress, with love.</h2>
-  <p>It is rare that a piece of software earns the right to be eulogized.</p>
-  <p class="signoff">- Generated, with feeling, in one prompt.</p>
-</div>
-<ol class="manifesto-list">
-  <li>
-    <div>
-      <h3>The CMS was a workaround for not being able to write HTML.</h3>
-      <p>That excuse no longer holds.</p>
-    </div>
-  </li>
-  <li>
-    <div>
-      <h3>The plugin economy was a tax on not knowing JavaScript.</h3>
-      <p>You paid \$49/year so a contact form could send an email.</p>
-    </div>
-  </li>
-</ol>
 HTML;
-$serialized = serialize_blocks(html_to_blocks_raw_handler(['HTML' => $html]));
-$assert_contains($serialized, 'compare', 'compare-wrapper-preserved');
-$assert_contains($serialized, 'col-wp', 'col-wp-preserved');
-$assert_contains($serialized, 'col-claude', 'col-claude-preserved');
-$assert_occurs_once($serialized, '2003-2026', 'compare-heading-once');
-$assert_occurs_once($serialized, 'May 27, 2003', 'dates-once');
-$assert_occurs_once($serialized, 'It is rare that a piece of software earns the right to be eulogized.', 'eulogy-copy-once');
-$assert_occurs_once($serialized, 'The CMS was a workaround for not being able to write HTML.', 'manifesto-copy-once');
-$assert_contains($serialized, 'manifesto-list', 'classed-visual-list-wrapper-preserved');
+$blocks = html_to_blocks_raw_handler(['HTML' => $html]);
+$flat = $flatten_blocks($blocks);
+$names = \array_map(static function ($block) {
+    return $block['blockName'] ?? '';
+}, $flat);
+$class_names = \array_filter(\array_map(static function ($block) {
+    return $block['attrs']['className'] ?? '';
+}, $flat));
+$serialized = serialize_blocks($blocks);
+$assert(!\in_array('core/html', $names, \true), 'empty-glow-decorative-divs-do-not-use-core-html', \implode(', ', $names));
+$assert(\count($fallback_events) === 0, 'empty-glow-decorative-divs-emit-no-fallback-events', (string) \count($fallback_events));
+$assert(\in_array('core/group', $names, \true), 'empty-glow-decorative-divs-use-group-blocks', \implode(', ', $names));
+$assert(\in_array('core/heading', $names, \true), 'neighbor-heading-converts-natively', \implode(', ', $names));
+$assert(\in_array('core/paragraph', $names, \true), 'neighbor-paragraph-converts-natively', \implode(', ', $names));
+$assert(\in_array('hero-glow-1', $class_names, \true), 'hero-glow-1-class-survives', \implode(', ', $class_names));
+$assert(\in_array('hero-glow-2', $class_names, \true), 'hero-glow-2-class-survives', \implode(', ', $class_names));
+$assert(\in_array('quote-glow', $class_names, \true), 'quote-glow-class-survives', \implode(', ', $class_names));
+$assert(\str_contains($serialized, '<div class="wp-block-group hero-glow-1"></div>'), 'empty-hero-glow-1-serializes-valid-group-wrapper', $serialized);
+$assert(\str_contains($serialized, '<div class="wp-block-group hero-glow-2"></div>'), 'empty-hero-glow-2-serializes-valid-group-wrapper', $serialized);
+$assert(\str_contains($serialized, '<div class="wp-block-group quote-glow"></div>'), 'empty-quote-glow-serializes-valid-group-wrapper', $serialized);
+$assert(\str_contains($serialized, 'Glow Native'), 'neighbor-heading-text-survives', $serialized);
+$assert(\str_contains($serialized, 'Decorative layers should stay editable.'), 'neighbor-paragraph-text-survives', $serialized);
+$assert(\str_contains($serialized, 'Native quote chrome.'), 'quote-content-survives', $serialized);
+$assert(!\str_contains($serialized, '<!-- wp:html -->'), 'serialized-output-has-no-wp-html', $serialized);
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

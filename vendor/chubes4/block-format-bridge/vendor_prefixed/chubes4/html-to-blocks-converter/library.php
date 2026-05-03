@@ -20,7 +20,7 @@ if (!\defined('ABSPATH')) {
     return;
 }
 $html_to_blocks_library_path = __DIR__;
-$html_to_blocks_library_version = '0.6.7';
+$html_to_blocks_library_version = '0.6.10';
 if (!\class_exists('BlockFormatBridge\Vendor\HTML_To_Blocks_Versions', \false)) {
     require_once $html_to_blocks_library_path . '/includes/class-html-to-blocks-versions.php';
 }
@@ -33,6 +33,9 @@ $html_to_blocks_initializer = static function () use ($html_to_blocks_library_pa
     }
     if (!\class_exists('BlockFormatBridge\Vendor\HTML_To_Blocks_Attribute_Parser', \false)) {
         require_once $html_to_blocks_library_path . '/includes/class-attribute-parser.php';
+    }
+    if (!\class_exists('BlockFormatBridge\Vendor\HTML_To_Blocks_SVG_Icon_Classifier', \false)) {
+        require_once $html_to_blocks_library_path . '/includes/class-svg-icon-classifier.php';
     }
     if (!\class_exists('BlockFormatBridge\Vendor\HTML_To_Blocks_Transform_Registry', \false)) {
         require_once $html_to_blocks_library_path . '/includes/class-transform-registry.php';

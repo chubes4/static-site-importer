@@ -3,9 +3,9 @@
 namespace BlockFormatBridge\Vendor;
 
 /**
- * Smoke test: top-level raw conversion must not re-emit descendants as siblings.
+ * Smoke test: info blocks with hours, address, and contact links convert natively.
  *
- * Run: php tests/smoke-no-duplicate-descendants.php
+ * Run: php tests/smoke-info-address-contact-blocks.php
  */
 // phpcs:disable
 if (!\defined('ABSPATH')) {
@@ -24,6 +24,13 @@ if (!\class_exists('WP_HTML_Processor', \false)) {
         \fwrite(\STDERR, "FAIL: WP_HTML_Processor is unavailable. Set WP_HTML_API_PATH to wp-includes/html-api.\n");
         exit(1);
     }
+    $core_root = \dirname($wp_html_api_path);
+    if (\is_file($core_root . '/class-wp-token-map.php')) {
+        require_once $core_root . '/class-wp-token-map.php';
+    }
+    if (\is_file($wp_html_api_path . '/html5-named-character-references.php')) {
+        require_once $wp_html_api_path . '/html5-named-character-references.php';
+    }
     foreach (['class-wp-html-attribute-token.php', 'class-wp-html-span.php', 'class-wp-html-text-replacement.php', 'class-wp-html-decoder.php', 'class-wp-html-doctype-info.php', 'class-wp-html-unsupported-exception.php', 'class-wp-html-token.php', 'class-wp-html-tag-processor.php', 'class-wp-html-stack-event.php', 'class-wp-html-open-elements.php', 'class-wp-html-active-formatting-elements.php', 'class-wp-html-processor-state.php', 'class-wp-html-processor.php'] as $file) {
         require_once $wp_html_api_path . '/' . $file;
     }
@@ -37,7 +44,7 @@ if (!\class_exists('WP_Block_Type_Registry', \false)) {
         }
         public function is_registered($name)
         {
-            return \in_array($name, ['core/column', 'core/columns', 'core/group', 'core/html', 'core/heading', 'core/list', 'core/list-item', 'core/paragraph'], \true);
+            return \in_array($name, ['core/group', 'core/heading', 'core/html', 'core/list', 'core/list-item', 'core/paragraph'], \true);
         }
         public function get_registered($name)
         {
@@ -102,60 +109,50 @@ $assert = static function ($condition, $label, $detail = '') use (&$failures, &$
         $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
     }
 };
-$assert_occurs_once = static function (string $haystack, string $needle, string $label) use ($assert) {
-    $count = \substr_count($haystack, $needle);
-    $assert($count === 1, $label, 'Expected one occurrence of ' . $needle . ', found ' . $count);
+$flatten_block_names = static function (array $blocks) use (&$flatten_block_names): array {
+    $names = [];
+    foreach ($blocks as $block) {
+        $names[] = $block['blockName'] ?? '';
+        $names = \array_merge($names, $flatten_block_names($block['innerBlocks'] ?? []));
+    }
+    return $names;
 };
-$assert_contains = static function (string $haystack, string $needle, string $label) use ($assert) {
-    $assert(\strpos($haystack, $needle) !== \false, $label, 'Missing ' . $needle);
-};
-$html = <<<HTML
-<div class="compare">
-  <div class="col-wp">
-    <h3>WordPress <span class="tag">2003-2026</span></h3>
-    <ul>
-      <li>Buy domain, buy hosting, install LAMP stack</li>
-      <li>Run 5-minute install</li>
-    </ul>
-  </div>
-  <div class="col-claude">
-    <h3>The Prompt <span class="tag">2026-</span></h3>
-    <ul>
-      <li>Open Claude Code in a folder</li>
-      <li>Type one sentence describing the site</li>
-    </ul>
-  </div>
+$fixtures = ['hours' => ['html' => <<<'HTML'
+<div class="ss-info-block ss-reveal">
+  <h3>Hours</h3>
+  <ul class="ss-hours-list">
+    <li><span class="day">Tuesday &ndash; Friday</span><span>7:00 am &ndash; 3:00 pm</span></li>
+    <li><span class="day">Saturday</span><span>7:00 am &ndash; 2:00 pm</span></li>
+    <li><span class="day">Sunday</span><span>8:00 am &ndash; 1:00 pm</span></li>
+    <li><span class="day">Monday</span><span>Closed</span></li>
+  </ul>
 </div>
-<div class="eulogy-frame">
-  <div class="dates">May 27, 2003 - April 29, 2026</div>
-  <h2>For WordPress, with love.</h2>
-  <p>It is rare that a piece of software earns the right to be eulogized.</p>
-  <p class="signoff">- Generated, with feeling, in one prompt.</p>
+HTML
+, 'expected' => ['Hours', '<span class="day">Tuesday &ndash; Friday</span><span>7:00 am &ndash; 3:00 pm</span>', '<span class="day">Saturday</span><span>7:00 am &ndash; 2:00 pm</span>', '<span class="day">Sunday</span><span>8:00 am &ndash; 1:00 pm</span>', '<span class="day">Monday</span><span>Closed</span>']], 'contact' => ['html' => <<<'HTML'
+<div class="ss-info-block ss-reveal">
+  <h3>Find Us</h3>
+  <address class="ss-address">
+    <strong>Salt &amp; Star Bakery</strong>
+    412 King Street<br>
+    Charleston, SC 29403
+  </address>
+  <a href="tel:+18435550192" class="ss-contact-link">+1 (843) 555-0192</a><br><br>
+  <a href="mailto:hello@saltandstar.com" class="ss-contact-link">hello@saltandstar.com</a>
 </div>
-<ol class="manifesto-list">
-  <li>
-    <div>
-      <h3>The CMS was a workaround for not being able to write HTML.</h3>
-      <p>That excuse no longer holds.</p>
-    </div>
-  </li>
-  <li>
-    <div>
-      <h3>The plugin economy was a tax on not knowing JavaScript.</h3>
-      <p>You paid \$49/year so a contact form could send an email.</p>
-    </div>
-  </li>
-</ol>
-HTML;
-$serialized = serialize_blocks(html_to_blocks_raw_handler(['HTML' => $html]));
-$assert_contains($serialized, 'compare', 'compare-wrapper-preserved');
-$assert_contains($serialized, 'col-wp', 'col-wp-preserved');
-$assert_contains($serialized, 'col-claude', 'col-claude-preserved');
-$assert_occurs_once($serialized, '2003-2026', 'compare-heading-once');
-$assert_occurs_once($serialized, 'May 27, 2003', 'dates-once');
-$assert_occurs_once($serialized, 'It is rare that a piece of software earns the right to be eulogized.', 'eulogy-copy-once');
-$assert_occurs_once($serialized, 'The CMS was a workaround for not being able to write HTML.', 'manifesto-copy-once');
-$assert_contains($serialized, 'manifesto-list', 'classed-visual-list-wrapper-preserved');
+HTML
+, 'expected' => ['Find Us', '<strong>Salt &amp; Star Bakery</strong>', '412 King Street<br>', 'Charleston, SC 29403', 'href="tel:+18435550192"', '+1 (843) 555-0192', 'href="mailto:hello@saltandstar.com"', 'hello@saltandstar.com']]];
+foreach ($fixtures as $name => $fixture) {
+    $blocks = html_to_blocks_raw_handler(['HTML' => $fixture['html']]);
+    $serialized = serialize_blocks($blocks);
+    $names = $flatten_block_names($blocks);
+    $assert(\count($blocks) === 1, $name . '-single-top-level-wrapper');
+    $assert(!\in_array('core/html', $names, \true), $name . '-does-not-fallback-to-core-html', $serialized);
+    $assert(\in_array('core/group', $names, \true), $name . '-uses-group-for-info-wrapper', \implode(',', $names));
+    $assert(\in_array('core/heading', $names, \true), $name . '-heading-block-created', \implode(',', $names));
+    foreach ($fixture['expected'] as $expected) {
+        $assert(\strpos($serialized, $expected) !== \false, $name . '-preserves-' . \substr(\md5($expected), 0, 8), 'Missing: ' . $expected . "\n" . $serialized);
+    }
+}
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

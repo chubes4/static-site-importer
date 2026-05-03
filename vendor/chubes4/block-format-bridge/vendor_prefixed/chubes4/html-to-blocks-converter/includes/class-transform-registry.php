@@ -25,11 +25,34 @@ class HTML_To_Blocks_Transform_Registry
         if (self::$transforms !== null) {
             return self::$transforms;
         }
-        self::$transforms = \array_merge(self::get_site_editor_marker_transforms(), self::get_heading_transforms(), self::get_list_transforms(), self::get_button_transforms(), self::get_media_transforms(), self::get_image_transforms(), self::get_details_transforms(), self::get_pullquote_transforms(), self::get_quote_transforms(), self::get_code_transforms(), self::get_verse_transforms(), self::get_preformatted_transforms(), self::get_separator_transforms(), self::get_table_transforms(), self::get_layout_transforms(), self::get_paragraph_transforms());
+        self::$transforms = \array_merge(self::get_site_editor_marker_transforms(), self::get_svg_icon_transforms(), self::get_heading_transforms(), self::get_list_transforms(), self::get_button_transforms(), self::get_media_transforms(), self::get_image_transforms(), self::get_details_transforms(), self::get_pullquote_transforms(), self::get_quote_transforms(), self::get_code_transforms(), self::get_code_window_transforms(), self::get_verse_transforms(), self::get_preformatted_transforms(), self::get_separator_transforms(), self::get_table_transforms(), self::get_layout_transforms(), self::get_paragraph_transforms());
         \usort(self::$transforms, function ($a, $b) {
             return ($a['priority'] ?? 10) - ($b['priority'] ?? 10);
         });
         return self::$transforms;
+    }
+    /**
+     * Safe inline SVG icon transform.
+     *
+     * h2bc exposes these as explicit placeholders rather than final core/html so
+     * stricter downstream pipelines can replace them with native assets.
+     *
+     * @return array Transform definitions
+     */
+    private static function get_svg_icon_transforms()
+    {
+        return [['blockName' => 'html-to-blocks/svg-icon', 'priority' => 2, 'isMatch' => function ($element) {
+            if ($element->get_tag_name() !== 'SVG' || !\class_exists('BlockFormatBridge\Vendor\HTML_To_Blocks_SVG_Icon_Classifier', \false)) {
+                return \false;
+            }
+            $classification = HTML_To_Blocks_SVG_Icon_Classifier::classify($element->get_outer_html());
+            return !empty($classification['is_safe']);
+        }, 'transform' => function ($element) {
+            $classification = HTML_To_Blocks_SVG_Icon_Classifier::classify($element->get_outer_html());
+            $svg = $classification['svg'] ?? '';
+            $metadata = $classification['metadata'] ?? [];
+            return ['blockName' => 'html-to-blocks/svg-icon', 'attrs' => ['svg' => $svg, 'metadata' => $metadata], 'innerBlocks' => [], 'innerHTML' => $svg, 'innerContent' => [$svg]];
+        }]];
     }
     /**
      * Explicit Site Editor primitive marker transforms.
@@ -386,7 +409,11 @@ class HTML_To_Blocks_Transform_Registry
      */
     private static function get_list_transforms()
     {
-        return [['blockName' => 'core/list', 'priority' => 10, 'selector' => 'ol,ul', 'isMatch' => function ($element) {
+        return [['blockName' => 'core/group', 'priority' => 9, 'selector' => 'ol,ul', 'isMatch' => function ($element) {
+            return \in_array($element->get_tag_name(), ['OL', 'UL'], \true) && self::is_visual_list_element($element);
+        }, 'transform' => function ($element, $handler) {
+            return self::create_visual_list_group_from_element($element, $handler);
+        }], ['blockName' => 'core/list', 'priority' => 10, 'selector' => 'ol,ul', 'isMatch' => function ($element) {
             return \in_array($element->get_tag_name(), ['OL', 'UL'], \true);
         }, 'transform' => function ($element) {
             return self::create_list_block_from_element($element);
@@ -431,6 +458,66 @@ class HTML_To_Blocks_Transform_Registry
         // The source class is already preserved in the static list wrapper markup.
         unset($block['attrs']['className']);
         return $block;
+    }
+    /**
+     * Checks whether a list is being used as card/timeline layout scaffolding.
+     *
+     * @param HTML_To_Blocks_HTML_Element $list_element The ol/ul element.
+     * @return bool True when the list should become editable group blocks.
+     */
+    private static function is_visual_list_element($list_element): bool
+    {
+        foreach (self::get_direct_li_children($list_element->get_inner_html()) as $li_html) {
+            $li = HTML_To_Blocks_HTML_Element::from_html($li_html);
+            if (!$li) {
+                continue;
+            }
+            foreach ($li->get_child_elements() as $child) {
+                if (self::is_visual_list_item_child($child)) {
+                    return \true;
+                }
+            }
+        }
+        return \false;
+    }
+    /**
+     * Checks whether a direct li child indicates layout content instead of prose.
+     *
+     * @param HTML_To_Blocks_HTML_Element $child Direct child element of an li.
+     * @return bool True when the child should be editable outside core/list-item content.
+     */
+    private static function is_visual_list_item_child($child): bool
+    {
+        return \in_array($child->get_tag_name(), ['DIV', 'SECTION', 'ARTICLE', 'MAIN', 'ASIDE', 'HEADER', 'FOOTER', 'NAV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P', 'FIGURE', 'TABLE', 'PRE', 'BLOCKQUOTE', 'DETAILS'], \true);
+    }
+    /**
+     * Creates editable group blocks for visual ol/ul card or timeline layouts.
+     *
+     * @param HTML_To_Blocks_HTML_Element $list_element The ol/ul element.
+     * @param callable                    $handler      Raw handler callback.
+     * @return array Block array.
+     */
+    private static function create_visual_list_group_from_element($list_element, callable $handler): array
+    {
+        $inner_blocks = [];
+        foreach (self::get_direct_li_children($list_element->get_inner_html()) as $li_html) {
+            $li = HTML_To_Blocks_HTML_Element::from_html($li_html);
+            if (!$li) {
+                continue;
+            }
+            $inner_blocks[] = HTML_To_Blocks_Block_Factory::create_block('core/group', self::get_visual_list_group_attributes($li), $handler(['HTML' => $li->get_inner_html()]));
+        }
+        return HTML_To_Blocks_Block_Factory::create_block('core/group', self::get_visual_list_group_attributes($list_element), $inner_blocks);
+    }
+    /**
+     * Gets wrapper-safe attributes for visual list groups.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Source ol/ul/li element.
+     * @return array Block attributes.
+     */
+    private static function get_visual_list_group_attributes($element): array
+    {
+        return self::get_block_support_attributes($element, ['anchor' => \true, 'class_name' => \true, 'align' => \true, 'colors' => \true, 'spacing' => \true, 'border' => \true]);
     }
     /**
      * Creates a list-item block from an li element
@@ -520,7 +607,7 @@ class HTML_To_Blocks_Transform_Registry
         return null;
     }
     /**
-     * core/buttons and core/button transforms - explicit button-like anchors.
+     * core/buttons and core/button transforms - native WordPress button anchors.
      *
      * @return array Transform definitions
      */
@@ -557,12 +644,25 @@ class HTML_To_Blocks_Transform_Registry
         if (\count($children) < 2) {
             return \false;
         }
+        if (self::is_action_link_container($element)) {
+            return \true;
+        }
         foreach ($children as $child) {
             if (!self::is_button_like_anchor($child)) {
                 return \false;
             }
         }
         return \true;
+    }
+    /**
+     * Checks whether a container is explicitly an action/link row.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Element to inspect.
+     * @return bool True when direct anchors should remain separate action blocks.
+     */
+    private static function is_action_link_container($element): bool
+    {
+        return self::class_matches($element, '/(?:^|[-_\s])(?:actions?|buttons?|cta)(?:$|[-_\s])/i');
     }
     /**
      * Gets direct anchor children when the HTML contains only sibling anchors and whitespace.
@@ -625,10 +725,10 @@ class HTML_To_Blocks_Transform_Registry
         return $attributes;
     }
     /**
-     * Checks if an anchor explicitly carries button intent.
+     * Checks if an anchor already carries native WordPress button markup.
      *
      * @param HTML_To_Blocks_HTML_Element $element Anchor element.
-     * @return bool True when the anchor is button-like.
+     * @return bool True when the anchor is already WordPress-button-shaped.
      */
     private static function is_button_like_anchor($element): bool
     {
@@ -636,7 +736,7 @@ class HTML_To_Blocks_Transform_Registry
             return \false;
         }
         $class_name = $element->get_attribute('class') ?? '';
-        return \preg_match('/(?:^|\s)(?:button|btn|wp-block-button__link|wp-element-button)(?:$|\s|-)/i', $class_name) === 1;
+        return \preg_match('/(?:^|\s)(?:wp-block-button__link|wp-element-button|btn(?:-[A-Za-z0-9_-]+)?|[A-Za-z0-9]+-btn(?:-[A-Za-z0-9_-]+)?|[A-Za-z0-9]+-cta)(?:$|\s)/i', $class_name) === 1;
     }
     /**
      * Creates a buttons wrapper with one button child from an anchor.
@@ -845,7 +945,25 @@ class HTML_To_Blocks_Transform_Registry
      */
     private static function get_quote_transforms()
     {
-        return [['blockName' => 'core/quote', 'priority' => 10, 'selector' => 'blockquote', 'isMatch' => function ($element) {
+        return [['blockName' => 'core/group', 'priority' => 9, 'isMatch' => function ($element) {
+            if ($element->get_tag_name() !== 'FIGURE') {
+                return \false;
+            }
+            $children = $element->get_child_elements();
+            return \count($children) === 2 && $children[0]->get_tag_name() === 'BLOCKQUOTE' && $children[1]->get_tag_name() === 'FIGCAPTION';
+        }, 'transform' => function ($element, $handler) {
+            $children = $element->get_child_elements();
+            $blockquote = $children[0];
+            $figcaption = $children[1];
+            $inner_blocks = $handler(['HTML' => $blockquote->get_outer_html()]);
+            $caption_attrs = self::get_block_support_attributes($figcaption, ['class_name' => \true]);
+            $caption_markup = \trim($figcaption->get_inner_html());
+            if ($caption_markup !== '') {
+                $caption_attrs['content'] = $caption_markup;
+                $inner_blocks[] = HTML_To_Blocks_Block_Factory::create_block('core/paragraph', $caption_attrs);
+            }
+            return HTML_To_Blocks_Block_Factory::create_block('core/group', self::get_common_layout_attributes($element), $inner_blocks);
+        }], ['blockName' => 'core/quote', 'priority' => 10, 'selector' => 'blockquote', 'isMatch' => function ($element) {
             return $element->get_tag_name() === 'BLOCKQUOTE';
         }, 'transform' => function ($element, $handler) {
             $inner_html = $element->get_inner_html();
@@ -878,6 +996,14 @@ class HTML_To_Blocks_Transform_Registry
             return $has_only_code;
         }, 'transform' => function ($element) {
             $code = $element->query_selector('code');
+            if ($code && array() !== $code->get_child_elements()) {
+                $attributes = self::get_block_support_attributes($element, ['anchor' => \true, 'class_name' => \true]);
+                $attributes['content'] = $code->get_inner_html();
+                if ($code->has_attribute('class')) {
+                    $attributes['className'] = self::merge_class_names($attributes['className'] ?? '', $code->get_attribute('class'));
+                }
+                return HTML_To_Blocks_Block_Factory::create_block('core/preformatted', $attributes);
+            }
             $content = $code ? $code->get_text_content() : $element->get_text_content();
             $attributes = ['content' => $content];
             // Preserve language class for syntax highlighting
@@ -889,6 +1015,278 @@ class HTML_To_Blocks_Transform_Registry
             }
             return HTML_To_Blocks_Block_Factory::create_block('core/code', $attributes);
         }]];
+    }
+    /**
+     * Visual code-window/demo transforms.
+     *
+     * @return array Transform definitions
+     */
+    private static function get_code_window_transforms()
+    {
+        return [['blockName' => 'core/group', 'priority' => 8, 'isMatch' => function ($element) {
+            return self::is_decorative_code_chrome_element($element);
+        }, 'transform' => function ($element, $handler) {
+            $inner_blocks = array() !== $element->get_child_elements() ? $handler(['HTML' => $element->get_inner_html()]) : [];
+            return HTML_To_Blocks_Block_Factory::create_block('core/group', self::get_common_layout_attributes($element), $inner_blocks);
+        }], ['blockName' => 'core/group', 'priority' => 9, 'isMatch' => function ($element) {
+            return self::is_code_window_text_chrome_element($element);
+        }, 'transform' => function ($element) {
+            return self::create_code_window_text_group($element);
+        }], ['blockName' => 'core/preformatted', 'priority' => 9, 'isMatch' => function ($element) {
+            return self::is_div_line_code_panel($element);
+        }, 'transform' => function ($element) {
+            return self::create_code_window_body_block($element);
+        }], ['blockName' => 'core/group', 'priority' => 9, 'isMatch' => function ($element) {
+            if ('DIV' !== $element->get_tag_name()) {
+                return \false;
+            }
+            if (self::has_unsafe_code_display_markup($element)) {
+                return \false;
+            }
+            if (self::class_matches($element, '/(?:^|\s)(?:[A-Za-z0-9_-]*code[-_]?(?:window|preview|panel)[A-Za-z0-9_-]*|code[-_]?pane)(?:$|\s)/i')) {
+                return \true;
+            }
+            if (self::is_code_window_part_container($element)) {
+                return \true;
+            }
+            return self::class_matches($element, '/(?:^|[-_\s])(?:code|workflow[-_\s]?code)(?:$|[-_\s])/i') && 1 === \preg_match('/class=["\'][^"\']*[A-Za-z0-9_-]*code[-_]?window[A-Za-z0-9_-]*[^"\']*["\']/i', $element->get_inner_html());
+        }, 'transform' => function ($element, $handler) {
+            return self::create_code_window_block($element, $handler);
+        }]];
+    }
+    /**
+     * Creates a native group for a visual code-window wrapper.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Code-window wrapper.
+     * @param callable                    $handler Recursive raw handler.
+     * @return array Block array.
+     */
+    private static function create_code_window_block($element, $handler): array
+    {
+        $inner_blocks = [];
+        foreach ($element->get_child_elements() as $child) {
+            $class_name = $child->has_attribute('class') ? $child->get_attribute('class') : '';
+            if ('PRE' === $child->get_tag_name()) {
+                $inner_blocks[] = self::create_pre_code_preformatted_block($child);
+                continue;
+            }
+            if (\preg_match('/(?:^|\s)[A-Za-z0-9_-]*code[-_]?(?:body|block)[A-Za-z0-9_-]*(?:$|\s)/i', $class_name) === 1) {
+                $inner_blocks[] = self::create_code_window_body_block($child);
+                continue;
+            }
+            if (\preg_match('/(?:^|\s)[A-Za-z0-9_-]*(?:code[-_]?(?:bar|titlebar|header|pane[-_]?header|panel[-_]?label|badge)|code[-_]?preview[-_]?(?:header|tab[-_]?bar)|window[-_]?(?:bar|title|header)|arrow[-_]?row)[A-Za-z0-9_-]*(?:$|\s)/i', $class_name) === 1) {
+                $inner_blocks[] = self::create_code_window_text_group($child);
+                continue;
+            }
+            $inner_blocks = \array_merge($inner_blocks, $handler(['HTML' => $child->get_outer_html()]));
+        }
+        return HTML_To_Blocks_Block_Factory::create_block('core/group', self::get_common_layout_attributes($element), $inner_blocks);
+    }
+    /**
+     * Creates a preformatted block for code panel pre/code bodies.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Pre element.
+     * @return array Block array.
+     */
+    private static function create_pre_code_preformatted_block($element): array
+    {
+        $code = $element->query_selector('code');
+        $content = $code ? $code->get_inner_html() : $element->get_inner_html();
+        $attrs = self::get_block_support_attributes($element, ['anchor' => \true, 'class_name' => \true]);
+        $attrs['content'] = $content;
+        if ($code && $code->has_attribute('class')) {
+            $attrs['className'] = self::merge_class_names($attrs['className'] ?? '', $code->get_attribute('class'));
+        }
+        return HTML_To_Blocks_Block_Factory::create_block('core/preformatted', $attrs);
+    }
+    /**
+     * Creates a preformatted block from code-window line wrappers.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Code body element.
+     * @return array Block array.
+     */
+    private static function create_code_window_body_block($element): array
+    {
+        $lines = [];
+        foreach ($element->get_child_elements() as $child) {
+            if ($child->get_tag_name() === 'DIV') {
+                $line_html = $child->get_inner_html();
+                if ($child->has_attribute('class')) {
+                    $line_class = self::safe_block_class_name($child->get_attribute('class'));
+                    if ('' !== $line_class) {
+                        $line_html = '<span class="' . esc_attr($line_class) . '">' . $line_html . '</span>';
+                    }
+                }
+                $lines[] = $line_html;
+            }
+        }
+        $content = !empty($lines) ? \implode("\n", $lines) : $element->get_inner_html();
+        $attrs = self::get_block_support_attributes($element, ['anchor' => \true, 'class_name' => \true]);
+        $attrs['content'] = $content;
+        return HTML_To_Blocks_Block_Factory::create_block('core/preformatted', $attrs);
+    }
+    /**
+     * Creates a native group for non-code chrome around a code-window.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Chrome element.
+     * @return array Block array.
+     */
+    private static function create_code_window_text_group($element): array
+    {
+        $content = self::get_code_window_chrome_content($element);
+        $attrs = self::get_common_layout_attributes($element);
+        if ($content === '') {
+            return HTML_To_Blocks_Block_Factory::create_block('core/group', $attrs);
+        }
+        return HTML_To_Blocks_Block_Factory::create_block('core/group', $attrs, [HTML_To_Blocks_Block_Factory::create_block('core/paragraph', ['className' => $attrs['className'] ?? '', 'content' => $content])]);
+    }
+    /**
+     * Extracts meaningful visible text from code-window chrome.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Chrome element.
+     * @return string Editable chrome text, excluding decorative dots.
+     */
+    private static function get_code_window_chrome_content($element): string
+    {
+        $content = $element->get_inner_html();
+        foreach ($element->get_child_elements() as $child) {
+            if (self::class_matches($child, '/(?:^|\s)[A-Za-z0-9_-]*code[-_]?dot[A-Za-z0-9_-]*(?:$|\s)/i') || self::is_empty_decorative_element($child)) {
+                $content = \str_replace($child->get_outer_html(), '', $content);
+            }
+        }
+        return \trim($content);
+    }
+    /**
+     * Checks whether an element is empty/decorative code-window chrome.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Source element.
+     * @return bool True when the element can safely become native non-content chrome.
+     */
+    private static function is_decorative_code_chrome_element($element): bool
+    {
+        if (!\in_array($element->get_tag_name(), array('DIV', 'SPAN'), \true)) {
+            return \false;
+        }
+        if (self::has_unsafe_code_display_markup($element) || !self::has_decorative_code_chrome_class($element)) {
+            return \false;
+        }
+        $text = \trim(wp_strip_all_tags($element->get_inner_html()));
+        if (!self::is_decorative_text_content($text)) {
+            return \false;
+        }
+        foreach ($element->get_child_elements() as $child) {
+            if (!self::is_decorative_code_chrome_element($child)) {
+                return \false;
+            }
+        }
+        return \true;
+    }
+    /**
+     * Checks whether an element is textual code-window chrome such as title bars.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Source element.
+     * @return bool True when chrome can safely become a native group.
+     */
+    private static function is_code_window_text_chrome_element($element): bool
+    {
+        if (!\in_array($element->get_tag_name(), array('DIV', 'SPAN'), \true)) {
+            return \false;
+        }
+        if (self::has_unsafe_code_display_markup($element)) {
+            return \false;
+        }
+        return self::class_matches($element, '/(?:^|\s)[A-Za-z0-9_-]*(?:code[-_]?(?:bar|titlebar|header|pane[-_]?header|panel[-_]?label|badge)|code[-_]?preview[-_]?(?:header|tab[-_]?bar)|window[-_]?(?:bar|title|header)|arrow[-_]?row)[A-Za-z0-9_-]*(?:$|\s)/i');
+    }
+    /**
+     * Checks whether a generic code-labeled wrapper contains code-window parts.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Source element.
+     * @return bool True when a wrapper can be decomposed into native code-window blocks.
+     */
+    private static function is_code_window_part_container($element): bool
+    {
+        if ('DIV' !== $element->get_tag_name() || !self::class_matches($element, '/(?:^|[-_\s])code(?:$|[-_\s])/i')) {
+            return \false;
+        }
+        $has_header = \false;
+        $has_body = \false;
+        foreach ($element->get_child_elements() as $child) {
+            $class_name = $child->has_attribute('class') ? $child->get_attribute('class') : '';
+            if (\preg_match('/(?:^|\s)[A-Za-z0-9_-]*(?:code[-_]?(?:bar|titlebar|header|pane[-_]?header|panel[-_]?label)|code[-_]?preview[-_]?header)[A-Za-z0-9_-]*(?:$|\s)/i', $class_name) === 1) {
+                $has_header = \true;
+            }
+            if (\preg_match('/(?:^|\s)[A-Za-z0-9_-]*(?:code[-_]?(?:body|block|output|panel)|code[-_]?preview[-_]?body)[A-Za-z0-9_-]*(?:$|\s)/i', $class_name) === 1) {
+                $has_body = \true;
+            }
+        }
+        return $has_header && $has_body;
+    }
+    /**
+     * Checks whether a classed code panel is composed of direct div line wrappers.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Source element.
+     * @return bool True when the wrapper can become a preformatted native block.
+     */
+    private static function is_div_line_code_panel($element): bool
+    {
+        if ('DIV' !== $element->get_tag_name() || !self::class_matches($element, '/(?:^|[-_\s])(?:code|terminal|snippet)(?:$|[-_\s])/i')) {
+            return \false;
+        }
+        if (self::class_matches($element, '/(?:^|\s)[A-Za-z0-9_-]*code[-_]?window[A-Za-z0-9_-]*(?:$|\s)/i')) {
+            return \false;
+        }
+        if (self::has_unsafe_code_display_markup($element)) {
+            return \false;
+        }
+        $children = $element->get_child_elements();
+        if (\count($children) < 2) {
+            return \false;
+        }
+        $has_text = \false;
+        foreach ($children as $child) {
+            if ('DIV' !== $child->get_tag_name()) {
+                return \false;
+            }
+            foreach ($child->get_child_elements() as $inline_child) {
+                if (!\in_array($inline_child->get_tag_name(), array('SPAN', 'BR', 'CODE', 'STRONG', 'B', 'EM', 'I'), \true)) {
+                    return \false;
+                }
+            }
+            $text = \str_replace(" ", ' ', \html_entity_decode(\trim($child->get_text_content()), \ENT_QUOTES, 'UTF-8'));
+            if (\trim($text) !== '') {
+                $has_text = \true;
+            }
+        }
+        return $has_text;
+    }
+    /**
+     * Checks for generic code-window chrome class names.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Source element.
+     * @return bool True when class names describe decorative code chrome.
+     */
+    private static function has_decorative_code_chrome_class($element): bool
+    {
+        $class_name = $element->has_attribute('class') ? $element->get_attribute('class') : '';
+        if ('' === $class_name) {
+            return \false;
+        }
+        $chrome_part = '(?:dot|line|divider|separator|rule|arrow|chrome|bar|titlebar)';
+        return \preg_match('/(?:^|[\s_-])code[\w-]*[\s_-]?' . $chrome_part . '(?:$|[\s_-]|\d)/i', $class_name) === 1 || \preg_match('/(?:^|[\s_-])' . $chrome_part . '[\w-]*[\s_-]?code(?:$|[\s_-]|\d)/i', $class_name) === 1;
+    }
+    /**
+     * Checks whether text is empty or purely visual punctuation/chrome.
+     *
+     * @param string $text Text content to inspect.
+     * @return bool True when text carries no semantic content.
+     */
+    private static function is_decorative_text_content(string $text): bool
+    {
+        $text = \trim(\html_entity_decode($text, \ENT_QUOTES, 'UTF-8'));
+        if ('' === $text) {
+            return \true;
+        }
+        return \preg_match('/^[\s\-_=|:;.,•·*+<>›»«‹→←↑↓↔⇒⇐⇑⇓➜➔➝⟶⟵⟷]+$/u', $text) === 1;
     }
     /**
      * core/verse transforms - explicit verse/preformatted poetry classes.
@@ -914,7 +1312,13 @@ class HTML_To_Blocks_Transform_Registry
      */
     private static function get_preformatted_transforms()
     {
-        return [['blockName' => 'core/preformatted', 'priority' => 11, 'isMatch' => function ($element) {
+        return [['blockName' => 'core/preformatted', 'priority' => 9, 'isMatch' => function ($element) {
+            return self::is_div_code_snippet_element($element);
+        }, 'transform' => function ($element) {
+            $attributes = self::get_block_support_attributes($element, ['anchor' => \true, 'class_name' => \true]);
+            $attributes['content'] = self::normalise_code_snippet_content($element);
+            return HTML_To_Blocks_Block_Factory::create_block('core/preformatted', $attributes);
+        }], ['blockName' => 'core/preformatted', 'priority' => 11, 'isMatch' => function ($element) {
             if ($element->get_tag_name() !== 'PRE') {
                 return \false;
             }
@@ -932,6 +1336,97 @@ class HTML_To_Blocks_Transform_Registry
             $attributes['content'] = $content;
             return HTML_To_Blocks_Block_Factory::create_block('core/preformatted', $attributes);
         }]];
+    }
+    /**
+     * Checks whether a div is a styled code snippet using inline syntax spans and br line breaks.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Source element.
+     * @return bool True when the element should become core/preformatted.
+     */
+    private static function is_div_code_snippet_element($element): bool
+    {
+        if ($element->get_tag_name() !== 'DIV') {
+            return \false;
+        }
+        if (self::class_matches($element, '/(?:^|\s)[A-Za-z0-9_-]*code[-_]?window[A-Za-z0-9_-]*(?:$|\s)/i')) {
+            return \false;
+        }
+        if (self::has_unsafe_code_display_markup($element)) {
+            return \false;
+        }
+        if (self::class_matches($element, '/(?:^|[-_\s])ws[-_]?code(?:$|[-_\s])/i')) {
+            return \trim($element->get_text_content()) !== '';
+        }
+        if (!self::class_matches($element, '/(?:^|[-_\s])(?:step[-_\s]?code|workflow[-_\s]?code|code[-_\s]?(?:snippet|block|body|output))(?:$|[-_\s])/i')) {
+            return \false;
+        }
+        $inner_html = $element->get_inner_html();
+        $has_br_lines = \preg_match('/<br\s*\/?\s*>/i', $inner_html) === 1;
+        $has_display_block_lines = self::has_display_block_code_lines($element);
+        if (!$has_br_lines && !$has_display_block_lines) {
+            return \false;
+        }
+        if (self::class_matches($element, '/(?:^|[-_\s])(?:step[-_\s]?code|workflow[-_\s]?code|code[-_\s]?(?:body|output))(?:$|[-_\s])/i')) {
+            return \trim($element->get_text_content()) !== '';
+        }
+        return \preg_match('/(?:&lt;|&gt;|\/\/|\x{2192}|&rarr;|=&quot;|=\")/iu', $inner_html) === 1;
+    }
+    /**
+     * Converts snippet div line-break markup into preformatted content.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Source snippet element.
+     * @return string Preformatted block content.
+     */
+    private static function normalise_code_snippet_content($element): string
+    {
+        $display_block_lines = self::get_display_block_code_lines($element);
+        if (\count($display_block_lines) >= 2) {
+            return \trim(\implode("\n", $display_block_lines));
+        }
+        $inner_html = $element->get_inner_html();
+        $content = \preg_replace('/<br\s*\/?\s*>/i', "\n", $inner_html);
+        return \trim($content);
+    }
+    /**
+     * Checks whether a code snippet uses direct display:block spans as line wrappers.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Source snippet element.
+     * @return bool True when the snippet has display:block line spans.
+     */
+    private static function has_display_block_code_lines($element): bool
+    {
+        return \count(self::get_display_block_code_lines($element)) >= 2;
+    }
+    /**
+     * Extracts line contents from direct display:block span wrappers.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Source snippet element.
+     * @return array Line HTML fragments.
+     */
+    private static function get_display_block_code_lines($element): array
+    {
+        $lines = [];
+        foreach ($element->get_child_elements() as $child) {
+            if ('SPAN' !== $child->get_tag_name()) {
+                continue;
+            }
+            $style = $child->has_attribute('style') ? $child->get_attribute('style') : '';
+            if (\preg_match('/(?:^|;)\s*display\s*:\s*block\b/i', (string) $style) !== 1) {
+                continue;
+            }
+            $lines[] = $child->get_inner_html();
+        }
+        return $lines;
+    }
+    /**
+     * Checks whether display-code markup contains executable/style content.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Source element.
+     * @return bool True when this generic transform should not claim it.
+     */
+    private static function has_unsafe_code_display_markup($element): bool
+    {
+        return \preg_match('/<\/?(?:script|style)\b/i', $element->get_inner_html()) === 1;
     }
     /**
      * core/separator transforms - hr elements
@@ -1107,6 +1602,20 @@ class HTML_To_Blocks_Transform_Registry
             return self::is_column_element($element);
         }, 'transform' => function ($element, $handler) {
             return HTML_To_Blocks_Block_Factory::create_block('core/column', self::get_common_layout_attributes($element), $handler(['HTML' => $element->get_inner_html()]));
+        }], ['blockName' => 'core/group', 'priority' => 14, 'isMatch' => function ($element) {
+            return self::is_image_wrapper_element($element);
+        }, 'transform' => function ($element) {
+            return HTML_To_Blocks_Block_Factory::create_block('core/group', self::get_common_layout_attributes($element), [self::create_image_block_from_img($element->query_selector('img'))]);
+        }], ['blockName' => 'core/group', 'priority' => 14, 'isMatch' => function ($element) {
+            return self::is_nav_logo_chrome_element($element);
+        }, 'transform' => function ($element, $handler) {
+            $inner_html = $element->get_inner_html();
+            foreach ($element->get_child_elements() as $child) {
+                if (self::is_empty_decorative_element($child)) {
+                    $inner_html = \str_replace($child->get_outer_html(), '', $inner_html);
+                }
+            }
+            return HTML_To_Blocks_Block_Factory::create_block('core/group', self::get_common_layout_attributes($element), $handler(array('HTML' => $inner_html)));
         }], ['blockName' => 'core/group', 'priority' => 15, 'isMatch' => function ($element) {
             return self::is_group_element($element);
         }, 'transform' => function ($element, $handler) {
@@ -1121,7 +1630,7 @@ class HTML_To_Blocks_Transform_Registry
      */
     private static function get_common_layout_attributes($element): array
     {
-        $options = ['anchor' => \true, 'class_name' => \true, 'align' => \true, 'colors' => \true, 'typography' => \true, 'spacing' => \true, 'border' => \true, 'layout' => \true, 'tag_name' => $element->get_tag_name() !== 'DIV', 'aria_label' => \true];
+        $options = ['anchor' => \true, 'class_name' => \true, 'align' => \true, 'colors' => \true, 'dimensions' => \true, 'typography' => \true, 'spacing' => \true, 'border' => \true, 'layout' => \true, 'tag_name' => $element->get_tag_name() !== 'DIV', 'aria_label' => \true];
         return self::get_block_support_attributes($element, $options);
     }
     /**
@@ -1150,7 +1659,7 @@ class HTML_To_Blocks_Transform_Registry
         }
         if (!empty($options['tag_name'])) {
             $tag_name = \strtolower($element->get_tag_name());
-            if (\in_array($tag_name, ['section', 'main', 'article', 'aside', 'header', 'footer'], \true)) {
+            if (\in_array($tag_name, ['section', 'main', 'article', 'aside', 'header', 'footer', 'nav'], \true)) {
                 $attributes['tagName'] = $tag_name;
             }
         }
@@ -1176,9 +1685,12 @@ class HTML_To_Blocks_Transform_Registry
             if (!empty($options['border'])) {
                 self::apply_border_support_attributes($attributes, $style);
             }
+            if (!empty($options['dimensions'])) {
+                self::apply_dimension_support_attributes($attributes, $style);
+            }
         }
         if (!empty($options['layout'])) {
-            self::apply_layout_support_attributes($attributes, $classes);
+            self::apply_layout_support_attributes($attributes, $classes, $style, $element);
         }
         return $attributes;
     }
@@ -1291,21 +1803,67 @@ class HTML_To_Blocks_Transform_Registry
      * @param array  $attributes Block attributes.
      * @param string $classes Source class attribute.
      */
-    private static function apply_layout_support_attributes(array &$attributes, string $classes): void
+    private static function apply_layout_support_attributes(array &$attributes, string $classes, string $style = '', $element = null): void
     {
         if (\preg_match('/(?:^|\s)is-layout-(flow|constrained|flex)(?:\s|$)/i', $classes, $matches)) {
             $type = \strtolower($matches[1]);
             $attributes['layout']['type'] = $type === 'flow' ? 'default' : $type;
         }
+        if (\strtolower(self::extract_css_property($style, 'display')) === 'flex') {
+            $attributes['layout']['type'] = 'flex';
+        }
         if (\preg_match('/(?:^|\s)is-(vertical|horizontal)(?:\s|$)/i', $classes, $matches)) {
             $attributes['layout']['orientation'] = \strtolower($matches[1]);
+        }
+        $flex_direction = \strtolower(self::extract_css_property($style, 'flex-direction'));
+        if (\in_array($flex_direction, ['column', 'column-reverse'], \true)) {
+            $attributes['layout']['orientation'] = 'vertical';
+        } elseif (\in_array($flex_direction, ['row', 'row-reverse'], \true)) {
+            $attributes['layout']['orientation'] = 'horizontal';
         }
         if (\preg_match('/(?:^|\s)is-content-justification-(left|right|center|space-between)(?:\s|$)/i', $classes, $matches)) {
             $attributes['layout']['justifyContent'] = \strtolower($matches[1]);
         }
-        if (\preg_match('/(?:^|\s)is-nowrap(?:\s|$)/i', $classes)) {
+        $justify_content = \strtolower(self::extract_css_property($style, 'justify-content'));
+        if (\in_array($justify_content, ['left', 'right', 'center', 'space-between'], \true)) {
+            $attributes['layout']['justifyContent'] = $justify_content;
+        }
+        $align_items = \strtolower(self::extract_css_property($style, 'align-items'));
+        if (\in_array($align_items, ['left', 'right', 'center'], \true)) {
+            $attributes['layout']['verticalAlignment'] = $align_items;
+        }
+        if (\preg_match('/(?:^|\s)is-nowrap(?:\s|$)/i', $classes) || \strtolower(self::extract_css_property($style, 'flex-wrap')) === 'nowrap') {
             $attributes['layout']['flexWrap'] = 'nowrap';
         }
+        if (empty($attributes['layout']) && $element && self::is_hero_like_section($element)) {
+            $attributes['layout'] = ['type' => 'flex', 'orientation' => 'vertical', 'justifyContent' => 'center'];
+        }
+    }
+    /**
+     * Applies direct dimension declarations to block support attributes.
+     *
+     * @param array  $attributes Block attributes.
+     * @param string $style Source style attribute.
+     */
+    private static function apply_dimension_support_attributes(array &$attributes, string $style): void
+    {
+        $min_height = self::extract_css_property($style, 'min-height');
+        if ($min_height !== '') {
+            $attributes['style']['dimensions']['minHeight'] = $min_height;
+        }
+    }
+    /**
+     * Checks whether a section is a high-confidence full-bleed hero wrapper.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element The source element.
+     * @return bool True when a default flow group would lose hero centering intent.
+     */
+    private static function is_hero_like_section($element): bool
+    {
+        if ($element->get_tag_name() !== 'SECTION' || !$element->has_attribute('class')) {
+            return \false;
+        }
+        return \preg_match('/(?:^|\s)(?:hero|cover|banner|masthead)(?:\s|$)/i', $element->get_attribute('class')) === 1;
     }
     /**
      * Applies direct border declarations to block support attributes.
@@ -1378,13 +1936,98 @@ class HTML_To_Blocks_Transform_Registry
         if ($tag === 'SECTION') {
             return \true;
         }
-        if (\in_array($tag, ['MAIN', 'ARTICLE', 'ASIDE', 'HEADER', 'FOOTER'], \true)) {
+        if (\in_array($tag, ['MAIN', 'ARTICLE', 'ASIDE', 'HEADER', 'FOOTER', 'NAV'], \true)) {
             return \true;
+        }
+        if ($tag === 'SPAN') {
+            return self::is_empty_decorative_element($element);
         }
         if ($tag !== 'DIV') {
             return \false;
         }
-        return self::class_matches($element, '/(?:^|[-_\s])(group|section|container|wrapper|wrap|content|main|article|aside|header|footer|inner|row|grid|card)(?:$|[-_\s])/i');
+        if (\trim($element->get_text_content()) !== '' && \trim($element->get_inner_html()) === \trim(wp_strip_all_tags($element->get_inner_html()))) {
+            return \false;
+        }
+        if (self::class_matches($element, '/(?:^|[-_\s])quote[-_\s]+(?:attr|attribution)(?:$|[-_\s])/i')) {
+            return \true;
+        }
+        if (self::class_matches($element, '/(?:^|[-_\s])(actions?|buttons?|cta|group|section|container|wrapper|wrap|content|main|page|article|aside|header|footer|inner|row|grid|card|product|compare|feature|visual|text|pin|location|address|detail|chrome|scroll|thumb|stars?|rating|info|demo|panel|arrow)(?:$|[-_\s])/i')) {
+            return \true;
+        }
+        if (self::class_matches($element, '/(?:^|[-_\s])(code|code[-_\s]?window)(?:$|[-_\s])/i')) {
+            return \false;
+        }
+        if ($element->has_attribute('data-widget')) {
+            return \false;
+        }
+        if (array() !== $element->get_child_elements()) {
+            return \true;
+        }
+        return self::is_empty_decorative_element($element);
+    }
+    /**
+     * Checks whether an element is an image-only wrapper that should stay grouped.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element The source element.
+     * @return bool True when the wrapper should become core/group with core/image.
+     */
+    private static function is_image_wrapper_element($element): bool
+    {
+        if (!\in_array($element->get_tag_name(), ['DIV', 'SPAN'], \true)) {
+            return \false;
+        }
+        $images = $element->query_selector_all('img');
+        if (\count($images) !== 1 || self::get_media_src($images[0]) === '') {
+            return \false;
+        }
+        $remaining = \str_replace($images[0]->get_outer_html(), '', $element->get_inner_html());
+        return \trim(wp_strip_all_tags($remaining)) === '';
+    }
+    /**
+     * Checks whether an element is nav/logo chrome with removable visual-only children.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element The source element.
+     * @return bool True when decorative child placeholders should be ignored.
+     */
+    private static function is_nav_logo_chrome_element($element): bool
+    {
+        if (!\in_array($element->get_tag_name(), array('DIV', 'SPAN'), \true)) {
+            return \false;
+        }
+        if (!self::class_matches($element, '/(?:^|[-_\s])(?:nav[-_\s]?logo|logo|brand)(?:$|[-_\s])/i')) {
+            return \false;
+        }
+        $has_decorative_child = \false;
+        foreach ($element->get_child_elements() as $child) {
+            if (self::is_empty_decorative_element($child)) {
+                $has_decorative_child = \true;
+                continue;
+            }
+            if (!\in_array($child->get_tag_name(), array('A', 'P', 'SPAN', 'STRONG', 'B', 'EM', 'I'), \true)) {
+                return \false;
+            }
+        }
+        return $has_decorative_child && '' !== \trim(wp_strip_all_tags($element->get_inner_html()));
+    }
+    /**
+     * Checks whether an empty element is safe to preserve as native visual chrome.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element The source element.
+     * @return bool True when the element is empty decorative layout chrome.
+     */
+    private static function is_empty_decorative_element($element): bool
+    {
+        return self::is_empty_element($element) && self::class_matches($element, '/(?:^|[-_\s])(background|bg|pattern|texture|divider|separator|connector|rule|line|overlay|grain|noise|glow|dot|mark|bullet|orb|blob)(?:$|[-_\s]|\d)/i');
+    }
+    /**
+     * Checks whether an element has no meaningful text or child elements.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element The source element.
+     * @return bool True when the element is empty layout chrome.
+     */
+    private static function is_empty_element($element): bool
+    {
+        return \trim(wp_strip_all_tags($element->get_inner_html())) === '' && array() === $element->get_child_elements();
     }
     /**
      * Checks whether an element is a cover/hero wrapper.
@@ -1498,19 +2141,19 @@ class HTML_To_Blocks_Transform_Registry
         return '';
     }
     /**
-     * core/paragraph transforms - p elements and text-only divs (lowest priority, fallback)
+     * core/paragraph transforms - p/address/a elements and text-only wrappers (lowest priority, fallback)
      *
      * @return array Transform definitions
      */
     private static function get_paragraph_transforms()
     {
-        return [['blockName' => 'core/paragraph', 'priority' => 20, 'selector' => 'p,div', 'isMatch' => function ($element) {
-            if ($element->get_tag_name() === 'P') {
+        return [['blockName' => 'core/paragraph', 'priority' => 20, 'selector' => 'p,address,a,div,span', 'isMatch' => function ($element) {
+            if (\in_array($element->get_tag_name(), ['P', 'ADDRESS', 'A'], \true)) {
                 return \true;
             }
-            return $element->get_tag_name() === 'DIV' && array() === $element->get_child_elements() && \trim($element->get_text_content()) !== '';
+            return \in_array($element->get_tag_name(), ['DIV', 'SPAN'], \true) && array() === $element->get_child_elements() && \trim($element->get_text_content()) !== '';
         }, 'transform' => function ($element) {
-            $content = $element->get_inner_html();
+            $content = $element->get_tag_name() === 'A' ? $element->get_outer_html() : $element->get_inner_html();
             $attributes = self::get_block_support_attributes($element, ['anchor' => \true, 'align' => \true, 'text_align' => \true, 'colors' => \true, 'typography' => \true, 'spacing' => \true, 'border' => \true, 'class_name' => \true]);
             $attributes['content'] = $content;
             return HTML_To_Blocks_Block_Factory::create_block('core/paragraph', $attributes);

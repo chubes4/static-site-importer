@@ -3,9 +3,9 @@
 namespace BlockFormatBridge\Vendor;
 
 /**
- * Smoke test: preformatted raw transforms preserve custom wrapper classes.
+ * Smoke test: section IDs survive core/group conversion as anchors.
  *
- * Run: php tests/smoke-preformatted-class-fidelity.php
+ * Run: php tests/smoke-group-section-anchor.php
  */
 // phpcs:disable
 if (!\defined('ABSPATH')) {
@@ -15,6 +15,12 @@ if (!\function_exists('BlockFormatBridge\Vendor\esc_attr')) {
     function esc_attr($value)
     {
         return \htmlspecialchars((string) $value, \ENT_QUOTES, 'UTF-8');
+    }
+}
+if (!\function_exists('BlockFormatBridge\Vendor\wp_strip_all_tags')) {
+    function wp_strip_all_tags($text)
+    {
+        return \strip_tags((string) $text);
     }
 }
 if (!\class_exists('WP_Block_Type_Registry', \false)) {
@@ -30,6 +36,9 @@ if (!\class_exists('WP_Block_Type_Registry', \false)) {
         }
         public function get_registered($name)
         {
+            if ($name === 'core/group') {
+                return (object) ['attributes' => ['tagName' => ['type' => 'string'], 'className' => ['type' => 'string']]];
+            }
             return (object) ['attributes' => []];
         }
     }
@@ -37,7 +46,7 @@ if (!\class_exists('WP_Block_Type_Registry', \false)) {
 }
 require_once \dirname(__DIR__) . '/includes/class-block-factory.php';
 require_once \dirname(__DIR__) . '/includes/class-transform-registry.php';
-class Preformatted_Class_Fidelity_Element
+class Group_Section_Anchor_Element
 {
     private string $tag;
     private array $attrs;
@@ -64,6 +73,14 @@ class Preformatted_Class_Fidelity_Element
     {
         return $this->inner_html;
     }
+    public function get_text_content()
+    {
+        return \trim(\strip_tags($this->inner_html));
+    }
+    public function get_child_elements()
+    {
+        return [];
+    }
     public function query_selector($selector)
     {
         return null;
@@ -77,22 +94,23 @@ $assert = static function ($condition, $label, $detail = '') use (&$failures, &$
         $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
     }
 };
-$source = new Preformatted_Class_Fidelity_Element('pre', ['class' => 'prompt wp-block-preformatted alignwide has-small-font-size unsafe@class', 'id' => 'demo-prompt'], '<span class="label">— The Prompt —</span>Generate a site.');
-$preformatted_transform = null;
+$source = new Group_Section_Anchor_Element('section', ['id' => 'hero', 'class' => 'hero'], '<h1>Build faster</h1>');
+$group_transform = null;
 foreach (HTML_To_Blocks_Transform_Registry::get_raw_transforms() as $transform) {
-    if (($transform['blockName'] ?? '') === 'core/preformatted' && $transform['isMatch']($source)) {
-        $preformatted_transform = $transform;
+    if (($transform['blockName'] ?? '') === 'core/group' && $transform['isMatch']($source)) {
+        $group_transform = $transform;
         break;
     }
 }
-$assert($preformatted_transform !== null, 'preformatted-transform-registered');
-$assert($preformatted_transform['isMatch']($source) === \true, 'preformatted-transform-matches-pre-without-code');
-$block = $preformatted_transform['transform']($source);
-$assert(($block['blockName'] ?? '') === 'core/preformatted', 'block-name');
-$assert(($block['attrs']['className'] ?? '') === 'prompt', 'safe-class-preserved', \json_encode($block['attrs'] ?? []));
-$assert(($block['attrs']['anchor'] ?? '') === 'demo-prompt', 'anchor-preserved', \json_encode($block['attrs'] ?? []));
-$assert(\strpos($block['innerHTML'] ?? '', '<pre class="wp-block-preformatted prompt">') !== \false, 'static-html-preserves-class', $block['innerHTML'] ?? '');
-$assert(\substr_count($block['innerHTML'] ?? '', 'prompt') === 1, 'static-html-has-single-custom-class', $block['innerHTML'] ?? '');
+$assert($group_transform !== null, 'group-transform-registered');
+$handler = static function () {
+    return [];
+};
+$block = $group_transform['transform']($source, $handler);
+$assert(($block['blockName'] ?? '') === 'core/group', 'block-name');
+$assert(($block['attrs']['tagName'] ?? '') === 'section', 'tag-name-preserved', \json_encode($block['attrs'] ?? []));
+$assert(($block['attrs']['anchor'] ?? '') === 'hero', 'anchor-preserved-despite-schema-filter', \json_encode($block['attrs'] ?? []));
+$assert(\strpos($block['innerHTML'] ?? '', '<section id="hero" class="wp-block-group hero">') !== \false, 'static-html-preserves-id', $block['innerHTML'] ?? '');
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

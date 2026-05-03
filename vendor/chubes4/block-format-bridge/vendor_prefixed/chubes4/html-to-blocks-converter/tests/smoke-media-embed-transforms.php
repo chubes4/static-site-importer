@@ -188,7 +188,7 @@ $file = $convert(new H2BC_Fake_Element('a', ['href' => 'https://example.com/repo
 $assert($file['blockName'] === 'core/file', 'file-link-block');
 $assert(($file['attrs']['href'] ?? '') === 'https://example.com/report.pdf', 'file-link-href');
 $cta = $find_transform(new H2BC_Fake_Element('a', ['href' => 'https://example.com/signup'], 'Sign up'));
-$assert($cta === null, 'normal-cta-link-not-file');
+$assert(!$cta || ($cta['blockName'] ?? '') !== 'core/file', 'normal-cta-link-not-file');
 $embed = $convert(new H2BC_Fake_Element('iframe', ['src' => 'https://www.youtube.com/embed/abc123']));
 $assert($embed['blockName'] === 'core/embed', 'youtube-iframe-block');
 $assert(($embed['attrs']['providerNameSlug'] ?? '') === 'youtube', 'youtube-provider');

@@ -27,7 +27,7 @@ function html_to_blocks_raw_handler($args)
         $blocks = parse_blocks($html);
         $is_single_freeform = \count($blocks) === 1 && isset($blocks[0]['blockName']) && $blocks[0]['blockName'] === 'core/freeform';
         if (!$is_single_freeform) {
-            return $blocks;
+            return html_to_blocks_normalize_parsed_image_html_blocks($blocks);
         }
     }
     $pieces = html_to_blocks_shortcode_converter($html);
@@ -66,10 +66,11 @@ function html_to_blocks_convert($html)
     $top_level_depth = $body_depth + 1;
     $tag_occurrences = [];
     $tag_positions = [];
+    $ignored_decorative_html_length = 0;
     while ($processor->next_token()) {
         $token_type = $processor->get_token_type();
         $depth = $processor->get_current_depth();
-        if ('#text' === $token_type && $depth === $body_depth) {
+        if ('#text' === $token_type && $depth === $top_level_depth) {
             $text = \trim($processor->get_modifiable_text());
             if (!empty($text)) {
                 $blocks[] = HTML_To_Blocks_Block_Factory::create_block('core/paragraph', ['content' => \htmlspecialchars($text, \ENT_QUOTES, 'UTF-8')]);
@@ -101,6 +102,14 @@ function html_to_blocks_convert($html)
             $blocks[] = html_to_blocks_create_unsupported_html_fallback_block($element_html, ['reason' => 'element_parse_failed', 'tag_name' => $tag_name, 'occurrence' => $occurrence]);
             continue;
         }
+        if ('BR' === $element->get_tag_name()) {
+            $ignored_decorative_html_length += \strlen($element_html);
+            continue;
+        }
+        if (html_to_blocks_should_ignore_empty_decorative_placeholder($element)) {
+            $ignored_decorative_html_length += \strlen($element_html);
+            continue;
+        }
         $raw_transform = html_to_blocks_find_transform($element, $transforms);
         if (!$raw_transform) {
             $blocks[] = html_to_blocks_create_unsupported_html_fallback_block($element_html, ['reason' => 'no_transform', 'tag_name' => $element->get_tag_name(), 'occurrence' => $occurrence]);
@@ -130,15 +139,116 @@ function html_to_blocks_convert($html)
     if ($last_error !== null) {
         \error_log(\sprintf('[HTML to Blocks] WP_HTML_Processor bailed | Error: %s | Blocks created: %d | HTML length: %d | Preview: %s', $last_error, \count($blocks), $original_html_length, \substr($html, 0, 500)));
     }
-    // Check for significant content loss (input had content but output is empty/minimal)
-    $output_content_length = 0;
-    foreach ($blocks as $block) {
-        $output_content_length += \strlen($block['innerHTML'] ?? '');
+    if (empty($blocks) && \trim(wp_strip_all_tags($html)) !== '' && \trim($html) === \trim(wp_strip_all_tags($html))) {
+        $blocks[] = HTML_To_Blocks_Block_Factory::create_block('core/paragraph', ['content' => \trim($html)]);
     }
-    if ($original_html_length > 100 && $output_content_length < $original_html_length * 0.1) {
-        \error_log(\sprintf('[HTML to Blocks] Significant content loss detected | Input: %d chars | Output: %d chars | Blocks: %d | Processor error: %s | Preview: %s', $original_html_length, $output_content_length, \count($blocks), $last_error ?? 'none', \substr($html, 0, 500)));
+    // Check for significant content loss (input had content but output is empty/minimal)
+    $output_content_length = html_to_blocks_measure_block_content_length($blocks);
+    $diagnostic_html_length = \max(0, $original_html_length - $ignored_decorative_html_length);
+    if ($diagnostic_html_length > 100 && $output_content_length < $diagnostic_html_length * 0.1) {
+        \error_log(\sprintf('[HTML to Blocks] Significant content loss detected | Input: %d chars | Output: %d chars | Blocks: %d | Processor error: %s | Preview: %s', $diagnostic_html_length, $output_content_length, \count($blocks), $last_error ?? 'none', \substr($html, 0, 500)));
     }
     return $blocks;
+}
+/**
+ * Checks whether an empty div/span is a safe visual-only icon placeholder.
+ *
+ * @param HTML_To_Blocks_HTML_Element $element The source element.
+ * @return bool True when the placeholder should be ignored.
+ */
+function html_to_blocks_should_ignore_empty_decorative_placeholder($element): bool
+{
+    if (!\in_array($element->get_tag_name(), ['DIV', 'SPAN'], \true)) {
+        return \false;
+    }
+    if (\trim(wp_strip_all_tags($element->get_inner_html())) !== '' || array() !== $element->get_child_elements()) {
+        return \false;
+    }
+    $attributes = $element->get_attributes();
+    $class_name = isset($attributes['class']) ? (string) $attributes['class'] : '';
+    $style = isset($attributes['style']) ? (string) $attributes['style'] : '';
+    $role = isset($attributes['role']) ? \strtolower(\trim((string) $attributes['role'])) : '';
+    $decorative_class_pattern = '/(?:^|[-_\s])(icon|ico|glyph|symbol|accent|bar|divider|separator|sep|rule|line|orb|blob|dot|glow)(?:$|[-_\s]|\d)/i';
+    if (\preg_match($decorative_class_pattern, $class_name) !== 1) {
+        return \false;
+    }
+    foreach ($attributes as $name => $value) {
+        $name = \strtolower((string) $name);
+        if (\preg_match('/^on/i', $name)) {
+            return \false;
+        }
+        if (!\in_array($name, ['class', 'style', 'id', 'aria-hidden', 'role'], \true)) {
+            return \false;
+        }
+    }
+    if ($role !== '' && !\in_array($role, ['none', 'presentation'], \true)) {
+        return \false;
+    }
+    if (\preg_match('/url\s*\(/i', $style)) {
+        return \false;
+    }
+    if (\preg_match('/(?:^|[-_\s])(?:accent|sep)(?:$|[-_\s]|\d)/i', $class_name) === 1) {
+        return \true;
+    }
+    return \preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)\b/i', $style) === 1 || \preg_match('/(?:^|;)\s*opacity\s*:\s*0(?:\.0+)?\b/i', $style) === 1 || \preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden|pointer-events\s*:\s*none)\b/i', $style) === 1 || \strtolower((string) ($attributes['aria-hidden'] ?? '')) === 'true';
+}
+/**
+ * Checks whether a span contains block-level markup that cannot live in a paragraph.
+ *
+ * @param HTML_To_Blocks_HTML_Element $element The source element.
+ * @return bool True when the span should be promoted to a block wrapper.
+ */
+function html_to_blocks_is_blocky_span($element): bool
+{
+    if ('SPAN' !== $element->get_tag_name()) {
+        return \false;
+    }
+    return \preg_match('/<(?:address|article|aside|blockquote|details|div|dl|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|main|nav|ol|p|pre|section|table|ul)\b/i', $element->get_inner_html()) === 1;
+}
+/**
+ * Promotes an invalid span wrapper to a div while preserving safe attributes.
+ *
+ * @param HTML_To_Blocks_HTML_Element $element The span element.
+ * @return string A valid block-level wrapper with the original contents.
+ */
+function html_to_blocks_promote_span_to_div_markup($element): string
+{
+    $attributes = '';
+    foreach ($element->get_attributes() as $name => $value) {
+        $name = \strtolower((string) $name);
+        if (\preg_match('/^[a-z][a-z0-9:-]*$/', $name) !== 1) {
+            continue;
+        }
+        if (\true === $value) {
+            $attributes .= ' ' . $name;
+            continue;
+        }
+        $attributes .= ' ' . $name . '="' . esc_attr((string) $value) . '"';
+    }
+    return '<div' . $attributes . '>' . $element->get_inner_html() . '</div>';
+}
+/**
+ * Measures converted block content, including nested layout descendants.
+ *
+ * @param array $blocks Converted block arrays.
+ * @return int Approximate HTML content length.
+ */
+function html_to_blocks_measure_block_content_length(array $blocks): int
+{
+    $length = 0;
+    foreach ($blocks as $block) {
+        if (!\is_array($block)) {
+            continue;
+        }
+        $length += \strlen((string) ($block['innerHTML'] ?? ''));
+        if (isset($block['attrs']['content']) && \is_string($block['attrs']['content'])) {
+            $length += \strlen($block['attrs']['content']);
+        }
+        if (!empty($block['innerBlocks']) && \is_array($block['innerBlocks'])) {
+            $length += html_to_blocks_measure_block_content_length($block['innerBlocks']);
+        }
+    }
+    return $length;
 }
 /**
  * Creates the core/html fallback block and emits an observability hook.
@@ -161,6 +271,92 @@ function html_to_blocks_create_unsupported_html_fallback_block(string $element_h
         \do_action('html_to_blocks_unsupported_html_fallback', $element_html, $context, $block);
     }
     return $block;
+}
+/**
+ * Recursively converts parsed core/html image fragments back to native image blocks.
+ *
+ * Some upstream callers pass already-serialized block markup through h2bc. In that
+ * path parse_blocks() would otherwise preserve harmless image-only core/html
+ * fragments instead of applying the raw image transforms.
+ *
+ * @param array<int|string,array<string,mixed>> $blocks Parsed blocks.
+ * @return array<int|string,array<string,mixed>> Normalized blocks.
+ */
+function html_to_blocks_normalize_parsed_image_html_blocks(array $blocks): array
+{
+    $normalized = array();
+    foreach ($blocks as $block) {
+        if (!empty($block['innerBlocks']) && \is_array($block['innerBlocks'])) {
+            $block['innerBlocks'] = html_to_blocks_normalize_parsed_image_html_blocks($block['innerBlocks']);
+        }
+        if (($block['blockName'] ?? null) !== 'core/html') {
+            $normalized[] = $block;
+            continue;
+        }
+        $html = '';
+        if (isset($block['attrs']['content']) && \is_string($block['attrs']['content'])) {
+            $html = $block['attrs']['content'];
+        } elseif (isset($block['innerHTML']) && \is_string($block['innerHTML'])) {
+            $html = $block['innerHTML'];
+        }
+        if (!html_to_blocks_is_image_only_html_fragment($html)) {
+            $normalized[] = $block;
+            continue;
+        }
+        $converted = html_to_blocks_convert($html);
+        if (empty($converted) || html_to_blocks_contains_block_name($converted, 'core/html')) {
+            $normalized[] = $block;
+            continue;
+        }
+        $normalized = \array_merge($normalized, $converted);
+    }
+    return $normalized;
+}
+/**
+ * Checks whether an HTML fragment is only an image, optionally inside one wrapper.
+ *
+ * @param string $html HTML fragment.
+ * @return bool True when the fragment can safely be re-run through image transforms.
+ */
+function html_to_blocks_is_image_only_html_fragment(string $html): bool
+{
+    $element = HTML_To_Blocks_HTML_Element::from_html($html);
+    if (!$element) {
+        return \false;
+    }
+    if ($element->get_tag_name() === 'IMG') {
+        $src = $element->get_attribute('src');
+        return \is_string($src) && '' !== $src;
+    }
+    if (!\in_array($element->get_tag_name(), array('DIV', 'SPAN', 'FIGURE'), \true)) {
+        return \false;
+    }
+    $images = $element->query_selector_all('img');
+    $src = \count($images) === 1 ? $images[0]->get_attribute('src') : null;
+    if (\count($images) !== 1 || !\is_string($src) || '' === $src) {
+        return \false;
+    }
+    $remaining = \str_replace($images[0]->get_outer_html(), '', $element->get_inner_html());
+    return \trim(wp_strip_all_tags($remaining)) === '';
+}
+/**
+ * Checks whether a block tree contains a block name.
+ *
+ * @param array<int|string,array<string,mixed>> $blocks Blocks to inspect.
+ * @param string                                $name   Block name.
+ * @return bool True when the block tree contains the name.
+ */
+function html_to_blocks_contains_block_name(array $blocks, string $name): bool
+{
+    foreach ($blocks as $block) {
+        if (($block['blockName'] ?? null) === $name) {
+            return \true;
+        }
+        if (!empty($block['innerBlocks']) && \is_array($block['innerBlocks']) && html_to_blocks_contains_block_name($block['innerBlocks'], $name)) {
+            return \true;
+        }
+    }
+    return \false;
 }
 /**
  * Finds all positions of a tag's opening tags in HTML
@@ -318,9 +514,12 @@ function html_to_blocks_normalise_blocks($html)
     while ($processor->next_token()) {
         $token_type = $processor->get_token_type();
         $depth = $processor->get_current_depth();
-        if ('#text' === $token_type && $depth === $body_depth) {
+        if ('#text' === $token_type && $depth === $top_level_depth) {
             $text = $processor->get_modifiable_text();
             if (\trim($text) === '') {
+                if ($in_paragraph && $paragraph_buffer !== '') {
+                    $paragraph_buffer .= \htmlspecialchars($text, \ENT_QUOTES, 'UTF-8');
+                }
                 continue;
             }
             if (!$in_paragraph) {
@@ -368,11 +567,24 @@ function html_to_blocks_normalise_blocks($html)
         }
         $last_was_br = \false;
         if (\in_array($tag_upper, $phrasing_tags, \true) && !$is_closer) {
-            if (!$in_paragraph) {
-                $in_paragraph = \true;
-            }
             $element_html = html_to_blocks_extract_element_at_occurrence($html, $tag_name, $tag_positions[$tag_name], $occurrence);
             if ($element_html) {
+                $element = HTML_To_Blocks_HTML_Element::from_html($element_html);
+                if ($element && html_to_blocks_should_ignore_empty_decorative_placeholder($element)) {
+                    continue;
+                }
+                if ($element && html_to_blocks_is_blocky_span($element)) {
+                    if ($in_paragraph && !empty(\trim($paragraph_buffer))) {
+                        $output .= '<p>' . \trim($paragraph_buffer) . '</p>';
+                    }
+                    $paragraph_buffer = '';
+                    $in_paragraph = \false;
+                    $output .= html_to_blocks_promote_span_to_div_markup($element);
+                    continue;
+                }
+                if (!$in_paragraph) {
+                    $in_paragraph = \true;
+                }
                 $paragraph_buffer .= $element_html;
             }
             continue;

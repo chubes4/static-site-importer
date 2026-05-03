@@ -41,11 +41,11 @@ class WP_Block_Type_Registry
     }
     public function is_registered($name)
     {
-        return $name === 'core/html';
+        return \in_array($name, ['core/group', 'core/html', 'core/list', 'core/list-item', 'core/paragraph'], \true);
     }
     public function get_registered($name)
     {
-        return (object) ['attributes' => ['content' => ['type' => 'string']]];
+        return (object) ['attributes' => []];
     }
 }
 \class_alias('BlockFormatBridge\Vendor\WP_Block_Type_Registry', 'WP_Block_Type_Registry', \false);
@@ -125,7 +125,7 @@ $ul = static function (array $items) {
     return new Static_Nav_Smoke_Element('ul', [], $inner_html, $items);
 };
 // -------------------------------------------------------------------------
-// Static nav does not claim native core/navigation in default raw conversion.
+// Static nav uses a conservative native group wrapper in default raw conversion.
 // -------------------------------------------------------------------------
 $about = $li([$anchor('/about/', 'About')]);
 $contact = $li([$anchor('/contact/', 'Contact', ['target' => '_blank', 'rel' => 'noopener'])]);
@@ -133,10 +133,28 @@ $flat_list = $ul([$about, $contact]);
 $flat_nav = new Static_Nav_Smoke_Element('nav', ['aria-label' => 'Primary', 'class' => 'wp-block-navigation primary alignwide'], $flat_list->get_outer_html(), [$flat_list]);
 $transform = $find_transform($flat_nav, 'core/navigation');
 $smoke_assert($transform === null, 'flat-nav-does-not-emit-native-navigation');
-$fallback = HTML_To_Blocks_Block_Factory::create_block('core/html', ['content' => $flat_nav->get_outer_html()]);
-$smoke_assert($fallback['blockName'] === 'core/html', 'flat-nav-fallback-block-name');
-$smoke_assert(\str_contains($fallback['attrs']['content'] ?? '', '<nav'), 'flat-nav-fallback-preserves-nav');
-$smoke_assert(\str_contains($fallback['attrs']['content'] ?? '', '/contact/'), 'flat-nav-fallback-preserves-link-url');
+$group_transform = $find_transform($flat_nav, 'core/group');
+$group = \call_user_func($group_transform['transform'], $flat_nav, static fn($args) => []);
+$smoke_assert($group['blockName'] === 'core/group', 'flat-nav-group-block-name');
+$smoke_assert(($group['attrs']['tagName'] ?? '') === 'nav', 'flat-nav-group-tag-name');
+$smoke_assert(($group['attrs']['ariaLabel'] ?? '') === 'Primary', 'flat-nav-group-aria-label');
+$smoke_assert(($group['attrs']['className'] ?? '') === 'primary', 'flat-nav-group-class-name');
+// Salt & Star regression from issue #98: logo link plus nav list should avoid core/html fallback.
+$logo_link = new Static_Nav_Smoke_Element('a', ['href' => '#', 'class' => 'nav-logo'], 'Salt &amp; Star', [], '<a href="#" class="nav-logo">Salt &amp; Star</a>');
+$salt_list = new Static_Nav_Smoke_Element('ul', ['class' => 'nav-links'], '<li><a href="#our-bakes">Our Bakes</a></li><li><a href="#visit">Visit Us</a></li><li><a href="#order">Order</a></li>', []);
+$salt_nav = new Static_Nav_Smoke_Element('nav', ['class' => 'site-nav', 'aria-label' => 'Main navigation'], $logo_link->get_outer_html() . $salt_list->get_outer_html(), [$logo_link, $salt_list]);
+$salt_group_transform = $find_transform($salt_nav, 'core/group');
+$salt_group = \call_user_func($salt_group_transform['transform'], $salt_nav, static function ($args) {
+    $html = $args['HTML'] ?? '';
+    if (\str_contains($html, 'Salt &amp; Star')) {
+        return [HTML_To_Blocks_Block_Factory::create_block('core/paragraph', ['content' => '<a href="#" class="nav-logo">Salt &amp; Star</a>'])];
+    }
+    return [];
+});
+$smoke_assert($salt_group['blockName'] === 'core/group', 'salt-nav-group-block-name');
+$smoke_assert(($salt_group['attrs']['tagName'] ?? '') === 'nav', 'salt-nav-group-tag-name');
+$smoke_assert(($salt_group['attrs']['ariaLabel'] ?? '') === 'Main navigation', 'salt-nav-group-aria-label');
+$smoke_assert(($salt_group['attrs']['className'] ?? '') === 'site-nav', 'salt-nav-group-class-name');
 // -------------------------------------------------------------------------
 // Nested static nav also stays out of native navigation block generation.
 // -------------------------------------------------------------------------

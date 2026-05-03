@@ -78,9 +78,9 @@ $handler = function ($args) {
     return [HTML_To_Blocks_Block_Factory::create_block('core/paragraph', ['content' => \trim($args['HTML'] ?? '')])];
 };
 // -------------------------------------------------------------------------
-// Buttons: explicit button-like anchors become core/buttons > core/button.
+// Buttons: native WordPress button anchors become core/buttons > core/button.
 // -------------------------------------------------------------------------
-$button_paragraph = new HTML_To_Blocks_HTML_Element('p', [], '<p><a href="/buy" target="_blank" rel="nofollow" class="btn btn-primary wp-block-button__link">Buy <strong>Now</strong></a></p>', '<a href="/buy" target="_blank" rel="nofollow" class="btn btn-primary wp-block-button__link">Buy <strong>Now</strong></a>');
+$button_paragraph = new HTML_To_Blocks_HTML_Element('p', [], '<p><a href="/buy" target="_blank" rel="nofollow" class="btn btn-primary wp-block-button__link wp-element-button">Buy <strong>Now</strong></a></p>', '<a href="/buy" target="_blank" rel="nofollow" class="btn btn-primary wp-block-button__link wp-element-button">Buy <strong>Now</strong></a>');
 $button_transform = $find_transform($button_paragraph);
 $button_block = \call_user_func($button_transform['transform'], $button_paragraph, $handler);
 $smoke_assert($button_transform['blockName'] === 'core/buttons', 'button-transform-selected');
@@ -92,7 +92,7 @@ $smoke_assert($button_block['innerBlocks'][0]['attrs']['linkTarget'] === '_blank
 $smoke_assert($button_block['innerBlocks'][0]['attrs']['rel'] === 'nofollow', 'button-rel-preserved');
 $smoke_assert(\strpos($button_block['innerBlocks'][0]['attrs']['className'], 'btn-primary') !== \false, 'button-class-preserved');
 $smoke_assert(\strpos($button_block['innerBlocks'][0]['innerHTML'], 'Buy <strong>Now</strong>') !== \false, 'button-rich-text-preserved');
-$button_row = new HTML_To_Blocks_HTML_Element('div', ['class' => 'hero-actions'], '<div class="hero-actions"><a class="btn primary" href="/manifesto/">Read the Manifesto &rarr;</a><a class="btn ghost" href="/proof/">See The Proof</a></div>', '<a class="btn primary" href="/manifesto/">Read the Manifesto &rarr;</a><a class="btn ghost" href="/proof/">See The Proof</a>');
+$button_row = new HTML_To_Blocks_HTML_Element('div', ['class' => 'hero-actions'], '<div class="hero-actions"><a class="wp-block-button__link" href="/manifesto/">Read the Manifesto &rarr;</a><a class="wp-block-button__link" href="/proof/">See The Proof</a></div>', '<a class="wp-block-button__link" href="/manifesto/">Read the Manifesto &rarr;</a><a class="wp-block-button__link" href="/proof/">See The Proof</a>');
 $button_row_transform = $find_transform($button_row);
 $button_row_block = \call_user_func($button_row_transform['transform'], $button_row, $handler);
 $smoke_assert($button_row_transform['blockName'] === 'core/buttons', 'button-row-transform-selected');
@@ -102,9 +102,42 @@ $smoke_assert($button_row_block['innerBlocks'][0]['blockName'] === 'core/button'
 $smoke_assert($button_row_block['innerBlocks'][1]['blockName'] === 'core/button', 'button-row-second-child-block-name');
 $smoke_assert($button_row_block['innerBlocks'][0]['attrs']['url'] === '/manifesto/', 'button-row-first-url-preserved');
 $smoke_assert($button_row_block['innerBlocks'][1]['attrs']['url'] === '/proof/', 'button-row-second-url-preserved');
-$smoke_assert(\strpos($button_row_block['innerBlocks'][0]['attrs']['className'], 'primary') !== \false, 'button-row-first-class-preserved');
-$smoke_assert(\strpos($button_row_block['innerBlocks'][1]['attrs']['className'], 'ghost') !== \false, 'button-row-second-class-preserved');
 $smoke_assert(\strpos($button_row_block['innerBlocks'][0]['innerHTML'], 'href="/proof/"') === \false, 'button-row-first-child-does-not-contain-second-anchor');
+$custom_button_paragraph = new HTML_To_Blocks_HTML_Element('p', [], '<p><a href="#order" class="btn btn-primary">Order Online</a></p>', '<a href="#order" class="btn btn-primary">Order Online</a>');
+$custom_button_transform = $find_transform($custom_button_paragraph);
+$custom_button_block = \call_user_func($custom_button_transform['transform'], $custom_button_paragraph, $handler);
+$smoke_assert($custom_button_transform['blockName'] === 'core/buttons', 'custom-button-anchor-becomes-buttons');
+$smoke_assert(\count($custom_button_block['innerBlocks']) === 1, 'custom-button-anchor-has-one-button');
+$smoke_assert($custom_button_block['innerBlocks'][0]['blockName'] === 'core/button', 'custom-button-anchor-child-block-name');
+$smoke_assert($custom_button_block['innerBlocks'][0]['attrs']['url'] === '#order', 'custom-button-anchor-url-preserved');
+$smoke_assert($custom_button_block['innerBlocks'][0]['attrs']['className'] === 'btn btn-primary', 'custom-button-anchor-class-preserved');
+$custom_button_row = new HTML_To_Blocks_HTML_Element('div', ['class' => 'hero-actions'], '<div class="hero-actions"><a href="#order" class="btn btn-primary">Order Online</a><a href="#our-bakes" class="btn btn-ghost">See Our Bakes</a></div>', '<a href="#order" class="btn btn-primary">Order Online</a><a href="#our-bakes" class="btn btn-ghost">See Our Bakes</a>');
+$custom_button_row_transform = $find_transform($custom_button_row);
+$custom_button_row_block = \call_user_func($custom_button_row_transform['transform'], $custom_button_row, $handler);
+$smoke_assert($custom_button_row_transform['blockName'] === 'core/buttons', 'custom-button-row-becomes-buttons');
+$smoke_assert($custom_button_row_block['blockName'] === 'core/buttons', 'custom-button-row-block-name');
+$smoke_assert(\count($custom_button_row_block['innerBlocks']) === 2, 'custom-button-row-has-two-buttons');
+$smoke_assert($custom_button_row_block['attrs']['className'] === 'hero-actions', 'custom-button-row-wrapper-class-preserved');
+$smoke_assert($custom_button_row_block['innerBlocks'][0]['attrs']['url'] === '#order', 'custom-button-row-first-url-preserved');
+$smoke_assert($custom_button_row_block['innerBlocks'][1]['attrs']['url'] === '#our-bakes', 'custom-button-row-second-url-preserved');
+$smoke_assert($custom_button_row_block['innerBlocks'][0]['attrs']['className'] === 'btn btn-primary', 'custom-button-row-first-class-preserved');
+$smoke_assert($custom_button_row_block['innerBlocks'][1]['attrs']['className'] === 'btn btn-ghost', 'custom-button-row-second-class-preserved');
+$custom_cta_row = new HTML_To_Blocks_HTML_Element('div', ['class' => 'cta-actions'], '<div class="cta-actions"><a href="/early-access/" class="cta-primary">Get Early Access <img src="/assets/arrow.svg" alt="" class="materialized-icon"></a><a href="/demo/" class="cta-secondary">View Demo</a></div>', '<a href="/early-access/" class="cta-primary">Get Early Access <img src="/assets/arrow.svg" alt="" class="materialized-icon"></a><a href="/demo/" class="cta-secondary">View Demo</a>');
+$custom_cta_row_transform = $find_transform($custom_cta_row);
+$custom_cta_row_block = \call_user_func($custom_cta_row_transform['transform'], $custom_cta_row, $handler);
+$smoke_assert($custom_cta_row_transform['blockName'] === 'core/buttons', 'custom-cta-row-becomes-buttons');
+$smoke_assert(\count($custom_cta_row_block['innerBlocks']) === 2, 'custom-cta-row-has-two-buttons');
+$smoke_assert($custom_cta_row_block['attrs']['className'] === 'cta-actions', 'custom-cta-row-wrapper-class-preserved');
+$smoke_assert($custom_cta_row_block['innerBlocks'][0]['attrs']['url'] === '/early-access/', 'custom-cta-row-first-url-preserved');
+$smoke_assert($custom_cta_row_block['innerBlocks'][0]['attrs']['className'] === 'cta-primary', 'custom-cta-row-first-class-preserved');
+$smoke_assert(\strpos($custom_cta_row_block['innerBlocks'][0]['attrs']['text'], 'Get Early Access') !== \false, 'custom-cta-row-text-preserved');
+$smoke_assert(\strpos($custom_cta_row_block['innerBlocks'][0]['attrs']['text'], '<img src="/assets/arrow.svg" alt="" class="materialized-icon">') !== \false, 'custom-cta-row-icon-image-preserved');
+$custom_cta_anchor = new HTML_To_Blocks_HTML_Element('a', ['href' => 'mailto:hello@saltandstar.com', 'class' => 'btn-cta'], '<a href="mailto:hello@saltandstar.com" class="btn-cta">Place an Order</a>', 'Place an Order');
+$custom_cta_transform = $find_transform($custom_cta_anchor);
+$custom_cta_block = \call_user_func($custom_cta_transform['transform'], $custom_cta_anchor, $handler);
+$smoke_assert($custom_cta_transform['blockName'] === 'core/paragraph', 'custom-cta-anchor-stays-paragraph');
+$smoke_assert(\strpos($custom_cta_block['attrs']['content'], '<a href="mailto:hello@saltandstar.com" class="btn-cta">Place an Order</a>') !== \false, 'custom-cta-anchor-preserved');
+$smoke_assert(\strpos($custom_cta_block['attrs']['content'], 'wp-element-button') === \false, 'custom-cta-anchor-avoids-wp-button-class');
 $ordinary_link = new HTML_To_Blocks_HTML_Element('p', [], '<p>Read <a href="/more">more</a>.</p>', 'Read <a href="/more">more</a>.');
 $ordinary_link_transform = $find_transform($ordinary_link);
 $smoke_assert($ordinary_link_transform['blockName'] === 'core/paragraph', 'ordinary-link-stays-paragraph');

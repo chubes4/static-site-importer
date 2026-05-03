@@ -3,9 +3,9 @@
 namespace BlockFormatBridge\Vendor;
 
 /**
- * Smoke test: top-level raw conversion must not re-emit descendants as siblings.
+ * Smoke test: quote author/avatar metadata converts without raw HTML fallback.
  *
- * Run: php tests/smoke-no-duplicate-descendants.php
+ * Run: php tests/smoke-quote-author-avatar-meta.php
  */
 // phpcs:disable
 if (!\defined('ABSPATH')) {
@@ -24,6 +24,13 @@ if (!\class_exists('WP_HTML_Processor', \false)) {
         \fwrite(\STDERR, "FAIL: WP_HTML_Processor is unavailable. Set WP_HTML_API_PATH to wp-includes/html-api.\n");
         exit(1);
     }
+    $core_root = \dirname($wp_html_api_path);
+    if (\is_file($core_root . '/class-wp-token-map.php')) {
+        require_once $core_root . '/class-wp-token-map.php';
+    }
+    if (\is_file($wp_html_api_path . '/html5-named-character-references.php')) {
+        require_once $wp_html_api_path . '/html5-named-character-references.php';
+    }
     foreach (['class-wp-html-attribute-token.php', 'class-wp-html-span.php', 'class-wp-html-text-replacement.php', 'class-wp-html-decoder.php', 'class-wp-html-doctype-info.php', 'class-wp-html-unsupported-exception.php', 'class-wp-html-token.php', 'class-wp-html-tag-processor.php', 'class-wp-html-stack-event.php', 'class-wp-html-open-elements.php', 'class-wp-html-active-formatting-elements.php', 'class-wp-html-processor-state.php', 'class-wp-html-processor.php'] as $file) {
         require_once $wp_html_api_path . '/' . $file;
     }
@@ -37,7 +44,7 @@ if (!\class_exists('WP_Block_Type_Registry', \false)) {
         }
         public function is_registered($name)
         {
-            return \in_array($name, ['core/column', 'core/columns', 'core/group', 'core/html', 'core/heading', 'core/list', 'core/list-item', 'core/paragraph'], \true);
+            return \in_array($name, ['core/group', 'core/html', 'core/paragraph'], \true);
         }
         public function get_registered($name)
         {
@@ -63,9 +70,14 @@ if (!\function_exists('BlockFormatBridge\Vendor\get_shortcode_regex')) {
         return '(?!)';
     }
 }
+$fallback_events = [];
 if (!\function_exists('do_action')) {
     function do_action($hook_name, ...$args)
     {
+        global $fallback_events;
+        if ($hook_name === 'html_to_blocks_unsupported_html_fallback') {
+            $fallback_events[] = $args;
+        }
     }
 }
 if (!\function_exists('BlockFormatBridge\Vendor\serialize_blocks')) {
@@ -102,60 +114,43 @@ $assert = static function ($condition, $label, $detail = '') use (&$failures, &$
         $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
     }
 };
-$assert_occurs_once = static function (string $haystack, string $needle, string $label) use ($assert) {
-    $count = \substr_count($haystack, $needle);
-    $assert($count === 1, $label, 'Expected one occurrence of ' . $needle . ', found ' . $count);
+$flatten_blocks = static function (array $blocks) use (&$flatten_blocks): array {
+    $flat = [];
+    foreach ($blocks as $block) {
+        $flat[] = $block;
+        $flat = \array_merge($flat, $flatten_blocks($block['innerBlocks'] ?? []));
+    }
+    return $flat;
 };
-$assert_contains = static function (string $haystack, string $needle, string $label) use ($assert) {
-    $assert(\strpos($haystack, $needle) !== \false, $label, 'Missing ' . $needle);
-};
-$html = <<<HTML
-<div class="compare">
-  <div class="col-wp">
-    <h3>WordPress <span class="tag">2003-2026</span></h3>
-    <ul>
-      <li>Buy domain, buy hosting, install LAMP stack</li>
-      <li>Run 5-minute install</li>
-    </ul>
-  </div>
-  <div class="col-claude">
-    <h3>The Prompt <span class="tag">2026-</span></h3>
-    <ul>
-      <li>Open Claude Code in a folder</li>
-      <li>Type one sentence describing the site</li>
-    </ul>
+$html = <<<'HTML'
+<div class="sc-quote-author">
+  <div class="sc-quote-avatar">MR</div>
+  <div class="sc-quote-info">
+    <strong>Maya R.</strong>
+    <span>Freelance WordPress Developer</span>
   </div>
 </div>
-<div class="eulogy-frame">
-  <div class="dates">May 27, 2003 - April 29, 2026</div>
-  <h2>For WordPress, with love.</h2>
-  <p>It is rare that a piece of software earns the right to be eulogized.</p>
-  <p class="signoff">- Generated, with feeling, in one prompt.</p>
-</div>
-<ol class="manifesto-list">
-  <li>
-    <div>
-      <h3>The CMS was a workaround for not being able to write HTML.</h3>
-      <p>That excuse no longer holds.</p>
-    </div>
-  </li>
-  <li>
-    <div>
-      <h3>The plugin economy was a tax on not knowing JavaScript.</h3>
-      <p>You paid \$49/year so a contact form could send an email.</p>
-    </div>
-  </li>
-</ol>
 HTML;
-$serialized = serialize_blocks(html_to_blocks_raw_handler(['HTML' => $html]));
-$assert_contains($serialized, 'compare', 'compare-wrapper-preserved');
-$assert_contains($serialized, 'col-wp', 'col-wp-preserved');
-$assert_contains($serialized, 'col-claude', 'col-claude-preserved');
-$assert_occurs_once($serialized, '2003-2026', 'compare-heading-once');
-$assert_occurs_once($serialized, 'May 27, 2003', 'dates-once');
-$assert_occurs_once($serialized, 'It is rare that a piece of software earns the right to be eulogized.', 'eulogy-copy-once');
-$assert_occurs_once($serialized, 'The CMS was a workaround for not being able to write HTML.', 'manifesto-copy-once');
-$assert_contains($serialized, 'manifesto-list', 'classed-visual-list-wrapper-preserved');
+$blocks = html_to_blocks_raw_handler(['HTML' => $html]);
+$flat = $flatten_blocks($blocks);
+$names = \array_map(static function ($block) {
+    return $block['blockName'] ?? '';
+}, $flat);
+$serialized = \html_entity_decode(serialize_blocks($blocks), \ENT_QUOTES, 'UTF-8');
+$class_names = \array_filter(\array_map(static function ($block) {
+    return $block['attrs']['className'] ?? '';
+}, $flat));
+$assert(\count($blocks) === 1, 'quote-author-single-top-level-wrapper', (string) \count($blocks));
+$assert(!\in_array('core/html', $names, \true), 'quote-author-does-not-use-core-html', \implode(', ', $names));
+$assert(\count($fallback_events) === 0, 'quote-author-emits-no-fallback-events', (string) \count($fallback_events));
+$assert(\in_array('core/group', $names, \true), 'quote-author-wrapper-becomes-group', \implode(', ', $names));
+$assert(\in_array('core/paragraph', $names, \true), 'quote-author-text-becomes-paragraph', \implode(', ', $names));
+$assert(\str_contains($serialized, 'MR'), 'quote-avatar-initials-survive', $serialized);
+$assert(\str_contains($serialized, '<strong>Maya R.</strong>'), 'quote-author-strong-name-survives', $serialized);
+$assert(\str_contains($serialized, 'Freelance WordPress Developer'), 'quote-author-role-survives', $serialized);
+$assert(\in_array('sc-quote-author', $class_names, \true), 'quote-author-wrapper-class-survives', \implode(', ', $class_names));
+$assert(\in_array('sc-quote-avatar', $class_names, \true), 'quote-author-avatar-class-survives', \implode(', ', $class_names));
+$assert(\in_array('sc-quote-info', $class_names, \true), 'quote-author-info-class-survives', \implode(', ', $class_names));
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

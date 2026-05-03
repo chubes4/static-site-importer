@@ -3,9 +3,9 @@
 namespace BlockFormatBridge\Vendor;
 
 /**
- * Smoke test: top-level raw conversion must not re-emit descendants as siblings.
+ * Smoke test: trivial theme-part fragments avoid core/html blocks.
  *
- * Run: php tests/smoke-no-duplicate-descendants.php
+ * Run: php tests/smoke-trivial-theme-part-fragments.php
  */
 // phpcs:disable
 if (!\defined('ABSPATH')) {
@@ -37,7 +37,7 @@ if (!\class_exists('WP_Block_Type_Registry', \false)) {
         }
         public function is_registered($name)
         {
-            return \in_array($name, ['core/column', 'core/columns', 'core/group', 'core/html', 'core/heading', 'core/list', 'core/list-item', 'core/paragraph'], \true);
+            return \in_array($name, ['core/group', 'core/html', 'core/image', 'core/paragraph'], \true);
         }
         public function get_registered($name)
         {
@@ -63,9 +63,14 @@ if (!\function_exists('BlockFormatBridge\Vendor\get_shortcode_regex')) {
         return '(?!)';
     }
 }
+$fallback_events = [];
 if (!\function_exists('do_action')) {
     function do_action($hook_name, ...$args)
     {
+        global $fallback_events;
+        if ($hook_name === 'html_to_blocks_unsupported_html_fallback') {
+            $fallback_events[] = $args;
+        }
     }
 }
 if (!\function_exists('BlockFormatBridge\Vendor\serialize_blocks')) {
@@ -81,8 +86,10 @@ if (!\function_exists('BlockFormatBridge\Vendor\serialize_blocks')) {
                 continue;
             }
             $output .= '<!-- wp:' . \substr($name, 5) . $attrs_json . ' -->';
-            $output .= $block['innerHTML'] ?? '';
+            $output .= $block['innerContent'][0] ?? $block['innerHTML'] ?? '';
             $output .= serialize_blocks($block['innerBlocks'] ?? []);
+            $inner_content = $block['innerContent'] ?? [];
+            $output .= \end($inner_content) ?: '';
             $output .= '<!-- /wp:' . \substr($name, 5) . ' -->';
         }
         return $output;
@@ -102,60 +109,43 @@ $assert = static function ($condition, $label, $detail = '') use (&$failures, &$
         $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
     }
 };
-$assert_occurs_once = static function (string $haystack, string $needle, string $label) use ($assert) {
-    $count = \substr_count($haystack, $needle);
-    $assert($count === 1, $label, 'Expected one occurrence of ' . $needle . ', found ' . $count);
+$flatten_blocks = static function (array $blocks) use (&$flatten_blocks): array {
+    $flat = [];
+    foreach ($blocks as $block) {
+        $flat[] = $block;
+        $flat = \array_merge($flat, $flatten_blocks($block['innerBlocks'] ?? []));
+    }
+    return $flat;
 };
-$assert_contains = static function (string $haystack, string $needle, string $label) use ($assert) {
-    $assert(\strpos($haystack, $needle) !== \false, $label, 'Missing ' . $needle);
-};
-$html = <<<HTML
-<div class="compare">
-  <div class="col-wp">
-    <h3>WordPress <span class="tag">2003-2026</span></h3>
-    <ul>
-      <li>Buy domain, buy hosting, install LAMP stack</li>
-      <li>Run 5-minute install</li>
-    </ul>
-  </div>
-  <div class="col-claude">
-    <h3>The Prompt <span class="tag">2026-</span></h3>
-    <ul>
-      <li>Open Claude Code in a folder</li>
-      <li>Type one sentence describing the site</li>
-    </ul>
-  </div>
-</div>
-<div class="eulogy-frame">
-  <div class="dates">May 27, 2003 - April 29, 2026</div>
-  <h2>For WordPress, with love.</h2>
-  <p>It is rare that a piece of software earns the right to be eulogized.</p>
-  <p class="signoff">- Generated, with feeling, in one prompt.</p>
-</div>
-<ol class="manifesto-list">
-  <li>
-    <div>
-      <h3>The CMS was a workaround for not being able to write HTML.</h3>
-      <p>That excuse no longer holds.</p>
-    </div>
-  </li>
-  <li>
-    <div>
-      <h3>The plugin economy was a tax on not knowing JavaScript.</h3>
-      <p>You paid \$49/year so a contact form could send an email.</p>
-    </div>
-  </li>
-</ol>
+$html = <<<'HTML'
+<div class="hero-grid"></div>
+<div class="hero-glow"></div>
+<br>
+<span class="dot dot-r"></span>
+<span class="dot dot-y"></span>
+<span class="dot dot-g"></span>
+<img src="http://example.test/wp-content/themes/studio-code-launch/assets/icons/theme-part-footer-1-4532f13fa9ef8514.svg" alt="" decoding="async">
+<div class="nav-logo-mark"><img src="http://localhost:9159/wp-content/themes/studio-code/assets/icons/theme-part-header-1-b57d7c946b676f82.svg" alt="" decoding="async"></div>
+<span class="footer-brand-icon"><img src="/assets/logo.png" alt="Footer logo"></span>
 HTML;
-$serialized = serialize_blocks(html_to_blocks_raw_handler(['HTML' => $html]));
-$assert_contains($serialized, 'compare', 'compare-wrapper-preserved');
-$assert_contains($serialized, 'col-wp', 'col-wp-preserved');
-$assert_contains($serialized, 'col-claude', 'col-claude-preserved');
-$assert_occurs_once($serialized, '2003-2026', 'compare-heading-once');
-$assert_occurs_once($serialized, 'May 27, 2003', 'dates-once');
-$assert_occurs_once($serialized, 'It is rare that a piece of software earns the right to be eulogized.', 'eulogy-copy-once');
-$assert_occurs_once($serialized, 'The CMS was a workaround for not being able to write HTML.', 'manifesto-copy-once');
-$assert_contains($serialized, 'manifesto-list', 'classed-visual-list-wrapper-preserved');
+$blocks = html_to_blocks_raw_handler(['HTML' => $html]);
+$flat = $flatten_blocks($blocks);
+$names = \array_map(static function ($block) {
+    return $block['blockName'] ?? '';
+}, $flat);
+$serialized = serialize_blocks($blocks);
+$assert(!\in_array('core/html', $names, \true), 'trivial-fragments-do-not-use-core-html', \implode(', ', $names));
+$assert(\count($fallback_events) === 0, 'trivial-fragments-emit-no-fallback-events', (string) \count($fallback_events));
+$assert(\in_array('core/group', $names, \true), 'hero-grid-converts-to-native-group', \implode(', ', $names));
+$assert(\in_array('core/image', $names, \true), 'footer-svg-img-converts-to-core-image', \implode(', ', $names));
+$assert(!\str_contains($serialized, '<!-- wp:html -->'), 'serialized-output-has-no-wp-html', $serialized);
+$assert(!\str_contains($serialized, '<!-- wp:html --><br>'), 'standalone-br-does-not-serialize-as-html', $serialized);
+$assert(\str_contains($serialized, 'theme-part-footer-1-4532f13fa9ef8514.svg'), 'footer-image-url-survives', $serialized);
+$assert(\str_contains($serialized, 'nav-logo-mark'), 'svg-wrapper-class-survives', $serialized);
+$assert(\str_contains($serialized, 'theme-part-header-1-b57d7c946b676f82.svg'), 'wrapped-svg-url-survives', $serialized);
+$assert(\str_contains($serialized, 'footer-brand-icon'), 'normal-image-wrapper-class-survives', $serialized);
+$assert(\str_contains($serialized, '/assets/logo.png'), 'wrapped-normal-image-url-survives', $serialized);
+$assert(\str_contains($serialized, 'Footer logo'), 'wrapped-normal-image-alt-survives', $serialized);
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;
