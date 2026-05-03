@@ -146,6 +146,28 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( in_array( 'frontend_editor_visibility_parity', $home_visual_target['comparison_hooks']['layout_probes']['code_visual']['assertions'] ?? array(), true ), 'code-visual-probe-checks-frontend-editor-visibility' );
 	$assert( in_array( 'frontend_editor_column_parity', $home_visual_target['comparison_hooks']['layout_probes']['problem_grid']['assertions'] ?? array(), true ), 'problem-grid-probe-checks-frontend-editor-columns' );
 	$assert( in_array( 'style.css', $home_visual_target['comparison_hooks']['generated_files'] ?? array(), true ), 'visual-target-points-harness-at-generated-css' );
+	$assert( 'requires_external_render_check' === ( $report['semantic_fidelity']['status'] ?? '' ), 'import-report-declares-semantic-fidelity-render-check' );
+	$assert( 'benchmark_harness' === ( $report['semantic_fidelity']['gate_owner'] ?? '' ), 'import-report-delegates-semantic-gate-to-benchmark-harness' );
+	$semantic_targets = $report['semantic_fidelity']['comparison_targets'] ?? array();
+	$assert( is_array( $semantic_targets ) && count( $semantic_targets ) >= 5, 'import-report-includes-semantic-comparison-targets' );
+	$home_semantic_target = array_values(
+		array_filter(
+			is_array( $semantic_targets ) ? $semantic_targets : array(),
+			static fn ( $target ): bool => is_array( $target ) && 'index.html' === ( $target['source_filename'] ?? '' )
+		)
+	)[0] ?? array();
+	$assert( str_ends_with( (string) ( $home_semantic_target['source_file'] ?? '' ), '/index.html' ), 'semantic-target-records-source-file' );
+	$assert( is_string( $home_semantic_target['wordpress_url'] ?? null ) && '' !== $home_semantic_target['wordpress_url'], 'semantic-target-records-wordpress-url' );
+	$assert( 'templates/page-home.html' === ( $home_semantic_target['generated_template'] ?? '' ), 'semantic-target-records-generated-template' );
+	$assert( 'patterns/page-home.php' === ( $home_semantic_target['generated_pattern'] ?? '' ), 'semantic-target-records-generated-pattern' );
+	$assert( in_array( 'parts/header.html', $home_semantic_target['generated_theme_parts'] ?? array(), true ), 'semantic-target-records-generated-header-part' );
+	$assert( in_array( 'parts/footer.html', $home_semantic_target['generated_theme_parts'] ?? array(), true ), 'semantic-target-records-generated-footer-part' );
+	foreach ( array( 'header', 'nav', 'main', 'footer' ) as $region ) {
+		$assert( in_array( $region, $home_semantic_target['regions'] ?? array(), true ), 'semantic-target-records-region-' . $region );
+	}
+	foreach ( array( '[class*=brand]', '[class*=logo]', '[class*=wordmark]', '[class*=nav]', '[class*=cta]', '[class*=card]', '[class*=status]' ) as $selector ) {
+		$assert( in_array( $selector, $home_semantic_target['semantic_selectors'] ?? array(), true ), 'semantic-target-records-selector-' . $selector );
+	}
 	$assert( isset( $result['quality']['pass'] ), 'import-result-includes-quality-summary' );
 	$assert( str_contains( $page, 'wp:post-content' ), 'page-template-renders-imported-page-content' );
 	$assert( str_contains( $home_tmpl, 'wp:post-content' ), 'home-page-template-renders-page-post-content' );

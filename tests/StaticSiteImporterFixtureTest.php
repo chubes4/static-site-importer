@@ -113,10 +113,39 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'quality', $report );
 		$this->assertArrayHasKey( 'conversion_fragments', $report );
 		$this->assertArrayHasKey( 'generated_theme', $report );
+		$this->assertArrayHasKey( 'semantic_fidelity', $report );
 		$this->assertArrayHasKey( 'diagnostics', $report );
 		$this->assertSame( 0, $report['quality']['invalid_block_count'] ?? null );
 		$this->assertSame( 0, $report['quality']['invalid_block_document_count'] ?? null );
 		$this->assertNotEmpty( $report['generated_theme']['block_documents'] ?? array() );
+		$this->assertSame( 'requires_external_render_check', $report['semantic_fidelity']['status'] ?? '' );
+		$this->assertSame( 'benchmark_harness', $report['semantic_fidelity']['gate_owner'] ?? '' );
+		$semantic_targets = $report['semantic_fidelity']['comparison_targets'] ?? array();
+		$this->assertIsArray( $semantic_targets );
+		$this->assertNotEmpty( $semantic_targets );
+		$home_semantic_target = array_values(
+			array_filter(
+				$semantic_targets,
+				static fn ( $target ): bool => is_array( $target ) && 'index.html' === ( $target['source_filename'] ?? '' )
+			)
+		)[0] ?? array();
+		$this->assertNotEmpty( $home_semantic_target );
+		$this->assertStringEndsWith( '/index.html', (string) ( $home_semantic_target['source_file'] ?? '' ) );
+		$this->assertSame( 'templates/page-home.html', $home_semantic_target['generated_template'] ?? '' );
+		$this->assertSame( 'patterns/page-home.php', $home_semantic_target['generated_pattern'] ?? '' );
+		$this->assertContains( 'parts/header.html', $home_semantic_target['generated_theme_parts'] ?? array() );
+		$this->assertContains( 'parts/footer.html', $home_semantic_target['generated_theme_parts'] ?? array() );
+		$this->assertContains( 'header', $home_semantic_target['regions'] ?? array() );
+		$this->assertContains( 'nav', $home_semantic_target['regions'] ?? array() );
+		$this->assertContains( 'main', $home_semantic_target['regions'] ?? array() );
+		$this->assertContains( 'footer', $home_semantic_target['regions'] ?? array() );
+		$this->assertContains( '[class*=brand]', $home_semantic_target['semantic_selectors'] ?? array() );
+		$this->assertContains( '[class*=logo]', $home_semantic_target['semantic_selectors'] ?? array() );
+		$this->assertContains( '[class*=wordmark]', $home_semantic_target['semantic_selectors'] ?? array() );
+		$this->assertContains( '[class*=nav]', $home_semantic_target['semantic_selectors'] ?? array() );
+		$this->assertContains( '[class*=cta]', $home_semantic_target['semantic_selectors'] ?? array() );
+		$this->assertContains( '[class*=card]', $home_semantic_target['semantic_selectors'] ?? array() );
+		$this->assertContains( '[class*=status]', $home_semantic_target['semantic_selectors'] ?? array() );
 
 		$pages = array();
 		foreach ( array( 'index.html', 'manifesto.html', 'comparison.html', 'eulogy.html', 'proof.html' ) as $filename ) {

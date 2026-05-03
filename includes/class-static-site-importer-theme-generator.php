@@ -181,6 +181,7 @@ class Static_Site_Importer_Theme_Generator {
 
 		self::analyze_generated_theme_block_documents( $writes, $theme_dir );
 		self::record_visual_fidelity_targets( $pages, $page_ids, $permalinks, $writes, $theme_dir );
+		self::record_semantic_fidelity_targets( $pages, $page_ids, $permalinks, $writes, $theme_dir );
 		$quality     = self::finalize_quality_report( $args );
 		$report_json = wp_json_encode( self::$conversion_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 		if ( false === $report_json ) {
@@ -2364,11 +2365,20 @@ class Static_Site_Importer_Theme_Generator {
 					'Static Site Importer records source and generated DOM probes, render URLs, and theme artifacts for visual comparison; screenshot capture and computed-style/layout thresholds belong to the benchmark harness.',
 				),
 			),
+			'semantic_fidelity'    => array(
+				'status'             => 'requires_external_render_check',
+				'gate_owner'         => 'benchmark_harness',
+				'comparison_targets' => array(),
+				'notes'              => array(
+					'Static Site Importer records source/generated semantic comparison targets; browser DOM extraction and semantic fingerprint comparison belong to the benchmark harness.',
+				),
+			),
 			'diagnostics'          => array(),
 			'notes'                => array(
 				'Block Format Bridge owns HTML-to-block transform fidelity; Static Site Importer records converter diagnostics and quality gates the generated theme.',
 				'Generated-theme block validation uses WordPress server-side block parsing and serialization checks; editor-runtime validation remains the exact Gutenberg authority.',
 				'Visual fidelity requires browser rendering; use visual_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',
+				'Semantic fidelity requires browser DOM extraction; use semantic_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',
 			),
 		);
 	}
@@ -2435,6 +2445,117 @@ class Static_Site_Importer_Theme_Generator {
 				),
 			);
 		}
+	}
+
+	/**
+	 * Record source/generated targets for external semantic fidelity gates.
+	 *
+	 * @param array<string, array{path:string,document:Static_Site_Importer_Document}> $pages      Imported pages.
+	 * @param array<string, int>                                                       $page_ids   Page IDs keyed by source filename.
+	 * @param array<string, string>                                                    $permalinks Page permalinks keyed by source filename.
+	 * @param array<string, string>                                                    $writes     Generated files keyed by absolute path.
+	 * @param string                                                                   $theme_dir  Generated theme directory.
+	 * @return void
+	 */
+	private static function record_semantic_fidelity_targets( array $pages, array $page_ids, array $permalinks, array $writes, string $theme_dir ): void {
+		$theme_prefix = trailingslashit( $theme_dir );
+		$theme_parts  = self::generated_semantic_theme_parts( $writes, $theme_prefix );
+
+		foreach ( $pages as $filename => $page ) {
+			$source_html = self::read_visual_probe_file( $page['path'] );
+			$slug        = self::page_slug( $filename );
+			$template    = '' === $slug ? '' : 'templates/page-' . $slug . '.html';
+			$pattern     = '' === $slug ? '' : 'patterns/page-' . $slug . '.php';
+			$generated   = self::generated_visual_probe_markup( $writes, $theme_prefix, $pattern );
+
+			self::$conversion_report['semantic_fidelity']['comparison_targets'][] = array(
+				'source_file'            => $page['path'],
+				'source_filename'        => $filename,
+				'wordpress_page_id'      => $page_ids[ $filename ] ?? null,
+				'wordpress_url'          => $permalinks[ $filename ] ?? '',
+				'generated_template'     => $template,
+				'generated_pattern'      => $pattern,
+				'generated_theme_parts'  => $theme_parts,
+				'generated_files'        => array_values( array_filter( array_merge( array( $template, $pattern ), $theme_parts ) ) ),
+				'regions'                => self::semantic_regions( $source_html, $generated ),
+				'semantic_selectors'     => self::semantic_selectors(),
+				'comparison_hooks'       => array(
+					'landmarks' => array( 'header', 'nav', 'main', 'footer', '[role=banner]', '[role=navigation]', '[role=main]', '[role=contentinfo]' ),
+					'actions'   => array( 'a', 'button', '[role=button]', '.wp-block-button__link' ),
+					'identity'  => array( '[class*=brand]', '[class*=logo]', '[class*=wordmark]', 'img[alt*=logo i]', 'svg[aria-label*=logo i]' ),
+					'sections'  => array( '[class*=nav]', '[class*=footer]', '[class*=header]', '[class*=card]', '[class*=cta]', '[class*=status]' ),
+				),
+			);
+		}
+	}
+
+	/**
+	 * Generated theme parts that contribute shared page semantics.
+	 *
+	 * @param array<string, string> $writes       Generated files keyed by absolute path.
+	 * @param string                $theme_prefix Absolute theme directory with trailing slash.
+	 * @return array<int, string>
+	 */
+	private static function generated_semantic_theme_parts( array $writes, string $theme_prefix ): array {
+		$parts = array();
+		foreach ( array( 'parts/header.html', 'parts/footer.html' ) as $relative_path ) {
+			if ( isset( $writes[ $theme_prefix . $relative_path ] ) ) {
+				$parts[] = $relative_path;
+			}
+		}
+
+		return $parts;
+	}
+
+	/**
+	 * Broad semantic regions present in either source or generated markup.
+	 *
+	 * @param string $source_html Source HTML.
+	 * @param string $generated   Generated block markup.
+	 * @return array<int, string>
+	 */
+	private static function semantic_regions( string $source_html, string $generated ): array {
+		$regions = array();
+		$markup  = $source_html . "\n" . $generated;
+		foreach ( array( 'header', 'nav', 'main', 'footer' ) as $region ) {
+			if ( 'main' === $region || self::visual_probe_count( $markup, $region ) > 0 ) {
+				$regions[] = $region;
+			}
+		}
+
+		return $regions;
+	}
+
+	/**
+	 * Broad selectors the benchmark harness should fingerprint for semantic drift.
+	 *
+	 * @return array<int, string>
+	 */
+	private static function semantic_selectors(): array {
+		return array(
+			'header',
+			'nav',
+			'main',
+			'footer',
+			'a',
+			'button',
+			'img',
+			'svg',
+			'[role=banner]',
+			'[role=navigation]',
+			'[role=main]',
+			'[role=contentinfo]',
+			'[role=button]',
+			'[class*=brand]',
+			'[class*=logo]',
+			'[class*=wordmark]',
+			'[class*=nav]',
+			'[class*=footer]',
+			'[class*=header]',
+			'[class*=card]',
+			'[class*=cta]',
+			'[class*=status]',
+		);
 	}
 
 	/**
@@ -2564,6 +2685,14 @@ class Static_Site_Importer_Theme_Generator {
 
 		if ( 'hero' === $probe ) {
 			return 'header' === $tag || self::class_tokens_contain_fragment( $classes, 'hero' );
+		}
+
+		if ( 'header' === $probe ) {
+			return 'header' === $tag || self::class_tokens_contain_fragment( $classes, 'header' );
+		}
+
+		if ( 'main' === $probe ) {
+			return 'main' === $tag || 'main' === strtolower( $element->getAttribute( 'role' ) ) || self::class_tokens_contain_fragment( $classes, 'main' );
 		}
 
 		if ( 'button' === $probe ) {
