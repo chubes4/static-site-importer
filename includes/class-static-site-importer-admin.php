@@ -32,7 +32,7 @@ class Static_Site_Importer_Admin {
 	 */
 	public static function register_import_page(): void {
 		add_submenu_page(
-			null,
+			null, // @phpstan-ignore argument.type
 			'Import HTML',
 			'Import HTML',
 			'switch_themes',
@@ -107,7 +107,7 @@ class Static_Site_Importer_Admin {
 				<div class="notice notice-error"><p><?php echo esc_html( $error ); ?></p></div>
 			<?php endif; ?>
 
-			<p><?php echo esc_html__( 'Paste HTML, upload a single HTML file, or upload a ZIP for a multi-page static site or bundled HTML export. The importer will convert the HTML into a WordPress block theme using Block Format Bridge.', 'static-site-importer' ); ?></p>
+			<p><?php echo esc_html__( 'Paste HTML, fetch a public URL, upload a single HTML file, or upload a ZIP for a multi-page static site or bundled HTML export. The importer will convert the HTML into a WordPress block theme using Block Format Bridge.', 'static-site-importer' ); ?></p>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
 				<?php wp_nonce_field( 'static_site_importer_import' ); ?>
@@ -118,7 +118,14 @@ class Static_Site_Importer_Admin {
 						<th scope="row"><label for="static-site-pasted-html"><?php echo esc_html__( 'Paste HTML', 'static-site-importer' ); ?></label></th>
 						<td>
 							<textarea id="static-site-pasted-html" name="static_site_pasted_html" class="large-text code" rows="14" placeholder="<!doctype html>"></textarea>
-							<p class="description"><?php echo esc_html__( 'Use this for one-page HTML copied from an AI builder or template source. Leave empty to import an HTML file or ZIP instead.', 'static-site-importer' ); ?></p>
+							<p class="description"><?php echo esc_html__( 'Use this for one-page HTML copied from an AI builder or template source. Leave empty to fetch a URL, import an HTML file, or import a ZIP instead.', 'static-site-importer' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="static-site-url"><?php echo esc_html__( 'Import from URL', 'static-site-importer' ); ?></label></th>
+						<td>
+							<input type="url" class="regular-text" id="static-site-url" name="static_site_url" placeholder="https://example.com/" />
+							<p class="description"><?php echo esc_html__( 'Fetch one public http/https HTML URL server-side and store it as index.html. Pasted HTML takes precedence when provided; credentials and cookies are never sent.', 'static-site-importer' ); ?></p>
 						</td>
 					</tr>
 					<tr>
@@ -168,15 +175,22 @@ class Static_Site_Importer_Admin {
 		check_admin_referer( 'static_site_importer_import' );
 
 		$pasted_html = isset( $_POST['static_site_pasted_html'] ) ? trim( (string) wp_unslash( $_POST['static_site_pasted_html'] ) ) : '';
-		$html_path   = '' !== $pasted_html ? self::write_pasted_html( $pasted_html ) : self::prepare_uploaded_entry_file();
+		$entry       = '' !== $pasted_html ? array(
+			'html_path' => self::write_pasted_html( $pasted_html ),
+			'metadata'  => array(),
+		) : self::prepare_entry_file();
+		if ( is_wp_error( $entry ) ) {
+			self::redirect_error( $entry->get_error_message() );
+		}
 
 		$result = Static_Site_Importer_Theme_Generator::import_theme(
-			$html_path,
+			$entry['html_path'],
 			array(
-				'name'      => isset( $_POST['theme_name'] ) ? sanitize_text_field( wp_unslash( $_POST['theme_name'] ) ) : '',
-				'slug'      => isset( $_POST['theme_slug'] ) ? sanitize_title( wp_unslash( $_POST['theme_slug'] ) ) : '',
-				'activate'  => ! empty( $_POST['activate'] ),
-				'overwrite' => true,
+				'name'            => isset( $_POST['theme_name'] ) ? sanitize_text_field( wp_unslash( $_POST['theme_name'] ) ) : '',
+				'slug'            => isset( $_POST['theme_slug'] ) ? sanitize_title( wp_unslash( $_POST['theme_slug'] ) ) : '',
+				'activate'        => ! empty( $_POST['activate'] ),
+				'overwrite'       => true,
+				'source_metadata' => $entry['metadata'],
 			)
 		);
 
@@ -196,7 +210,7 @@ class Static_Site_Importer_Admin {
 	 */
 	private static function write_pasted_html( string $html ): string {
 		if ( '' === trim( $html ) ) {
-			self::redirect_error( 'Paste HTML content, upload a single HTML file, or upload a ZIP containing index.html.' );
+			self::redirect_error( 'Paste HTML content, enter a public URL, upload a single HTML file, or upload a ZIP containing index.html.' );
 		}
 
 		$work_dir  = self::create_work_dir();
@@ -211,22 +225,45 @@ class Static_Site_Importer_Admin {
 	}
 
 	/**
-	 * Prepare the uploaded HTML entry file.
+	 * Prepare an HTML entry file from URL, upload, or ZIP intake.
 	 *
-	 * @return string HTML entry path.
+	 * @return array{html_path:string,metadata:array<string,mixed>}|WP_Error
 	 */
-	private static function prepare_uploaded_entry_file(): string {
+	private static function prepare_entry_file() {
 		$work_dir = self::create_work_dir();
 
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Import nonce verified in handle_import().
+		$url = isset( $_POST['static_site_url'] ) ? trim( (string) wp_unslash( $_POST['static_site_url'] ) ) : '';
+		if ( '' !== $url ) {
+			return self::prepare_url_file( $url, $work_dir );
+		}
+
 		if ( self::has_uploaded_file( 'static_site_html' ) ) {
-			return self::prepare_uploaded_html_file( $work_dir );
+			return array(
+				'html_path' => self::prepare_uploaded_html_file( $work_dir ),
+				'metadata'  => array(),
+			);
 		}
 
 		if ( self::has_uploaded_file( 'static_site_zip' ) ) {
-			return self::prepare_uploaded_zip_file( $work_dir );
+			return array(
+				'html_path' => self::prepare_uploaded_zip_file( $work_dir ),
+				'metadata'  => array(),
+			);
 		}
 
-		self::redirect_error( 'Paste HTML content, upload a single HTML file, or upload a ZIP containing index.html.' );
+		self::redirect_error( 'Paste HTML content, enter a public URL, upload a single HTML file, or upload a ZIP containing index.html.' );
+	}
+
+	/**
+	 * Fetch a URL into an importer work directory.
+	 *
+	 * @param string $url      Source URL.
+	 * @param string $work_dir Importer work directory.
+	 * @return array{html_path:string,metadata:array<string,mixed>}|WP_Error
+	 */
+	private static function prepare_url_file( string $url, string $work_dir ) {
+		return Static_Site_Importer_URL_Fetcher::fetch_to_work_dir( $url, $work_dir );
 	}
 
 	/**

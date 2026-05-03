@@ -23,6 +23,7 @@ if ( is_readable( STATIC_SITE_IMPORTER_PATH . 'vendor/autoload.php' ) ) {
 }
 
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-document.php';
+require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-url-fetcher.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-theme-generator.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-admin.php';
 
