@@ -853,7 +853,7 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$html_path = $this->write_temp_fixture(
 			'relay-atlas-chrome.html',
 			'<!doctype html><html><head><title>Relay Atlas Chrome</title></head><body>' .
-			'<nav><div class="nav-inner"><a href="/" class="nav-logo"><svg class="logo-mark" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 2 22 20H2Z" fill="currentColor"/></svg><span>Relay Atlas</span></a><ul class="nav-links"><li><a href="#features">Features</a></li><li><a href="#pricing">Pricing</a></li></ul><div class="nav-cta"><a href="#signin" class="login-link">Sign in</a><a href="#start" class="btn-primary">Start free</a></div></div></nav>' .
+			'<nav><div class="nav-inner"><a href="/" class="nav-logo"><div class="nav-logo-mark"><svg class="logo-mark" viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><path d="M3 5h5v5H3zM10 5h5v2h-5zM10 9h5v2h-5zM3 12h12v1H3z" fill="currentColor"/><circle cx="4.5" cy="14.5" r="1.5" fill="currentColor" fill-opacity="0.6"/></svg></div><span class="nav-wordmark">Relay Atlas</span></a><ul class="nav-links"><li><a href="#features">Features</a></li><li><a href="#pricing">Pricing</a></li></ul><div class="nav-cta"><a href="#signin" class="login-link">Sign in</a><a href="#start" class="btn-primary">Start free</a></div></div></nav>' .
 			'<main><section id="features"><h1>Map every handoff</h1><p>Relay Atlas keeps launch teams aligned.</p></section><section id="pricing"><h2>Pricing</h2><p>Simple plans.</p></section></main>' .
 			'<footer><div class="footer-inner"><div class="footer-left"><svg class="footer-logo-mark" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor"/></svg><span>Relay Atlas</span></div><ul class="footer-links"><li><a href="#features">Features</a></li><li><a href="#pricing">Pricing</a></li></ul></div></footer>' .
 			'</body></html>'
@@ -888,6 +888,9 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 
 		$this->assertStringNotContainsString( '<!-- wp:html --><nav', $header );
 		$this->assertStringNotContainsString( '<!-- wp:html --><div class="nav-inner"', $header );
+		$this->assertStringNotContainsString( '<!-- wp:html --><a href="/" class="nav-logo"', $header );
+		$this->assertStringContainsString( '/assets/icons/', $header );
+		$this->assertStringContainsString( 'nav-wordmark', $header );
 		$this->assertStringNotContainsString( '<!-- wp:paragraph {"className":"nav-cta"}', $header );
 		$this->assertStringContainsString( '<!-- wp:group {"className":"nav-cta"}', $header );
 		$this->assertSame( 1, substr_count( $header, '"className":"nav-inner"' ) );
@@ -901,6 +904,7 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertInstanceOf( WP_Post::class, $footer_nav );
 		$this->assertStringContainsString( '"label":"Features"', $header_nav->post_content );
 		$this->assertStringContainsString( '"label":"Pricing"', $footer_nav->post_content );
+		$this->assertSame( 0, $report['quality']['core_html_block_count'] ?? null );
 		$this->assertSame( 0, $report['quality']['unsafe_svg_count'] ?? null );
 		$this->assertNotEmpty( $report['assets']['svg_icons'] ?? array() );
 	}
