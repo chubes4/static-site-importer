@@ -2522,6 +2522,7 @@ class Static_Site_Importer_Theme_Generator {
 				'content_loss_count'                 => 0,
 				'empty_conversion_count'             => 0,
 				'core_html_block_count'              => 0,
+				'freeform_block_count'               => 0,
 				'invalid_block_count'                => 0,
 				'invalid_block_document_count'       => 0,
 				'unsafe_svg_count'                   => 0,
@@ -3447,6 +3448,7 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		self::$conversion_report['quality']['core_html_block_count'] += $core_html_count;
+		self::$conversion_report['quality']['freeform_block_count']  += $freeform_count;
 		self::$conversion_report['quality']['invalid_block_count']   += $invalid_count;
 		if ( $invalid_count > 0 ) {
 			++self::$conversion_report['quality']['invalid_block_document_count'];
@@ -3490,6 +3492,9 @@ class Static_Site_Importer_Theme_Generator {
 				++$block_count;
 				if ( 'core/html' === $name ) {
 					++$core_html_count;
+				}
+				if ( 'core/freeform' === $name ) {
+					++$freeform_count;
 				}
 			} elseif ( '' !== trim( isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ? $block['innerHTML'] : '' ) ) {
 				++$freeform_count;
@@ -3717,6 +3722,9 @@ class Static_Site_Importer_Theme_Generator {
 		}
 		if ( $quality['core_html_block_count'] > 0 ) {
 			$reasons[] = 'core_html_block';
+		}
+		if ( $quality['freeform_block_count'] > 0 ) {
+			$reasons[] = 'freeform_block';
 		}
 		if ( $quality['invalid_block_count'] > 0 ) {
 			$reasons[] = 'invalid_block';

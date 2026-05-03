@@ -1441,6 +1441,44 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Serialized freeform blocks are counted in generated-theme quality.
+	 */
+	public function test_generated_theme_quality_reports_serialized_freeform_blocks(): void {
+		$reflection = new ReflectionClass( Static_Site_Importer_Theme_Generator::class );
+
+		$new_report = $reflection->getMethod( 'new_conversion_report' );
+		$new_report->setAccessible( true );
+
+		$report_property = $reflection->getProperty( 'conversion_report' );
+		$report_property->setAccessible( true );
+		$report_property->setValue( null, $new_report->invoke( null, '/tmp/source/index.html' ) );
+
+		$analyze = $reflection->getMethod( 'analyze_generated_theme_block_documents' );
+		$analyze->setAccessible( true );
+		$analyze->invoke(
+			null,
+			array(
+				'/tmp/generated/parts/header.html' => '<!-- wp:paragraph --><p>Native block.</p><!-- /wp:paragraph -->' .
+					'<!-- wp:freeform --><a href="#" class="nav-logo">Field Notes Live</a><!-- /wp:freeform -->',
+			),
+			'/tmp/generated'
+		);
+
+		$finalize = $reflection->getMethod( 'finalize_quality_report' );
+		$finalize->setAccessible( true );
+		$quality = $finalize->invoke( null, array() );
+		$report  = $report_property->getValue();
+
+		$document = $report['generated_theme']['block_documents'][0] ?? array();
+
+		$this->assertSame( 2, $document['block_count'] ?? null );
+		$this->assertSame( 1, $document['freeform_block_count'] ?? null );
+		$this->assertSame( 1, $quality['freeform_block_count'] ?? null );
+		$this->assertFalse( $quality['pass'] ?? true );
+		$this->assertContains( 'freeform_block', $quality['failure_reasons'] ?? array() );
+	}
+
+	/**
 	 * Server-visible malformed block documents are counted in generated-theme quality.
 	 */
 	public function test_generated_theme_quality_reports_malformed_block_documents(): void {
