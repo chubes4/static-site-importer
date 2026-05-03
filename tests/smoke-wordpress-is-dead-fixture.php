@@ -330,6 +330,83 @@ if ( false !== $wrote_leading_nav ) {
 	}
 }
 
+$branded_nav_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-branded-nav-header.html';
+$wrote_branded_nav   = file_put_contents(
+	$branded_nav_fixture,
+	'<!doctype html><html><head><title>Branded Nav Header</title></head><body>' .
+	'<nav class="nav-shell">' .
+	'<a href="#" class="nav-brand"><div class="nav-logo">SC</div><span class="nav-name">Studio Code</span><span class="nav-badge">New</span></a>' .
+	'<ul class="nav-links"><li><a href="#benefits">Benefits</a></li><li><a href="#workflow">How it works</a></li><li><a href="#use-cases">Use cases</a></li><li><a href="#cta" class="nav-cta">Get started</a></li></ul>' .
+	'</nav>' .
+	'<main><section id="benefits"><h1>Benefits</h1><p>Body copy.</p></section></main>' .
+	'</body></html>'
+);
+$assert( false !== $wrote_branded_nav, 'branded-nav-fixture-written' );
+
+if ( false !== $wrote_branded_nav ) {
+	$branded_nav_result = Static_Site_Importer_Theme_Generator::import_theme(
+		$branded_nav_fixture,
+		array(
+			'name'      => 'Branded Nav Header',
+			'slug'      => 'branded-nav-header',
+			'overwrite' => true,
+			'activate'  => false,
+		)
+	);
+	$assert( ! is_wp_error( $branded_nav_result ), 'branded-nav-import-succeeds', is_wp_error( $branded_nav_result ) ? $branded_nav_result->get_error_message() : '' );
+	if ( ! is_wp_error( $branded_nav_result ) ) {
+		$branded_nav_header = $read( $branded_nav_result['theme_dir'] . '/parts/header.html' );
+		$branded_nav_post   = get_page_by_path( 'branded-nav-header-header-navigation', OBJECT, 'wp_navigation' );
+		$assert( str_contains( $branded_nav_header, 'nav-brand' ), 'branded-nav-header-preserves-brand-anchor' );
+		$assert( str_contains( $branded_nav_header, 'nav-logo' ), 'branded-nav-header-preserves-logo-markup' );
+		$assert( str_contains( $branded_nav_header, 'Studio Code' ), 'branded-nav-header-preserves-brand-text' );
+		$assert( str_contains( $branded_nav_header, '<!-- wp:navigation ' ), 'branded-nav-header-uses-navigation-block' );
+		$assert( ! str_contains( $branded_nav_header, '"tagName":"nav"' ), 'branded-nav-header-does-not-wrap-navigation-in-nav-group' );
+		$assert( $branded_nav_post instanceof WP_Post, 'branded-nav-post-exists' );
+		if ( $branded_nav_post instanceof WP_Post ) {
+			$assert( str_contains( $branded_nav_post->post_content, '"label":"Benefits"' ), 'branded-nav-menu-includes-benefits' );
+			$assert( str_contains( $branded_nav_post->post_content, '"label":"Get started"' ), 'branded-nav-menu-includes-cta' );
+			$assert( ! str_contains( $branded_nav_post->post_content, 'Studio Code' ), 'branded-nav-post-excludes-brand-text' );
+			$assert( ! str_contains( $branded_nav_post->post_content, 'SC' ), 'branded-nav-post-excludes-logo-text' );
+		}
+	}
+}
+
+$pure_nav_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-pure-nav-header.html';
+$wrote_pure_nav   = file_put_contents(
+	$pure_nav_fixture,
+	'<!doctype html><html><head><title>Pure Nav Header</title></head><body>' .
+	'<nav class="top-nav"><a href="#intro">Intro</a><a href="#pricing"><span>Pricing</span></a></nav>' .
+	'<main><section id="intro"><h1>Intro</h1><p>Body copy.</p></section></main>' .
+	'</body></html>'
+);
+$assert( false !== $wrote_pure_nav, 'pure-nav-fixture-written' );
+
+if ( false !== $wrote_pure_nav ) {
+	$pure_nav_result = Static_Site_Importer_Theme_Generator::import_theme(
+		$pure_nav_fixture,
+		array(
+			'name'      => 'Pure Nav Header',
+			'slug'      => 'pure-nav-header',
+			'overwrite' => true,
+			'activate'  => false,
+		)
+	);
+	$assert( ! is_wp_error( $pure_nav_result ), 'pure-nav-import-succeeds', is_wp_error( $pure_nav_result ) ? $pure_nav_result->get_error_message() : '' );
+	if ( ! is_wp_error( $pure_nav_result ) ) {
+		$pure_nav_header = $read( $pure_nav_result['theme_dir'] . '/parts/header.html' );
+		$pure_nav_post   = get_page_by_path( 'pure-nav-header-header-navigation', OBJECT, 'wp_navigation' );
+		$assert( str_contains( $pure_nav_header, '<!-- wp:navigation ' ), 'pure-nav-header-uses-navigation-block' );
+		$assert( str_contains( $pure_nav_header, '"className":"top-nav"' ), 'pure-nav-header-preserves-class-on-navigation-block' );
+		$assert( ! str_contains( $pure_nav_header, '"tagName":"nav"' ), 'pure-nav-header-does-not-wrap-navigation-in-nav-group' );
+		$assert( $pure_nav_post instanceof WP_Post, 'pure-nav-post-exists' );
+		if ( $pure_nav_post instanceof WP_Post ) {
+			$assert( str_contains( $pure_nav_post->post_content, '"label":"Intro"' ), 'pure-nav-menu-includes-intro' );
+			$assert( str_contains( $pure_nav_post->post_content, '"label":"Pricing"' ), 'pure-nav-menu-includes-pricing' );
+		}
+	}
+}
+
 $nested_header_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-nested-section-header.html';
 $wrote_nested_header   = file_put_contents(
 	$nested_header_fixture,

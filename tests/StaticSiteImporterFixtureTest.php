@@ -187,6 +187,92 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A top-level nav can contain brand chrome plus a nested menu list.
+	 */
+	public function test_branded_top_level_nav_preserves_brand_and_converts_only_menu_list(): void {
+		$html_path = $this->write_temp_fixture(
+			'branded-nav-header.html',
+			'<!doctype html><html><head><title>Branded Nav Header</title></head><body>' .
+			'<nav class="nav-shell">' .
+			'<a href="#" class="nav-brand"><div class="nav-logo">SC</div><span class="nav-name">Studio Code</span><span class="nav-badge">New</span></a>' .
+			'<ul class="nav-links"><li><a href="#benefits">Benefits</a></li><li><a href="#workflow">How it works</a></li><li><a href="#use-cases">Use cases</a></li><li><a href="#cta" class="nav-cta">Get started</a></li></ul>' .
+			'</nav>' .
+			'<main><section id="benefits"><h1>Benefits</h1><p>Body copy.</p></section></main>' .
+			'</body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Branded Nav Header',
+				'slug'      => 'branded-nav-header',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$header    = $this->read_file( $theme_dir . '/parts/header.html' );
+		$nav_post  = get_page_by_path( 'branded-nav-header-header-navigation', OBJECT, 'wp_navigation' );
+
+		$this->assertStringContainsString( 'nav-brand', $header );
+		$this->assertStringContainsString( 'nav-logo', $header );
+		$this->assertStringContainsString( 'Studio Code', $header );
+		$this->assertStringContainsString( 'New', $header );
+		$this->assertStringContainsString( '<!-- wp:navigation ', $header );
+		$this->assertStringNotContainsString( '"tagName":"nav"', $header );
+		$this->assertStringNotContainsString( '<!-- wp:navigation-link ', $header );
+		$this->assertInstanceOf( WP_Post::class, $nav_post );
+		$this->assertStringContainsString( '"label":"Benefits"', $nav_post->post_content );
+		$this->assertStringContainsString( '"label":"How it works"', $nav_post->post_content );
+		$this->assertStringContainsString( '"label":"Use cases"', $nav_post->post_content );
+		$this->assertStringContainsString( '"label":"Get started"', $nav_post->post_content );
+		$this->assertStringNotContainsString( 'Studio Code', $nav_post->post_content );
+		$this->assertStringNotContainsString( 'SC', $nav_post->post_content );
+	}
+
+	/**
+	 * Pure top-level nav fragments still become a reusable navigation entity.
+	 */
+	public function test_pure_top_level_nav_still_converts_to_navigation_entity(): void {
+		$html_path = $this->write_temp_fixture(
+			'pure-nav-header.html',
+			'<!doctype html><html><head><title>Pure Nav Header</title></head><body>' .
+			'<nav class="top-nav"><a href="#intro">Intro</a><a href="#pricing"><span>Pricing</span></a></nav>' .
+			'<main><section id="intro"><h1>Intro</h1><p>Body copy.</p></section></main>' .
+			'</body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Pure Nav Header',
+				'slug'      => 'pure-nav-header',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$header    = $this->read_file( $theme_dir . '/parts/header.html' );
+		$nav_post  = get_page_by_path( 'pure-nav-header-header-navigation', OBJECT, 'wp_navigation' );
+
+		$this->assertStringContainsString( '<!-- wp:navigation ', $header );
+		$this->assertStringContainsString( '"className":"top-nav"', $header );
+		$this->assertStringNotContainsString( '<!-- wp:navigation-link ', $header );
+		$this->assertStringNotContainsString( '"tagName":"nav"', $header );
+		$this->assertInstanceOf( WP_Post::class, $nav_post );
+		$this->assertStringContainsString( '"label":"Intro"', $nav_post->post_content );
+		$this->assertStringContainsString( '"label":"Pricing"', $nav_post->post_content );
+	}
+
+	/**
 	 * Nested section headers are page content, not shared site chrome.
 	 */
 	public function test_nested_section_header_stays_in_page_content(): void {
