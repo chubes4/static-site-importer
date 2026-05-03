@@ -22,6 +22,16 @@ class Static_Site_Importer_Theme_Generator {
 	private static array $conversion_report = array();
 
 	/**
+	 * Validated commerce context for the active import.
+	 *
+	 * Static Site Importer does not validate product manifests here; callers that
+	 * own validation can supply the normalized context through import args.
+	 *
+	 * @var array<string, mixed>
+	 */
+	private static array $active_commerce_context = array();
+
+	/**
 	 * Generated theme directory for import-scoped asset writes.
 	 *
 	 * @var string
@@ -121,9 +131,11 @@ class Static_Site_Importer_Theme_Generator {
 			return $page_ids;
 		}
 
-		$permalinks              = self::page_permalinks( $page_ids );
-		$fragments               = $document->fragments();
-		self::$conversion_report = self::new_conversion_report( $html_path, isset( $args['source_metadata'] ) && is_array( $args['source_metadata'] ) ? $args['source_metadata'] : array() );
+		$permalinks                    = self::page_permalinks( $page_ids );
+		$fragments                     = $document->fragments();
+		self::$conversion_report       = self::new_conversion_report( $html_path, isset( $args['source_metadata'] ) && is_array( $args['source_metadata'] ) ? $args['source_metadata'] : array() );
+		self::$active_commerce_context = self::commerce_context_from_args( $args );
+		self::record_commerce_context_summary();
 
 		self::$active_theme_dir         = $theme_dir;
 		self::$active_theme_uri         = trailingslashit( get_theme_root_uri( $theme_slug ) ) . $theme_slug;
@@ -2160,12 +2172,23 @@ class Static_Site_Importer_Theme_Generator {
 			self::record_content_loss( $source, $original_text_length, $serialized_text_length );
 		};
 
+		$commerce_metadata_listener = static function ( array $metadata ) use ( $source ): void {
+			self::record_commerce_conversion_metadata( $source, $metadata );
+		};
+		$commerce_request_listener  = static function ( array $request ) use ( $source ): void {
+			self::record_commerce_conversion_metadata( $source, array_merge( array( 'type' => 'materialization_request' ), $request ) );
+		};
+
 		add_action( 'html_to_blocks_unsupported_html_fallback', $fallback_listener, 10, 3 );
 		add_action( 'html_to_blocks_conversion_aborted_content_loss', $content_loss_listener, 10, 2 );
+		add_action( 'bfb_conversion_metadata', $commerce_metadata_listener, 10, 1 );
+		add_action( 'bfb_materialization_request', $commerce_request_listener, 10, 1 );
 		// @phpstan-ignore-next-line function.notFound -- Loaded by the bundled Block Format Bridge runtime.
-		$blocks = bfb_convert( $html, 'html', 'blocks' );
+		$blocks = empty( self::$active_commerce_context ) ? bfb_convert( $html, 'html', 'blocks' ) : bfb_convert( $html, 'html', 'blocks', self::conversion_options( $source ) );
 		remove_action( 'html_to_blocks_unsupported_html_fallback', $fallback_listener, 10 );
 		remove_action( 'html_to_blocks_conversion_aborted_content_loss', $content_loss_listener, 10 );
+		remove_action( 'bfb_conversion_metadata', $commerce_metadata_listener, 10 );
+		remove_action( 'bfb_materialization_request', $commerce_request_listener, 10 );
 
 		if ( '' === $blocks ) {
 			self::record_conversion_empty( $source, $html );
@@ -2505,6 +2528,13 @@ class Static_Site_Importer_Theme_Generator {
 				'failure_reasons'                    => array(),
 			),
 			'conversion_fragments' => array(),
+			'commerce_context'     => array(
+				'supplied'       => false,
+				'source'         => 'none',
+				'product_count'  => 0,
+				'selector_hints' => array(),
+				'diagnostics'    => array(),
+			),
 			'assets'               => array(
 				'svg_icons'   => array(),
 				'svg_sprites' => array(),
@@ -2536,6 +2566,109 @@ class Static_Site_Importer_Theme_Generator {
 				'Semantic fidelity requires browser DOM extraction; use semantic_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',
 			),
 		);
+	}
+
+	/**
+	 * Resolve validated commerce context supplied by the caller.
+	 *
+	 * @param array<string, mixed> $args Import args.
+	 * @return array<string, mixed>
+	 */
+	private static function commerce_context_from_args( array $args ): array {
+		if ( isset( $args['commerce_context'] ) && is_array( $args['commerce_context'] ) ) {
+			return $args['commerce_context'];
+		}
+
+		return array();
+	}
+
+	/**
+	 * Build BFB conversion options for one source fragment.
+	 *
+	 * @param string $source Source fragment label.
+	 * @return array<string, mixed>
+	 */
+	private static function conversion_options( string $source ): array {
+		if ( empty( self::$active_commerce_context ) ) {
+			return array();
+		}
+
+		return array(
+			'context' => array(
+				'commerce' => array_merge(
+					self::$active_commerce_context,
+					array(
+						'source_fragment' => $source,
+					)
+				),
+			),
+			'source'  => array(
+				'fragment' => $source,
+			),
+		);
+	}
+
+	/**
+	 * Record whether commerce context is available for this import.
+	 *
+	 * @return void
+	 */
+	private static function record_commerce_context_summary(): void {
+		if ( empty( self::$active_commerce_context ) ) {
+			return;
+		}
+
+		$products = isset( self::$active_commerce_context['products'] ) && is_array( self::$active_commerce_context['products'] ) ? self::$active_commerce_context['products'] : array();
+		self::$conversion_report['commerce_context']['supplied']       = true;
+		self::$conversion_report['commerce_context']['source']         = isset( self::$active_commerce_context['source'] ) ? (string) self::$active_commerce_context['source'] : 'import_args';
+		self::$conversion_report['commerce_context']['product_count']  = count( $products );
+		self::$conversion_report['commerce_context']['selector_hints'] = self::commerce_selector_hints( self::$active_commerce_context );
+	}
+
+	/**
+	 * Extract source filename and selector hints from validated commerce context.
+	 *
+	 * @param array<string, mixed> $context Validated commerce context.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function commerce_selector_hints( array $context ): array {
+		$hints = array();
+		if ( isset( $context['selector_hints'] ) && is_array( $context['selector_hints'] ) ) {
+			foreach ( $context['selector_hints'] as $hint ) {
+				if ( is_array( $hint ) ) {
+					$hints[] = self::normalize_commerce_selector_hint( $hint );
+				}
+			}
+		}
+
+		$products = isset( $context['products'] ) && is_array( $context['products'] ) ? $context['products'] : array();
+		foreach ( $products as $product ) {
+			if ( is_array( $product ) ) {
+				$hint = self::normalize_commerce_selector_hint( $product );
+				if ( ! empty( $hint ) ) {
+					$hints[] = $hint;
+				}
+			}
+		}
+
+		return $hints;
+	}
+
+	/**
+	 * Normalize one commerce selector hint for report output.
+	 *
+	 * @param array<string, mixed> $source Source hint data.
+	 * @return array<string, mixed>
+	 */
+	private static function normalize_commerce_selector_hint( array $source ): array {
+		$hint = array();
+		foreach ( array( 'source_file', 'source_filename', 'selector', 'grid_selector', 'card_selector' ) as $key ) {
+			if ( isset( $source[ $key ] ) && '' !== trim( (string) $source[ $key ] ) ) {
+				$hint[ $key ] = (string) $source[ $key ];
+			}
+		}
+
+		return $hint;
 	}
 
 	/**
@@ -2624,17 +2757,17 @@ class Static_Site_Importer_Theme_Generator {
 			$generated   = self::generated_visual_probe_markup( $writes, $theme_prefix, $pattern );
 
 			self::$conversion_report['semantic_fidelity']['comparison_targets'][] = array(
-				'source_file'            => $page['path'],
-				'source_filename'        => $filename,
-				'wordpress_page_id'      => $page_ids[ $filename ] ?? null,
-				'wordpress_url'          => $permalinks[ $filename ] ?? '',
-				'generated_template'     => $template,
-				'generated_pattern'      => $pattern,
-				'generated_theme_parts'  => $theme_parts,
-				'generated_files'        => array_values( array_filter( array_merge( array( $template, $pattern ), $theme_parts ) ) ),
-				'regions'                => self::semantic_regions( $source_html, $generated ),
-				'semantic_selectors'     => self::semantic_selectors(),
-				'comparison_hooks'       => array(
+				'source_file'           => $page['path'],
+				'source_filename'       => $filename,
+				'wordpress_page_id'     => $page_ids[ $filename ] ?? null,
+				'wordpress_url'         => $permalinks[ $filename ] ?? '',
+				'generated_template'    => $template,
+				'generated_pattern'     => $pattern,
+				'generated_theme_parts' => $theme_parts,
+				'generated_files'       => array_values( array_filter( array_merge( array( $template, $pattern ), $theme_parts ) ) ),
+				'regions'               => self::semantic_regions( $source_html, $generated ),
+				'semantic_selectors'    => self::semantic_selectors(),
+				'comparison_hooks'      => array(
 					'landmarks' => array( 'header', 'nav', 'main', 'footer', '[role=banner]', '[role=navigation]', '[role=main]', '[role=contentinfo]' ),
 					'actions'   => array( 'a', 'button', '[role=button]', '.wp-block-button__link' ),
 					'identity'  => array( '[class*=brand]', '[class*=logo]', '[class*=wordmark]', 'img[alt*=logo i]', 'svg[aria-label*=logo i]' ),
@@ -3197,6 +3330,37 @@ class Static_Site_Importer_Theme_Generator {
 			'html_length'  => strlen( $element_html ),
 			'html_excerpt' => self::diagnostic_excerpt( $element_html ),
 		);
+	}
+
+	/**
+	 * Record commerce-related metadata emitted during conversion.
+	 *
+	 * @param string               $source   Source fragment label.
+	 * @param array<string, mixed> $metadata Conversion metadata.
+	 * @return void
+	 */
+	private static function record_commerce_conversion_metadata( string $source, array $metadata ): void {
+		if ( empty( self::$active_commerce_context ) || ! self::is_commerce_metadata( $metadata ) ) {
+			return;
+		}
+
+		self::$conversion_report['commerce_context']['diagnostics'][] = array(
+			'source'   => $source,
+			'metadata' => $metadata,
+		);
+	}
+
+	/**
+	 * Determine whether conversion metadata is commerce-related.
+	 *
+	 * @param array<string, mixed> $metadata Conversion metadata.
+	 * @return bool
+	 */
+	private static function is_commerce_metadata( array $metadata ): bool {
+		$encoded  = wp_json_encode( $metadata, JSON_UNESCAPED_SLASHES );
+		$haystack = is_string( $encoded ) ? strtolower( $encoded ) : '';
+
+		return str_contains( $haystack, 'commerce' ) || str_contains( $haystack, 'product' ) || str_contains( $haystack, 'woocommerce' );
 	}
 
 	/**
