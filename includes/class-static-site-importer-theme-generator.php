@@ -203,7 +203,7 @@ class Static_Site_Importer_Theme_Generator {
 
 		$source_deleted       = false;
 		$source_cleanup_error = '';
-		if ( ! empty( $args['delete_source'] ) ) {
+		if ( empty( $args['keep_source'] ) ) {
 			if ( ! empty( $quality['pass'] ) ) {
 				$cleanup_result = self::delete_source_dir( $site_dir, $html_path );
 				if ( is_wp_error( $cleanup_result ) ) {

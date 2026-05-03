@@ -36,8 +36,8 @@ class Static_Site_Importer_CLI_Command {
 	 * [--overwrite]
 	 * : Overwrite an existing theme directory.
 	 *
-	 * [--delete-source]
-	 * : Delete the source static-site directory after a successful clean import. Sources are preserved when import quality checks report issues.
+	 * [--keep-source]
+	 * : Preserve the source static-site directory after a successful clean import for debugging or development. Sources are always preserved when import quality checks report issues.
 	 *
 	 * [--fail-on-quality]
 	 * : Exit non-zero when conversion quality checks report fallbacks, invalid blocks, or content loss.
@@ -69,7 +69,7 @@ class Static_Site_Importer_CLI_Command {
 				'name'            => isset( $assoc_args['name'] ) ? (string) $assoc_args['name'] : '',
 				'activate'        => isset( $assoc_args['activate'] ),
 				'overwrite'       => isset( $assoc_args['overwrite'] ),
-				'delete_source'   => isset( $assoc_args['delete-source'] ),
+				'keep_source'     => isset( $assoc_args['keep-source'] ),
 				'fail_on_quality' => isset( $assoc_args['fail-on-quality'] ),
 				'max_fallbacks'   => isset( $assoc_args['max-fallbacks'] ) ? (int) $assoc_args['max-fallbacks'] : null,
 				'report'          => isset( $assoc_args['report'] ) ? (string) $assoc_args['report'] : '',
