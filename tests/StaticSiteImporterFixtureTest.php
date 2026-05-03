@@ -286,6 +286,44 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Classed theme chrome keeps source element ownership without core/html islands.
+	 */
+	public function test_classed_header_and_footer_chrome_preserve_source_elements(): void {
+		$html_path = $this->write_temp_fixture(
+			'classed-chrome.html',
+			'<!doctype html><html><head><title>Classed Chrome</title></head><body>' .
+			'<header><nav class="topbar"><a href="#" class="nav-logo">HOME<span>BOY</span></a><a href="#docs">Docs</a></nav></header>' .
+			'<main><section><h1>Classed chrome</h1><p>Body copy.</p></section></main>' .
+			'<footer><div class="footer-logo">HOMEBOY</div><p>Developer operations for engineers who ship with evidence.</p></footer>' .
+			'</body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Classed Chrome',
+				'slug'      => 'classed-chrome',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$header    = $this->read_file( $theme_dir . '/parts/header.html' );
+		$footer    = $this->read_file( $theme_dir . '/parts/footer.html' );
+
+		$this->assertStringNotContainsString( '<!-- wp:html', $header );
+		$this->assertStringNotContainsString( '<!-- wp:html', $footer );
+		$this->assertStringNotContainsString( '<p><a href="#" class="nav-logo">', $header );
+		$this->assertStringNotContainsString( '<p class="footer-logo">HOMEBOY</p>', $footer );
+		$this->assertStringContainsString( '<!-- wp:freeform --><a href="#" class="nav-logo">HOME<span>BOY</span></a><!-- /wp:freeform -->', $header );
+		$this->assertStringContainsString( '<!-- wp:freeform --><div class="footer-logo">HOMEBOY</div><!-- /wp:freeform -->', $footer );
+	}
+
+	/**
 	 * A top-level nav can contain brand chrome plus a nested menu list.
 	 */
 	public function test_branded_top_level_nav_preserves_brand_and_converts_only_menu_list(): void {
@@ -445,11 +483,12 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$footer    = $this->read_file( $theme_dir . '/parts/footer.html' );
 		$report    = json_decode( $this->read_file( $result['report_path'] ), true );
 
-		$this->assertStringContainsString( '<a href="#" class="nav-logo">HOME<span>BOY</span></a>', $header );
-		$this->assertStringContainsString( 'paragraph_wrapper_required_for_identity_anchor', wp_json_encode( $report['diagnostics'] ?? array() ) ?: '' );
+		$this->assertStringContainsString( '<!-- wp:freeform --><a href="#" class="nav-logo">HOME<span>BOY</span></a><!-- /wp:freeform -->', $header );
+		$this->assertStringNotContainsString( '<p><a href="#" class="nav-logo">HOME<span>BOY</span></a></p>', $header );
 		$this->assertStringNotContainsString( '<!-- wp:paragraph {"className":"footer-logo"} --><p class="footer-logo">HOMEBOY</p>', $footer );
-		$this->assertStringContainsString( '<!-- wp:group {"className":"footer-logo"} --><div class="wp-block-group footer-logo"><!-- wp:paragraph --><p>HOMEBOY</p><!-- /wp:paragraph --></div><!-- /wp:group -->', $footer );
-		$this->assertStringContainsString( 'native_group_wrapper_preserved_identity_class', wp_json_encode( $report['diagnostics'] ?? array() ) ?: '' );
+		$this->assertStringContainsString( '<!-- wp:freeform --><div class="footer-logo">HOMEBOY</div><!-- /wp:freeform -->', $footer );
+		$this->assertStringNotContainsString( 'paragraph_wrapper_required_for_identity_anchor', wp_json_encode( $report['diagnostics'] ?? array() ) ?: '' );
+		$this->assertStringNotContainsString( 'native_group_wrapper_preserved_identity_class', wp_json_encode( $report['diagnostics'] ?? array() ) ?: '' );
 	}
 
 	/**
