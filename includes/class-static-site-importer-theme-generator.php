@@ -861,6 +861,11 @@ class Static_Site_Importer_Theme_Generator {
 		$class = trim( $element->getAttribute( 'class' ) );
 		if ( preg_match( '/(^|[-_\s])(brand|logo)([-_\s]|$)/i', $class ) ) {
 			if ( ! self::element_has_only_phrasing_content( $element ) ) {
+				$inline_anchor = self::logo_anchor_inline_html( $doc, $element, $href, $class );
+				if ( '' !== $inline_anchor ) {
+					return self::paragraph_block( $inline_anchor );
+				}
+
 				return self::logo_anchor_block( $doc, $element, $href, $class );
 			}
 
@@ -883,6 +888,102 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return self::paragraph_block( '<a href="' . esc_url( $href ) . '"' . ( '' !== $class ? ' class="' . esc_attr( $class ) . '"' : '' ) . '>' . esc_html( $label ) . '</a>' );
+	}
+
+	/**
+	 * Build one valid inline anchor for logo/brand links with block-level source wrappers.
+	 *
+	 * @param DOMDocument $doc        Source DOM document.
+	 * @param DOMElement  $element    Anchor element.
+	 * @param string      $href       Anchor href.
+	 * @param string      $class_name Anchor class attribute.
+	 * @return string Inline anchor HTML, or empty when native inline markup cannot represent it safely.
+	 */
+	private static function logo_anchor_inline_html( DOMDocument $doc, DOMElement $element, string $href, string $class_name ): string {
+		$inner_html = '';
+		foreach ( $element->childNodes as $child ) {
+			$fragment = self::logo_anchor_inline_node_html( $doc, $child );
+			if ( null === $fragment ) {
+				return '';
+			}
+
+			$inner_html .= $fragment;
+		}
+
+		if ( '' === trim( wp_strip_all_tags( $inner_html ) ) && ! str_contains( $inner_html, '<img' ) ) {
+			return '';
+		}
+
+		$attrs = ' href="' . esc_url( $href ) . '"';
+		if ( '' !== trim( $class_name ) ) {
+			$attrs .= ' class="' . esc_attr( trim( $class_name ) ) . '"';
+		}
+
+		return '<a' . $attrs . '>' . trim( $inner_html ) . '</a>';
+	}
+
+	/**
+	 * Convert one logo-anchor child node to valid inline HTML.
+	 *
+	 * @param DOMDocument $doc  Source DOM document.
+	 * @param DOMNode     $node Source node.
+	 * @return string|null Inline HTML, or null when the node cannot be represented inline.
+	 */
+	private static function logo_anchor_inline_node_html( DOMDocument $doc, DOMNode $node ): ?string {
+		if ( $node instanceof DOMText ) {
+			$text = trim( $node->textContent );
+			return '' === $text ? '' : esc_html( $text );
+		}
+
+		if ( ! $node instanceof DOMElement ) {
+			return '';
+		}
+
+		$tag = strtolower( $node->tagName );
+		if ( 'div' === $tag ) {
+			$tag = 'span';
+		}
+
+		if ( ! in_array( $tag, array( 'abbr', 'b', 'bdi', 'bdo', 'br', 'cite', 'code', 'data', 'dfn', 'em', 'i', 'img', 'kbd', 'mark', 'q', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var', 'wbr' ), true ) ) {
+			return null;
+		}
+
+		if ( in_array( $tag, array( 'br', 'img', 'wbr' ), true ) ) {
+			return '<' . $tag . self::inline_logo_attribute_html( $node ) . '>';
+		}
+
+		$inner_html = '';
+		foreach ( $node->childNodes as $child ) {
+			$fragment = self::logo_anchor_inline_node_html( $doc, $child );
+			if ( null === $fragment ) {
+				return null;
+			}
+
+			$inner_html .= $fragment;
+		}
+
+		return '<' . $tag . self::inline_logo_attribute_html( $node ) . '>' . trim( $inner_html ) . '</' . $tag . '>';
+	}
+
+	/**
+	 * Preserve safe attributes for inline logo-anchor fragments.
+	 *
+	 * @param DOMElement $element Source element.
+	 * @return string Serialized attributes prefixed with spaces.
+	 */
+	private static function inline_logo_attribute_html( DOMElement $element ): string {
+		$html = '';
+		foreach ( $element->attributes as $attribute ) {
+			$name = strtolower( $attribute->nodeName );
+			if ( ! in_array( $name, array( 'alt', 'class', 'decoding', 'height', 'id', 'loading', 'role', 'src', 'style', 'title', 'width' ), true ) && ! str_starts_with( $name, 'aria-' ) && ! str_starts_with( $name, 'data-' ) ) {
+				continue;
+			}
+
+			$value = 'src' === $name ? esc_url( $attribute->nodeValue ) : esc_attr( $attribute->nodeValue );
+			$html .= ' ' . $name . '="' . $value . '"';
+		}
+
+		return $html;
 	}
 
 	/**
