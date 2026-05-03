@@ -118,10 +118,14 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'conversion_fragments', $report );
 		$this->assertArrayHasKey( 'generated_theme', $report );
 		$this->assertArrayHasKey( 'semantic_fidelity', $report );
+		$this->assertArrayHasKey( 'product_seeding', $report );
 		$this->assertArrayHasKey( 'diagnostics', $report );
 		$this->assertArrayNotHasKey( 'commerce', $report );
 		$this->assertSame( 0, $report['quality']['invalid_block_count'] ?? null );
 		$this->assertSame( 0, $report['quality']['invalid_block_document_count'] ?? null );
+		$this->assertSame( 'skipped', $report['product_seeding']['status'] ?? '' );
+		$this->assertSame( 'no_validated_manifest', $report['product_seeding']['reason'] ?? '' );
+		$this->assertSame( array( 'created' => 0, 'updated' => 0, 'skipped' => 0, 'error' => 0 ), $report['product_seeding']['counts'] ?? array() );
 		$this->assertNotEmpty( $report['generated_theme']['block_documents'] ?? array() );
 		$this->assertSame( 'requires_external_render_check', $report['semantic_fidelity']['status'] ?? '' );
 		$this->assertSame( 'benchmark_harness', $report['semantic_fidelity']['gate_owner'] ?? '' );
@@ -239,6 +243,12 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertSame( '54.00', $manifest['products'][0]['sale_price'] ?? '' );
 		$this->assertSame( array( 'Apparel' ), $manifest['products'][0]['categories'] ?? array() );
 		$this->assertSame( 'assets/signal-hoodie.jpg', $manifest['products'][0]['image'] ?? '' );
+		if ( ! class_exists( 'WC_Product_Simple' ) ) {
+			$this->assertSame( 'skipped', $report['product_seeding']['status'] ?? '' );
+			$this->assertSame( 'woocommerce_inactive', $report['product_seeding']['reason'] ?? '' );
+			$this->assertSame( array( 'created' => 0, 'updated' => 0, 'skipped' => 2, 'error' => 0 ), $report['product_seeding']['counts'] ?? array() );
+			$this->assertSame( 'signal-hoodie', $report['product_seeding']['products'][0]['slug'] ?? '' );
+		}
 	}
 
 	/**

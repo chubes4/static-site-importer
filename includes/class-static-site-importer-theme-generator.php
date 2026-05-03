@@ -183,6 +183,7 @@ class Static_Site_Importer_Theme_Generator {
 		self::analyze_generated_theme_block_documents( $writes, $theme_dir );
 		self::record_visual_fidelity_targets( $pages, $page_ids, $permalinks, $writes, $theme_dir );
 		self::record_semantic_fidelity_targets( $pages, $page_ids, $permalinks, $writes, $theme_dir );
+		self::record_product_seeding_report( $args );
 		$quality     = self::finalize_quality_report( $args );
 		$report_json = wp_json_encode( self::$conversion_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 		if ( false === $report_json ) {
@@ -2974,6 +2975,30 @@ class Static_Site_Importer_Theme_Generator {
 			'[class*=cta]',
 			'[class*=status]',
 		);
+	}
+
+	/**
+	 * Record WooCommerce product seeding results for an already-validated manifest.
+	 *
+	 * @param array<string, mixed> $args Import args.
+	 * @return void
+	 */
+	private static function record_product_seeding_report( array $args ): void {
+		$manifest = isset( $args['products_manifest'] ) && is_array( $args['products_manifest'] ) ? $args['products_manifest'] : null;
+		if ( null === $manifest ) {
+			$report_manifest = self::$conversion_report['commerce']['products_manifest'] ?? array();
+			if ( is_array( $report_manifest ) && true === ( $report_manifest['valid'] ?? false ) ) {
+				$manifest = isset( $report_manifest['products'] ) && is_array( $report_manifest['products'] ) ? $report_manifest['products'] : array();
+			}
+		}
+
+		if ( null === $manifest ) {
+			self::$conversion_report['product_seeding']           = Static_Site_Importer_Woo_Product_Seeder::new_report();
+			self::$conversion_report['product_seeding']['reason'] = 'no_validated_manifest';
+			return;
+		}
+
+		self::$conversion_report['product_seeding'] = Static_Site_Importer_Woo_Product_Seeder::seed( $manifest );
 	}
 
 	/**
