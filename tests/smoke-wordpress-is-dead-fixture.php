@@ -299,6 +299,57 @@ if ( false !== $wrote_fixture ) {
 	}
 }
 
+$footer_chrome_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-footer-chrome.html';
+$wrote_footer_chrome   = file_put_contents(
+	$footer_chrome_fixture,
+	'<!doctype html><html><head><title>Footer Chrome</title><style>' .
+	'footer { padding: 40px 48px; border-top: 1px solid var(--rule); display: flex; align-items: center; justify-content: space-between; background: var(--paper); }' .
+	'footer .footer-logo { font-family: var(--mono); font-size: 13px; color: #888; display: flex; align-items: center; gap: 8px; }' .
+	'footer .footer-meta { font-family: var(--mono); font-size: 12px; color: #bbb; }' .
+	'@media (max-width: 900px) { footer { flex-direction: column; gap: 12px; text-align: center; } }' .
+	'</style></head><body>' .
+	'<main><section><h1>Footer chrome fixture</h1><p>Body copy.</p></section></main>' .
+	'<footer><div class="footer-logo"><span style="width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block;"></span>Studio Code &mdash; by Automattic</div><div class="footer-meta">WordPress Studio &copy; 2025</div></footer>' .
+	'</body></html>'
+);
+$assert( false !== $wrote_footer_chrome, 'footer-chrome-fixture-written' );
+
+if ( false !== $wrote_footer_chrome ) {
+	$footer_chrome_result = Static_Site_Importer_Theme_Generator::import_theme(
+		$footer_chrome_fixture,
+		array(
+			'name'      => 'Footer Chrome',
+			'slug'      => 'footer-chrome',
+			'overwrite' => true,
+			'activate'  => false,
+		)
+	);
+	$assert( ! is_wp_error( $footer_chrome_result ), 'footer-chrome-import-succeeds', is_wp_error( $footer_chrome_result ) ? $footer_chrome_result->get_error_message() : '' );
+	if ( ! is_wp_error( $footer_chrome_result ) ) {
+		$footer_chrome_footer = $read( $footer_chrome_result['theme_dir'] . '/parts/footer.html' );
+		$footer_chrome_style  = $read( $footer_chrome_result['theme_dir'] . '/style.css' );
+		$footer_chrome_report = json_decode( $read( $footer_chrome_result['report_path'] ?? '' ), true );
+		$footer_document      = array();
+		foreach ( $footer_chrome_report['generated_theme']['block_documents'] ?? array() as $document ) {
+			if ( is_array( $document ) && 'parts/footer.html' === ( $document['path'] ?? '' ) ) {
+				$footer_document = $document;
+				break;
+			}
+		}
+
+		$assert( ! str_contains( $footer_chrome_footer, '<!-- wp:html' ), 'footer-chrome-has-no-core-html-blocks', $footer_chrome_footer );
+		$assert( ! str_contains( $footer_chrome_footer, 'core/html' ), 'footer-chrome-has-no-raw-core-html-name', $footer_chrome_footer );
+		$assert( str_contains( $footer_chrome_footer, '<!-- wp:paragraph {"className":"footer-logo"}' ), 'footer-logo-becomes-classed-paragraph' );
+		$assert( str_contains( $footer_chrome_footer, 'width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block;' ), 'footer-logo-decorative-span-style-survives' );
+		$assert( str_contains( $footer_chrome_footer, 'Studio Code — by Automattic' ), 'footer-logo-text-survives' );
+		$assert( str_contains( $footer_chrome_footer, '<!-- wp:paragraph {"className":"footer-meta"}' ), 'footer-meta-becomes-classed-paragraph' );
+		$assert( str_contains( $footer_chrome_style, 'display: flex; align-items: center; justify-content: space-between' ), 'footer-flex-alignment-css-survives' );
+		$assert( str_contains( $footer_chrome_style, 'footer .footer-logo' ) && str_contains( $footer_chrome_style, 'gap: 8px' ), 'footer-logo-spacing-css-survives' );
+		$assert( str_contains( $footer_chrome_style, 'flex-direction: column; gap: 12px; text-align: center' ), 'footer-responsive-spacing-css-survives' );
+		$assert( 0 === ( $footer_document['core_html_block_count'] ?? -1 ), 'footer-chrome-report-has-zero-footer-core-html-blocks' );
+	}
+}
+
 $leading_nav_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-leading-nav-header.html';
 $wrote_leading_nav   = file_put_contents(
 	$leading_nav_fixture,

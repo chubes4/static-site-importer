@@ -559,6 +559,10 @@ class Static_Site_Importer_Theme_Generator {
 			return self::link_element_block( $doc, $element );
 		}
 
+		if ( self::element_has_only_phrasing_content( $element ) ) {
+			return self::paragraph_block( self::node_inner_html( $doc, $element ), $element->getAttribute( 'class' ) );
+		}
+
 		$children = self::theme_part_child_blocks( $doc, $element, $theme_slug, $location );
 		if ( '' === trim( $children ) ) {
 			$text = trim( $element->textContent );
@@ -690,6 +694,58 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Check whether an element can be represented as one paragraph with inline markup.
+	 *
+	 * @param DOMElement $element Source element.
+	 * @return bool
+	 */
+	private static function element_has_only_phrasing_content( DOMElement $element ): bool {
+		if ( self::element_contains_svg_or_form( $element ) ) {
+			return false;
+		}
+
+		$has_content = false;
+		foreach ( $element->childNodes as $child ) {
+			if ( $child instanceof DOMText ) {
+				$has_content = $has_content || '' !== trim( $child->textContent );
+				continue;
+			}
+
+			if ( ! $child instanceof DOMElement ) {
+				continue;
+			}
+
+			$has_content = true;
+			if ( ! self::is_phrasing_element( $child ) ) {
+				return false;
+			}
+		}
+
+		return $has_content;
+	}
+
+	/**
+	 * Check whether an element is valid phrasing content inside a paragraph.
+	 *
+	 * @param DOMElement $element Source element.
+	 * @return bool
+	 */
+	private static function is_phrasing_element( DOMElement $element ): bool {
+		$tag = strtolower( $element->tagName );
+		if ( ! in_array( $tag, array( 'a', 'abbr', 'b', 'bdi', 'bdo', 'br', 'cite', 'code', 'data', 'dfn', 'em', 'i', 'kbd', 'mark', 'q', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var', 'wbr' ), true ) ) {
+			return false;
+		}
+
+		foreach ( self::direct_element_children( $element ) as $child ) {
+			if ( ! self::is_phrasing_element( $child ) ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/**
@@ -946,6 +1002,25 @@ class Static_Site_Importer_Theme_Generator {
 	private static function node_html( DOMDocument $doc, DOMElement $node ): string {
 		$html = $doc->saveHTML( $node );
 		return false === $html ? '' : $html;
+	}
+
+	/**
+	 * Serialize a DOM element's children.
+	 *
+	 * @param DOMDocument $doc  DOM document.
+	 * @param DOMElement  $node Element.
+	 * @return string
+	 */
+	private static function node_inner_html( DOMDocument $doc, DOMElement $node ): string {
+		$html = '';
+		foreach ( $node->childNodes as $child ) {
+			$fragment = $doc->saveHTML( $child );
+			if ( false !== $fragment ) {
+				$html .= $fragment;
+			}
+		}
+
+		return trim( $html );
 	}
 
 	/**
