@@ -2546,6 +2546,9 @@ class Static_Site_Importer_Theme_Generator {
 			return '';
 		}
 
+		$selectors[] = '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .wp-block-group.static-site-importer-decorative-layer)';
+		$selectors[] = '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block.wp-block-group.static-site-importer-decorative-layer';
+
 		$group_selector    = '.editor-styles-wrapper .wp-block-group.static-site-importer-decorative-layer';
 		$placeholder_rules = array(
 			$group_selector . ' .block-editor-block-variation-picker',
