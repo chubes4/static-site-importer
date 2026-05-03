@@ -1,0 +1,11 @@
+{
+  "schema_version": 2,
+  "products": [
+    {
+      "name": "",
+      "slug": "Invalid Slug",
+      "regular_price": 19,
+      "categories": "Accessories"
+    }
+  ]
+}
