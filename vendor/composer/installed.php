@@ -3,7 +3,7 @@
         'name' => 'chubes4/static-site-importer',
         'pretty_version' => 'dev-main',
         'version' => 'dev-main',
-        'reference' => 'd99f14062b2ff9395801f11d32df7a83483ebd81',
+        'reference' => '1102383d4124cf33a796ac01492c5473a1ce33dc',
         'type' => 'wordpress-plugin',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -11,9 +11,9 @@
     ),
     'versions' => array(
         'chubes4/block-format-bridge' => array(
-            'pretty_version' => 'v0.7.4',
-            'version' => '0.7.4.0',
-            'reference' => 'a451608568ec1697214e249919671b3033bb2524',
+            'pretty_version' => 'v0.7.5',
+            'version' => '0.7.5.0',
+            'reference' => '8e918c83425bda2afb3fc79c835c15dbd3d41d2e',
             'type' => 'wordpress-plugin',
             'install_path' => __DIR__ . '/../chubes4/block-format-bridge',
             'aliases' => array(),
@@ -22,7 +22,7 @@
         'chubes4/static-site-importer' => array(
             'pretty_version' => 'dev-main',
             'version' => 'dev-main',
-            'reference' => 'd99f14062b2ff9395801f11d32df7a83483ebd81',
+            'reference' => '1102383d4124cf33a796ac01492c5473a1ce33dc',
             'type' => 'wordpress-plugin',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),

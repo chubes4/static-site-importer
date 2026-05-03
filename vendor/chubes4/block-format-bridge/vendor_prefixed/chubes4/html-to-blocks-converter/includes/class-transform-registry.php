@@ -613,7 +613,15 @@ class HTML_To_Blocks_Transform_Registry
      */
     private static function get_button_transforms()
     {
-        return [['blockName' => 'core/buttons', 'priority' => 8, 'selector' => 'div,p', 'isMatch' => function ($element) {
+        return [['blockName' => 'core/group', 'priority' => 8, 'selector' => 'div,p', 'isMatch' => function ($element) {
+            return self::is_static_visual_button_container($element);
+        }, 'transform' => function ($element) {
+            return self::create_static_visual_button_group($element);
+        }], ['blockName' => 'core/paragraph', 'priority' => 8, 'selector' => 'button', 'isMatch' => function ($element) {
+            return self::is_static_visual_button($element);
+        }, 'transform' => function ($element) {
+            return self::create_static_visual_button_paragraph($element);
+        }], ['blockName' => 'core/buttons', 'priority' => 8, 'selector' => 'div,p', 'isMatch' => function ($element) {
             return self::is_button_anchor_container($element);
         }, 'transform' => function ($element) {
             return self::create_buttons_block_from_container($element);
@@ -653,6 +661,97 @@ class HTML_To_Blocks_Transform_Registry
             }
         }
         return \true;
+    }
+    /**
+     * Checks whether a wrapper contains only static visual button controls.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Element to inspect.
+     * @return bool True when direct button children can become native text blocks.
+     */
+    private static function is_static_visual_button_container($element): bool
+    {
+        if (!\in_array($element->get_tag_name(), ['DIV', 'P'], \true)) {
+            return \false;
+        }
+        $buttons = self::get_direct_static_visual_button_children_from_html($element->get_inner_html());
+        return \count($buttons) >= 2;
+    }
+    /**
+     * Gets direct static visual button children when no other content is present.
+     *
+     * @param string $html Inner HTML to inspect.
+     * @return array Static visual button elements.
+     */
+    private static function get_direct_static_visual_button_children_from_html(string $html): array
+    {
+        $remaining = $html;
+        $buttons = [];
+        if (!\preg_match_all('/<button\b([^>]*)>(.*?)<\/button>/is', $html, $matches, \PREG_SET_ORDER)) {
+            return [];
+        }
+        foreach ($matches as $match) {
+            $outer = $match[0];
+            $attributes = self::parse_attribute_string($match[1]);
+            $button = new HTML_To_Blocks_HTML_Element('button', $attributes, $outer, \trim($match[2]));
+            if (!self::is_static_visual_button($button)) {
+                return [];
+            }
+            $buttons[] = $button;
+            $remaining = \str_replace($outer, '', $remaining);
+        }
+        return \trim($remaining) === '' ? $buttons : [];
+    }
+    /**
+     * Checks whether a button is static visual UI text rather than a form control.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Element to inspect.
+     * @return bool True when the button can safely become editable paragraph text.
+     */
+    private static function is_static_visual_button($element): bool
+    {
+        if ('BUTTON' !== $element->get_tag_name()) {
+            return \false;
+        }
+        if ($element->has_attribute('form') || $element->has_attribute('name') || $element->has_attribute('value')) {
+            return \false;
+        }
+        $type = \strtolower(\trim((string) ($element->get_attribute('type') ?? '')));
+        if (\in_array($type, ['submit', 'reset'], \true)) {
+            return \false;
+        }
+        foreach ($element->get_attributes() as $name => $value) {
+            if (\preg_match('/^on/i', (string) $name) === 1) {
+                return \false;
+            }
+        }
+        if (\preg_match('/<\s*[a-z][^>]*>/i', $element->get_inner_html()) === 1 || \trim($element->get_text_content()) === '') {
+            return \false;
+        }
+        $class_name = $element->has_attribute('class') ? $element->get_attribute('class') : '';
+        return \preg_match('/(?:^|[-_\s])(?:tabs?|chips?|filters?|pills?|segmented|selector|use[-_]?case)(?:$|[-_\s])/i', $class_name) === 1;
+    }
+    /**
+     * Creates a native group from a static visual button row.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Button row wrapper.
+     * @return array Block array.
+     */
+    private static function create_static_visual_button_group($element): array
+    {
+        $buttons = \array_map([__CLASS__, 'create_static_visual_button_paragraph'], self::get_direct_static_visual_button_children_from_html($element->get_inner_html()));
+        return HTML_To_Blocks_Block_Factory::create_block('core/group', self::get_common_layout_attributes($element), $buttons);
+    }
+    /**
+     * Creates an editable paragraph block from a static visual button.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Button element.
+     * @return array Block array.
+     */
+    private static function create_static_visual_button_paragraph($element): array
+    {
+        $attributes = self::get_block_support_attributes($element, ['anchor' => \true, 'class_name' => \true, 'colors' => \true, 'typography' => \true, 'spacing' => \true, 'border' => \true]);
+        $attributes['content'] = $element->get_inner_html();
+        return HTML_To_Blocks_Block_Factory::create_block('core/paragraph', $attributes);
     }
     /**
      * Checks whether a container is explicitly an action/link row.
@@ -1052,7 +1151,7 @@ class HTML_To_Blocks_Transform_Registry
             if (self::has_unsafe_code_display_markup($element)) {
                 return \false;
             }
-            if (self::class_matches($element, '/(?:^|\s)(?:[A-Za-z0-9_-]*code[-_]?(?:window|preview|panel)[A-Za-z0-9_-]*|code[-_]?pane)(?:$|\s)/i')) {
+            if (self::class_matches($element, '/(?:^|\s)(?:[A-Za-z0-9_-]*code[-_]?(?:window|preview|panel|comparison)[A-Za-z0-9_-]*|code[-_]?pane)(?:$|\s)/i')) {
                 return \true;
             }
             if (self::is_code_window_part_container($element)) {
@@ -1077,6 +1176,10 @@ class HTML_To_Blocks_Transform_Registry
             $class_name = $child->has_attribute('class') ? $child->get_attribute('class') : '';
             if ('PRE' === $child->get_tag_name()) {
                 $inner_blocks[] = self::create_pre_code_preformatted_block($child);
+                continue;
+            }
+            if (self::class_matches($child, '/(?:^|[-_\s])code[-_]?block(?:$|[-_\s])/i') && \preg_match('/<pre\b/i', $child->get_inner_html()) === 1) {
+                $inner_blocks[] = HTML_To_Blocks_Block_Factory::create_block('core/group', self::get_common_layout_attributes($child), $handler(['HTML' => $child->get_inner_html()]));
                 continue;
             }
             if (\preg_match('/(?:^|\s)[A-Za-z0-9_-]*code[-_]?(?:body|block)[A-Za-z0-9_-]*(?:$|\s)/i', $class_name) === 1) {
@@ -1224,9 +1327,16 @@ class HTML_To_Blocks_Transform_Registry
             if (\preg_match('/(?:^|\s)[A-Za-z0-9_-]*(?:code[-_]?(?:bar|titlebar|header|pane[-_]?header|panel[-_]?label)|code[-_]?preview[-_]?header)[A-Za-z0-9_-]*(?:$|\s)/i', $class_name) === 1) {
                 $has_header = \true;
             }
-            if (\preg_match('/(?:^|\s)[A-Za-z0-9_-]*(?:code[-_]?(?:body|block|output|panel)|code[-_]?preview[-_]?body)[A-Za-z0-9_-]*(?:$|\s)/i', $class_name) === 1) {
+            if ('PRE' === $child->get_tag_name() || \preg_match('/(?:^|\s)[A-Za-z0-9_-]*(?:code[-_]?(?:body|block|output|panel)|code[-_]?preview[-_]?body)[A-Za-z0-9_-]*(?:$|\s)/i', $class_name) === 1) {
                 $has_body = \true;
             }
+        }
+        $inner_html = $element->get_inner_html();
+        if (!$has_header && \preg_match('/class=["\'][^"\']*[A-Za-z0-9_-]*code[-_]?(?:bar|titlebar|header|pane[-_]?header|panel[-_]?label)[A-Za-z0-9_-]*[^"\']*["\']/i', $inner_html) === 1) {
+            $has_header = \true;
+        }
+        if (!$has_body && \preg_match('/<pre\b/i', $inner_html) === 1) {
+            $has_body = \true;
         }
         return $has_header && $has_body;
     }
@@ -1864,6 +1974,27 @@ class HTML_To_Blocks_Transform_Registry
         if ($min_height !== '') {
             $attributes['style']['dimensions']['minHeight'] = $min_height;
         }
+        $width = self::extract_css_property($style, 'width');
+        if ($width !== '' && self::is_safe_dimension_value($width)) {
+            $attributes['style']['dimensions']['width'] = $width;
+        }
+    }
+    /**
+     * Checks whether a CSS dimension value is safe to preserve mechanically.
+     *
+     * @param string $value CSS dimension value.
+     * @return bool True when the value contains no executable or external payload.
+     */
+    private static function is_safe_dimension_value(string $value): bool
+    {
+        $value = \trim($value);
+        if ($value === '' || \strlen($value) > 80) {
+            return \false;
+        }
+        if (\preg_match('/(?:url\s*\(|expression\s*\(|javascript\s*:|behavior\s*:)/i', $value)) {
+            return \false;
+        }
+        return \preg_match('/^[0-9.]+(?:px|em|rem|%|vw|vh|vmin|vmax|ch|ex)?$/i', $value) === 1 || \preg_match('/^calc\(\s*[0-9.]+(?:px|em|rem|%|vw|vh|vmin|vmax|ch|ex)?\s*[-+]\s*[0-9.]+(?:px|em|rem|%|vw|vh|vmin|vmax|ch|ex)?\s*\)$/i', $value) === 1;
     }
     /**
      * Checks whether a section is a high-confidence full-bleed hero wrapper.
@@ -2078,7 +2209,7 @@ class HTML_To_Blocks_Transform_Registry
      */
     private static function is_empty_decorative_element($element): bool
     {
-        return self::is_empty_element($element) && self::class_matches($element, '/(?:^|[-_\s])(background|bg|pattern|texture|divider|separator|connector|rule|line|overlay|grain|noise|glow|dot|mark|bullet|orb|blob)(?:$|[-_\s]|\d)/i');
+        return self::is_empty_element($element) && self::class_matches($element, '/(?:^|[-_\s])(background|bg|pattern|texture|divider|separator|connector|rule|line|overlay|grain|noise|glow|gradient|dot|mark|bullet|icon|orb|blob|fill|progress|meter|gauge|today)(?:$|[-_\s]|\d)/i');
     }
     /**
      * Checks whether an element has no meaningful text or child elements.
@@ -2202,14 +2333,17 @@ class HTML_To_Blocks_Transform_Registry
         return '';
     }
     /**
-     * core/paragraph transforms - p/address/a elements and text-only wrappers (lowest priority, fallback)
+     * core/paragraph transforms - p/address/a elements, visual labels, and text-only wrappers (lowest priority, fallback)
      *
      * @return array Transform definitions
      */
     private static function get_paragraph_transforms()
     {
-        return [['blockName' => 'core/paragraph', 'priority' => 20, 'selector' => 'p,address,a,div,span', 'isMatch' => function ($element) {
+        return [['blockName' => 'core/paragraph', 'priority' => 20, 'selector' => 'p,address,a,label,div,span', 'isMatch' => function ($element) {
             if (\in_array($element->get_tag_name(), ['P', 'ADDRESS', 'A'], \true)) {
+                return \true;
+            }
+            if (self::is_static_visual_label($element)) {
                 return \true;
             }
             return \in_array($element->get_tag_name(), ['DIV', 'SPAN'], \true) && array() === $element->get_child_elements() && \trim($element->get_text_content()) !== '';
@@ -2219,5 +2353,25 @@ class HTML_To_Blocks_Transform_Registry
             $attributes['content'] = $content;
             return HTML_To_Blocks_Block_Factory::create_block('core/paragraph', $attributes);
         }]];
+    }
+    /**
+     * Checks whether a label is static visual UI text rather than a form label.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element The source element.
+     * @return bool True when the label can safely become editable paragraph text.
+     */
+    private static function is_static_visual_label($element): bool
+    {
+        if ('LABEL' !== $element->get_tag_name()) {
+            return \false;
+        }
+        if ($element->has_attribute('for') || $element->has_attribute('form')) {
+            return \false;
+        }
+        $inner_html = $element->get_inner_html();
+        if (\trim(wp_strip_all_tags($inner_html)) === '') {
+            return \false;
+        }
+        return \preg_match('/<\s*(?:input|select|textarea|button|output|meter|progress)\b/i', $inner_html) !== 1;
     }
 }

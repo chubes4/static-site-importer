@@ -152,6 +152,10 @@ class HTML_To_Blocks_Block_Factory
         if (\is_string($min_height) && $min_height !== '') {
             $declarations[] = 'min-height:' . $min_height;
         }
+        $width = $style['dimensions']['width'] ?? null;
+        if (\is_string($width) && $width !== '') {
+            $declarations[] = 'width:' . $width;
+        }
         return \implode(';', $declarations);
     }
     /**

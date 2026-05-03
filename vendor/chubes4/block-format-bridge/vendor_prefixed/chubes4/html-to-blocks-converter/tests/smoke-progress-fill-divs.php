@@ -3,9 +3,9 @@
 namespace BlockFormatBridge\Vendor;
 
 /**
- * Smoke test: empty decorative glow divs convert to native blocks.
+ * Smoke test: empty decorative progress/fill divs convert to native blocks.
  *
- * Run: php tests/smoke-empty-glow-decorative-divs.php
+ * Run: php tests/smoke-progress-fill-divs.php
  */
 // phpcs:disable
 if (!\defined('ABSPATH')) {
@@ -37,7 +37,7 @@ if (!\class_exists('WP_Block_Type_Registry', \false)) {
         }
         public function is_registered($name)
         {
-            return \in_array($name, ['core/group', 'core/html', 'core/heading', 'core/paragraph'], \true);
+            return \in_array($name, ['core/group', 'core/html', 'core/paragraph'], \true);
         }
         public function get_registered($name)
         {
@@ -118,21 +118,11 @@ $flatten_blocks = static function (array $blocks) use (&$flatten_blocks): array 
     return $flat;
 };
 $html = <<<'HTML'
-<section class="hero-shell">
-  <div class="hero-glow-1"></div>
-  <div class="hero-glow-2"></div>
-  <div class="hero-gradient"></div>
-  <div class="hero-content">
-    <h1>Glow Native</h1>
-    <p>Decorative layers should stay editable.</p>
-  </div>
-</section>
-<div class="quote-card">
-  <div class="quote-glow"></div>
-  <p>Native quote chrome.</p>
+<div class="finance-bar">
+  <div class="finance-fill" style="width: 74%"></div>
+  <div class="finance-fill seafoam" style="width: 17%"></div>
+  <div class="finance-fill sand" style="width: 9%"></div>
 </div>
-<div class="timeline-today"></div>
-<div class="check-icon"></div>
 HTML;
 $blocks = html_to_blocks_raw_handler(['HTML' => $html]);
 $flat = $flatten_blocks($blocks);
@@ -142,34 +132,20 @@ $names = \array_map(static function ($block) {
 $class_names = \array_filter(\array_map(static function ($block) {
     return $block['attrs']['className'] ?? '';
 }, $flat));
+$widths = \array_values(\array_filter(\array_map(static function ($block) {
+    return $block['attrs']['style']['dimensions']['width'] ?? '';
+}, $flat)));
 $serialized = serialize_blocks($blocks);
-$assert(!\in_array('core/html', $names, \true), 'empty-glow-decorative-divs-do-not-use-core-html', \implode(', ', $names));
-$assert(\count($fallback_events) === 0, 'empty-glow-decorative-divs-emit-no-fallback-events', (string) \count($fallback_events));
-$assert(\in_array('core/group', $names, \true), 'empty-glow-decorative-divs-use-group-blocks', \implode(', ', $names));
-$assert(\in_array('core/heading', $names, \true), 'neighbor-heading-converts-natively', \implode(', ', $names));
-$assert(\in_array('core/paragraph', $names, \true), 'neighbor-paragraph-converts-natively', \implode(', ', $names));
-$assert(\in_array('hero-glow-1', $class_names, \true), 'hero-glow-1-class-survives', \implode(', ', $class_names));
-$assert(\in_array('hero-glow-2', $class_names, \true), 'hero-glow-2-class-survives', \implode(', ', $class_names));
-$assert(\in_array('hero-gradient', $class_names, \true), 'hero-gradient-class-survives', \implode(', ', $class_names));
-$assert(\in_array('quote-glow', $class_names, \true), 'quote-glow-class-survives', \implode(', ', $class_names));
-$assert(\in_array('timeline-today', $class_names, \true), 'timeline-today-class-survives', \implode(', ', $class_names));
-$assert(\in_array('check-icon', $class_names, \true), 'check-icon-class-survives', \implode(', ', $class_names));
-$assert(\str_contains($serialized, '<div class="wp-block-group hero-glow-1"></div>'), 'empty-hero-glow-1-serializes-valid-group-wrapper', $serialized);
-$assert(\str_contains($serialized, '<div class="wp-block-group hero-glow-2"></div>'), 'empty-hero-glow-2-serializes-valid-group-wrapper', $serialized);
-$assert(\str_contains($serialized, '<div class="wp-block-group hero-gradient"></div>'), 'empty-hero-gradient-serializes-valid-group-wrapper', $serialized);
-$assert(\str_contains($serialized, '<div class="wp-block-group quote-glow"></div>'), 'empty-quote-glow-serializes-valid-group-wrapper', $serialized);
-$assert(\str_contains($serialized, '<div class="wp-block-group timeline-today"></div>'), 'empty-timeline-today-serializes-valid-group-wrapper', $serialized);
-$assert(\str_contains($serialized, '<div class="wp-block-group check-icon"></div>'), 'empty-check-icon-serializes-valid-group-wrapper', $serialized);
-$assert(\str_contains($serialized, 'Glow Native'), 'neighbor-heading-text-survives', $serialized);
-$assert(\str_contains($serialized, 'Decorative layers should stay editable.'), 'neighbor-paragraph-text-survives', $serialized);
-$assert(\str_contains($serialized, 'Native quote chrome.'), 'quote-content-survives', $serialized);
+$assert(!\in_array('core/html', $names, \true), 'progress-fill-divs-do-not-use-core-html', \implode(', ', $names));
+$assert(\count($fallback_events) === 0, 'progress-fill-divs-emit-no-fallback-events', (string) \count($fallback_events));
+$assert(\substr_count(\implode(',', $names), 'core/group') === 4, 'progress-fill-divs-use-group-blocks', \implode(', ', $names));
+$assert(\in_array('finance-bar', $class_names, \true), 'progress-wrapper-class-survives', \implode(', ', $class_names));
+$assert(\in_array('finance-fill', $class_names, \true), 'progress-fill-class-survives', \implode(', ', $class_names));
+$assert(\in_array('finance-fill seafoam', $class_names, \true), 'progress-fill-extra-class-survives', \implode(', ', $class_names));
+$assert(\in_array('finance-fill sand', $class_names, \true), 'progress-fill-second-extra-class-survives', \implode(', ', $class_names));
+$assert($widths === ['74%', '17%', '9%'], 'progress-fill-widths-survive', \implode(', ', $widths));
+$assert(\str_contains($serialized, 'style="width:74%"'), 'serialized-progress-width-survives', $serialized);
 $assert(!\str_contains($serialized, '<!-- wp:html -->'), 'serialized-output-has-no-wp-html', $serialized);
-$arbitrary_blocks = html_to_blocks_raw_handler(['HTML' => '<div class="custom-widget">Meaningful widget copy</div>']);
-$arbitrary_names = \array_map(static function ($block) {
-    return $block['blockName'] ?? '';
-}, $flatten_blocks($arbitrary_blocks));
-$assert(!\in_array('core/group', $arbitrary_names, \true), 'non-empty-arbitrary-div-does-not-become-group', \implode(', ', $arbitrary_names));
-$assert(\in_array('core/paragraph', $arbitrary_names, \true), 'non-empty-arbitrary-div-remains-textual', \implode(', ', $arbitrary_names));
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

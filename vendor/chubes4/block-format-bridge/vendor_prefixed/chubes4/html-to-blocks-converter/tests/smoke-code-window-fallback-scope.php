@@ -326,6 +326,41 @@ $assert(\str_contains($code_preview_serialized, 'code-preview-body') && \str_con
 $assert(\str_contains($code_preview_serialized, 'Your HTML input') && \str_contains($code_preview_serialized, 'WordPress blocks'), 'code-preview-label-text-survives', $code_preview_serialized);
 $assert(\str_contains($code_preview_serialized, '&lt;section class="hero"&gt;') && \str_contains($code_preview_serialized, '&lt;!-- wp:group --&gt;'), 'code-preview-code-text-survives', $code_preview_serialized);
 $assert(!\str_contains($code_preview_serialized, 'code-dot-r') && !\str_contains($code_preview_serialized, 'dot-amber'), 'code-preview-decorative-dots-are-dropped', $code_preview_serialized);
+$code_comparison_html = <<<'HTML'
+<div class="code-comparison fade-up stagger-2">
+  <div class="code-block">
+    <div class="code-block-header">
+      <span>Input &mdash; plain HTML</span>
+      <span class="code-block-badge">Agent writes this</span>
+    </div>
+    <pre><span class="tag">&lt;section</span> class="hero"<span class="tag">&gt;</span>
+  <span class="tag">&lt;h1&gt;</span>Launch<span class="tag">&lt;/h1&gt;</span>
+<span class="tag">&lt;/section&gt;</span></pre>
+  </div>
+  <div class="code-block">
+    <div class="code-block-header">
+      <span>Output &mdash; WordPress blocks</span>
+      <span class="code-block-badge">Stored natively</span>
+    </div>
+    <pre>&lt;!-- wp:group --&gt;
+&lt;!-- wp:heading --&gt;Launch&lt;!-- /wp:heading --&gt;</pre>
+  </div>
+</div>
+HTML;
+$code_comparison_blocks = html_to_blocks_raw_handler(['HTML' => $code_comparison_html]);
+$code_comparison_serialized = serialize_blocks($code_comparison_blocks);
+$code_comparison_fallbacks = $collect_blocks($code_comparison_blocks, 'core/html');
+$code_comparison_groups = $collect_blocks($code_comparison_blocks, 'core/group');
+$code_comparison_paragraphs = $collect_blocks($code_comparison_blocks, 'core/paragraph');
+$code_comparison_preformatted = $collect_blocks($code_comparison_blocks, 'core/preformatted');
+$assert(\count($code_comparison_fallbacks) === 0, 'code-comparison-does-not-fallback-to-html', $code_comparison_serialized);
+$assert(\count($code_comparison_groups) >= 5, 'code-comparison-wrappers-become-groups', $code_comparison_serialized);
+$assert(\count($code_comparison_paragraphs) === 2, 'code-comparison-headers-become-paragraphs', $code_comparison_serialized);
+$assert(\count($code_comparison_preformatted) === 2, 'code-comparison-pres-become-preformatted', $code_comparison_serialized);
+$assert(\str_contains($code_comparison_serialized, 'code-comparison fade-up stagger-2'), 'code-comparison-classes-survive', $code_comparison_serialized);
+$assert(\str_contains($code_comparison_serialized, 'code-block') && \str_contains($code_comparison_serialized, 'code-block-header'), 'code-block-classes-survive', $code_comparison_serialized);
+$assert(\str_contains($code_comparison_serialized, 'Input &mdash; plain HTML') && \str_contains($code_comparison_serialized, 'Stored natively'), 'code-comparison-header-text-survives', $code_comparison_serialized);
+$assert(\str_contains($code_comparison_serialized, '&lt;section') && \str_contains($code_comparison_serialized, '&lt;!-- wp:group --&gt;'), 'code-comparison-code-text-survives', $code_comparison_serialized);
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;
