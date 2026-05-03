@@ -25,11 +25,12 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$result = Static_Site_Importer_Theme_Generator::import_theme(
 			$fixture,
 			array(
-				'name'      => 'WordPress Is Dead Fixture',
-				'slug'      => 'wordpress-is-dead-fixture',
-				'overwrite' => true,
-				'activate'  => false,
-				'report'    => trailingslashit( get_temp_dir() ) . 'static-site-importer-fixture-report.json',
+				'name'        => 'WordPress Is Dead Fixture',
+				'slug'        => 'wordpress-is-dead-fixture',
+				'overwrite'   => true,
+				'activate'    => false,
+				'keep_source' => true,
+				'report'      => trailingslashit( get_temp_dir() ) . 'static-site-importer-fixture-report.json',
 			)
 		);
 
@@ -154,15 +155,60 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$second_result = Static_Site_Importer_Theme_Generator::import_theme(
 			$fixture,
 			array(
-				'name'      => 'WordPress Is Dead Fixture',
-				'slug'      => 'wordpress-is-dead-fixture',
-				'overwrite' => true,
-				'activate'  => false,
+				'name'        => 'WordPress Is Dead Fixture',
+				'slug'        => 'wordpress-is-dead-fixture',
+				'overwrite'   => true,
+				'activate'    => false,
+				'keep_source' => true,
 			)
 		);
 		$this->assertNotWPError( $second_result );
 		$this->assertSame( $header_nav->ID, get_page_by_path( 'wordpress-is-dead-fixture-header-navigation', OBJECT, 'wp_navigation' )->ID );
 		$this->assertSame( $footer_nav->ID, get_page_by_path( 'wordpress-is-dead-fixture-footer-navigation', OBJECT, 'wp_navigation' )->ID );
+	}
+
+	/**
+	 * Relay Atlas-style logo anchors convert without core/html islands.
+	 */
+	public function test_relay_atlas_logo_anchor_fixture_imports_without_html_islands(): void {
+		$plugin_root = dirname( __DIR__ );
+		$fixture     = $plugin_root . '/tests/fixtures/relay-atlas-logo-anchors/index.html';
+
+		$this->assertFileExists( $fixture );
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$fixture,
+			array(
+				'name'        => 'Relay Atlas Logo Anchors',
+				'slug'        => 'relay-atlas-logo-anchors',
+				'overwrite'   => true,
+				'activate'    => false,
+				'keep_source' => true,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$header    = $this->read_file( $theme_dir . '/parts/header.html' );
+		$footer    = $this->read_file( $theme_dir . '/parts/footer.html' );
+		$report    = json_decode( $this->read_file( $result['report_path'] ), true );
+
+		$this->assertIsArray( $report );
+		$this->assertSame( 0, $report['quality']['core_html_block_count'] ?? null );
+		$this->assertStringNotContainsString( '<!-- wp:html -->', $header );
+		$this->assertStringNotContainsString( '<!-- wp:html -->', $footer );
+		$this->assertStringContainsString( 'href="#"', $header );
+		$this->assertStringContainsString( 'class="logo"', $header );
+		$this->assertStringContainsString( 'class="logo-mark"', $header );
+		$this->assertStringContainsString( 'Relay Atlas', $header );
+		$this->assertStringContainsString( 'relay-mark.svg', $header );
+		$this->assertStringContainsString( 'href="#"', $footer );
+		$this->assertStringContainsString( 'class="footer-logo"', $footer );
+		$this->assertStringContainsString( 'Relay Atlas', $footer );
+		$this->assertStringContainsString( '<!-- wp:navigation ', $header );
+		$this->assertStringContainsString( '<!-- wp:navigation ', $footer );
 	}
 
 	/**

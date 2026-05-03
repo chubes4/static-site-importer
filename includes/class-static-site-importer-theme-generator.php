@@ -813,7 +813,12 @@ class Static_Site_Importer_Theme_Generator {
 
 		$class = trim( $element->getAttribute( 'class' ) );
 		if ( preg_match( '/(^|[-_\s])(brand|logo)([-_\s]|$)/i', $class ) ) {
-			return self::html_block( self::node_html( $doc, $element ) );
+			$anchor_attrs = ' href="' . esc_url( $href ) . '"';
+			if ( '' !== $class ) {
+				$anchor_attrs .= ' class="' . esc_attr( $class ) . '"';
+			}
+
+			return self::paragraph_block( '<a' . $anchor_attrs . '>' . self::node_inner_html( $doc, $element ) . '</a>' );
 		}
 
 		if ( preg_match( '/(^|[-_\s])(btn|button|cta|pill)([-_\s]|$)/i', $class ) ) {

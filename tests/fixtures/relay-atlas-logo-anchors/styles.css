@@ -1,0 +1,23 @@
+.site-header,
+.site-footer {
+	padding: 24px;
+}
+
+.header-inner,
+.footer-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.logo,
+.footer-logo {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	font-weight: 700;
+}
+
+.logo-mark {
+	display: inline-flex;
+}
