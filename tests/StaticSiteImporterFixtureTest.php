@@ -118,9 +118,13 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'conversion_fragments', $report );
 		$this->assertArrayHasKey( 'generated_theme', $report );
 		$this->assertArrayHasKey( 'semantic_fidelity', $report );
+		$this->assertArrayHasKey( 'product_seeding', $report );
 		$this->assertArrayHasKey( 'diagnostics', $report );
 		$this->assertSame( 0, $report['quality']['invalid_block_count'] ?? null );
 		$this->assertSame( 0, $report['quality']['invalid_block_document_count'] ?? null );
+		$this->assertSame( 'skipped', $report['product_seeding']['status'] ?? '' );
+		$this->assertSame( 'no_validated_manifest', $report['product_seeding']['reason'] ?? '' );
+		$this->assertSame( array( 'created' => 0, 'updated' => 0, 'skipped' => 0, 'error' => 0 ), $report['product_seeding']['counts'] ?? array() );
 		$this->assertNotEmpty( $report['generated_theme']['block_documents'] ?? array() );
 		$this->assertSame( 'requires_external_render_check', $report['semantic_fidelity']['status'] ?? '' );
 		$this->assertSame( 'benchmark_harness', $report['semantic_fidelity']['gate_owner'] ?? '' );
@@ -198,6 +202,51 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertNotWPError( $second_result );
 		$this->assertSame( $header_nav->ID, get_page_by_path( 'wordpress-is-dead-fixture-header-navigation', OBJECT, 'wp_navigation' )->ID );
 		$this->assertSame( $footer_nav->ID, get_page_by_path( 'wordpress-is-dead-fixture-footer-navigation', OBJECT, 'wp_navigation' )->ID );
+	}
+
+	/**
+	 * A validated product manifest only records diagnostics when WooCommerce is unavailable.
+	 */
+	public function test_product_manifest_seeding_is_diagnostic_without_woocommerce(): void {
+		if ( class_exists( 'WC_Product_Simple' ) ) {
+			$this->markTestSkipped( 'WooCommerce is active; inactive diagnostic behavior is covered without loading WooCommerce.' );
+		}
+
+		$plugin_root = dirname( __DIR__ );
+		$fixture     = $plugin_root . '/tests/fixtures/wordpress-is-dead/index.html';
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$fixture,
+			array(
+				'name'              => 'Woo Product Diagnostic Fixture',
+				'slug'              => 'woo-product-diagnostic-fixture',
+				'overwrite'         => true,
+				'activate'          => false,
+				'keep_source'       => true,
+				'products_manifest' => array(
+					'products' => array(
+						array(
+							'name'              => 'Country Sourdough',
+							'slug'              => 'country-sourdough',
+							'regular_price'     => '14.00',
+							'description'       => 'A 48-hour cold-fermented loaf.',
+							'short_description' => 'Cold-fermented sourdough.',
+							'categories'        => array( 'Bread' ),
+							'status'            => 'publish',
+							'stock_status'      => 'instock',
+						),
+					),
+				),
+			)
+		);
+
+		$this->assertNotWPError( $result );
+
+		$report = json_decode( $this->read_file( $result['report_path'] ), true );
+		$this->assertSame( 'skipped', $report['product_seeding']['status'] ?? '' );
+		$this->assertSame( 'woocommerce_inactive', $report['product_seeding']['reason'] ?? '' );
+		$this->assertSame( array( 'created' => 0, 'updated' => 0, 'skipped' => 1, 'error' => 0 ), $report['product_seeding']['counts'] ?? array() );
+		$this->assertSame( 'country-sourdough', $report['product_seeding']['products'][0]['slug'] ?? '' );
 	}
 
 	/**
