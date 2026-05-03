@@ -136,6 +136,14 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( ( $home_visual_target['source_probe_counts']['hero_candidates'] ?? 0 ) > 0, 'visual-target-counts-source-hero-probes' );
 	$assert( ( $home_visual_target['source_probe_counts']['button_candidates'] ?? 0 ) > 0, 'visual-target-counts-source-button-probes' );
 	$assert( ( $home_visual_target['generated_probe_counts']['core_button_blocks'] ?? 0 ) > 0, 'visual-target-counts-generated-core-button-blocks' );
+	$assert( isset( $home_visual_target['comparison_hooks']['render_surfaces']['source_static'] ), 'visual-target-defines-source-render-surface' );
+	$assert( isset( $home_visual_target['comparison_hooks']['render_surfaces']['wordpress_frontend'] ), 'visual-target-defines-frontend-render-surface' );
+	$assert( isset( $home_visual_target['comparison_hooks']['render_surfaces']['site_editor_canvas'] ), 'visual-target-defines-site-editor-render-surface' );
+	$assert( isset( $home_visual_target['comparison_hooks']['layout_probes']['nav_chrome'] ), 'visual-target-defines-nav-chrome-layout-probe' );
+	$assert( isset( $home_visual_target['comparison_hooks']['layout_probes']['code_visual'] ), 'visual-target-defines-code-visual-layout-probe' );
+	$assert( isset( $home_visual_target['comparison_hooks']['layout_probes']['problem_grid'] ), 'visual-target-defines-problem-grid-layout-probe' );
+	$assert( in_array( 'frontend_editor_visibility_parity', $home_visual_target['comparison_hooks']['layout_probes']['code_visual']['assertions'] ?? array(), true ), 'code-visual-probe-checks-frontend-editor-visibility' );
+	$assert( in_array( 'frontend_editor_column_parity', $home_visual_target['comparison_hooks']['layout_probes']['problem_grid']['assertions'] ?? array(), true ), 'problem-grid-probe-checks-frontend-editor-columns' );
 	$assert( in_array( 'style.css', $home_visual_target['comparison_hooks']['generated_files'] ?? array(), true ), 'visual-target-points-harness-at-generated-css' );
 	$assert( isset( $result['quality']['pass'] ), 'import-result-includes-quality-summary' );
 	$assert( str_contains( $page, 'wp:post-content' ), 'page-template-renders-imported-page-content' );
@@ -497,6 +505,54 @@ if ( false !== $wrote_pure_nav ) {
 	}
 }
 
+$legacy_visual_parity_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-visual-parity-probes.html';
+if ( file_exists( $legacy_visual_parity_fixture ) ) {
+	wp_delete_file( $legacy_visual_parity_fixture );
+}
+$visual_parity_dir     = trailingslashit( get_temp_dir() ) . 'static-site-importer-visual-parity-probes-' . wp_generate_uuid4();
+$visual_parity_fixture = trailingslashit( $visual_parity_dir ) . 'index.html';
+wp_mkdir_p( $visual_parity_dir );
+$wrote_visual_parity   = file_put_contents(
+	$visual_parity_fixture,
+	'<!doctype html><html><head><title>Visual Parity Probes</title><style>' .
+	'nav { display: flex; justify-content: space-between; }' .
+	'.code-window { display: block; min-height: 120px; }' .
+	'.problem-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }' .
+	'</style></head><body>' .
+	'<nav class="nav-shell"><a href="#hero">Visual Parity</a><a href="#problems">Problems</a></nav>' .
+	'<main><section id="hero" class="hero"><div class="code-window"><pre class="code-body">wp static-site-importer import-theme ./site</pre></div></section>' .
+	'<section id="problems"><div class="problem-grid"><article class="problem-card"><h2>Static is winning</h2><p>Fast HTML wins mindshare.</p></article><article class="problem-card"><h2>WordPress can answer</h2><p>Editable blocks preserve the work.</p></article></div></section></main>' .
+	'</body></html>'
+);
+$assert( false !== $wrote_visual_parity, 'visual-parity-fixture-written' );
+
+if ( false !== $wrote_visual_parity ) {
+	$visual_parity_result = Static_Site_Importer_Theme_Generator::import_theme(
+		$visual_parity_fixture,
+		array(
+			'name'      => 'Visual Parity Probes',
+			'slug'      => 'visual-parity-probes',
+			'overwrite' => true,
+			'activate'  => false,
+		)
+	);
+	$assert( ! is_wp_error( $visual_parity_result ), 'visual-parity-import-succeeds', is_wp_error( $visual_parity_result ) ? $visual_parity_result->get_error_message() : '' );
+	if ( ! is_wp_error( $visual_parity_result ) ) {
+		$visual_parity_report = json_decode( $read( $visual_parity_result['report_path'] ?? '' ), true );
+		$visual_target        = $visual_parity_report['visual_fidelity']['comparison_targets'][0] ?? array();
+		$layout_probes        = $visual_target['comparison_hooks']['layout_probes'] ?? array();
+
+		$assert( ( $visual_target['source_probe_counts']['code_visual_candidates'] ?? 0 ) > 0, 'visual-parity-counts-source-code-visual-probes' );
+		$assert( ( $visual_target['source_probe_counts']['grid_candidates'] ?? 0 ) > 0, 'visual-parity-counts-source-grid-probes' );
+		$assert( ( $visual_target['generated_probe_counts']['code_visual_candidates'] ?? 0 ) > 0, 'visual-parity-counts-generated-code-visual-probes' );
+		$assert( ( $visual_target['generated_probe_counts']['grid_candidates'] ?? 0 ) > 0, 'visual-parity-counts-generated-grid-probes' );
+		$assert( 2 === ( $layout_probes['problem_grid']['min_columns'] ?? 0 ), 'visual-parity-problem-grid-requires-two-desktop-columns' );
+		$assert( in_array( 'children_same_row_desktop', $layout_probes['problem_grid']['assertions'] ?? array(), true ), 'visual-parity-problem-grid-checks-same-row-desktop' );
+		$assert( in_array( '.code-window', $visual_target['comparison_hooks']['code_visuals'] ?? array(), true ), 'visual-parity-exposes-code-window-selector' );
+		$assert( in_array( '.problem-grid', $visual_target['comparison_hooks']['problem_grids'] ?? array(), true ), 'visual-parity-exposes-problem-grid-selector' );
+	}
+}
+
 $nested_header_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-nested-section-header.html';
 $wrote_nested_header   = file_put_contents(
 	$nested_header_fixture,
@@ -570,8 +626,10 @@ if ( false !== $wrote_nested_footer ) {
 	}
 }
 
-$quality_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-quality.html';
-$wrote_quality   = file_put_contents(
+$quality_dir     = trailingslashit( get_temp_dir() ) . 'static-site-importer-quality-' . wp_generate_uuid4();
+$quality_fixture = trailingslashit( $quality_dir ) . 'index.html';
+wp_mkdir_p( $quality_dir );
+$wrote_quality = file_put_contents(
 	$quality_fixture,
 	'<!doctype html><html><head><title>Quality</title></head><body><main><section><h1>Quality smoke</h1><iframe src="https://example.com/widget"></iframe></section></main></body></html>'
 );
