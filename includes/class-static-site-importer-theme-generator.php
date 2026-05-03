@@ -1530,7 +1530,7 @@ class Static_Site_Importer_Theme_Generator {
 					return null;
 				}
 
-				if ( ! in_array( $name, array( 'xmlns', 'id', 'viewBox', 'viewbox', 'width', 'height', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'd', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'points', 'transform', 'opacity', 'class', 'role', 'aria-hidden', 'aria-label', 'focusable' ), true ) ) {
+				if ( ! in_array( $name, array( 'xmlns', 'id', 'viewBox', 'viewbox', 'width', 'height', 'fill', 'fill-opacity', 'stroke', 'stroke-opacity', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'd', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'points', 'transform', 'opacity', 'class', 'role', 'aria-hidden', 'aria-label', 'focusable' ), true ) ) {
 					return null;
 				}
 			}
@@ -1708,7 +1708,9 @@ class Static_Site_Importer_Theme_Generator {
 				'width',
 				'height',
 				'fill',
+				'fill-opacity',
 				'stroke',
+				'stroke-opacity',
 				'stroke-width',
 				'stroke-linecap',
 				'stroke-linejoin',
