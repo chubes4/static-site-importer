@@ -567,6 +567,10 @@ class Static_Site_Importer_Theme_Generator {
 			return self::image_element_block( $doc, $element );
 		}
 
+		if ( self::is_link_cluster_container( $element ) ) {
+			return self::group_block( self::theme_part_child_blocks( $doc, $element, $theme_slug, $location ), $element->getAttribute( 'class' ) );
+		}
+
 		if ( self::element_has_only_phrasing_content( $element ) ) {
 			return self::paragraph_block( self::node_inner_html( $doc, $element ), $element->getAttribute( 'class' ) );
 		}
@@ -708,6 +712,37 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Check whether a dedicated link cluster should keep its source wrapper.
+	 *
+	 * @param DOMElement $element Source element.
+	 * @return bool
+	 */
+	private static function is_link_cluster_container( DOMElement $element ): bool {
+		$tag = strtolower( $element->tagName );
+		if ( ! in_array( $tag, array( 'div', 'span' ), true ) || self::element_has_direct_non_whitespace_text( $element ) ) {
+			return false;
+		}
+
+		$class = $element->getAttribute( 'class' );
+		if ( ! preg_match( '/(^|[-_\s])(actions?|buttons?|cta|links?)([-_\s]|$)/i', $class ) ) {
+			return false;
+		}
+
+		$children = self::direct_element_children( $element );
+		if ( count( $children ) < 2 ) {
+			return false;
+		}
+
+		foreach ( $children as $child ) {
+			if ( 'a' !== strtolower( $child->tagName ) ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/**
