@@ -51,10 +51,14 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$proof_pat  = $this->read_file( $theme_dir . '/patterns/page-proof.php' );
 
 		$this->assertStringContainsString( '<!-- wp:post-content', $front_page );
+		$this->assertStringContainsString( '<!-- wp:post-content {"tagName":"main"} /-->', $front_page );
 		$this->assertStringNotContainsString( '<!-- wp:pattern', $front_page );
 		$this->assertStringContainsString( '<!-- wp:post-content', $page );
+		$this->assertStringContainsString( '<!-- wp:post-content {"tagName":"main"} /-->', $page );
 		$this->assertStringContainsString( '<!-- wp:post-content', $home_tmpl );
+		$this->assertStringContainsString( '<!-- wp:post-content {"tagName":"main"} /-->', $home_tmpl );
 		$this->assertStringContainsString( '<!-- wp:post-content', $proof_tmpl );
+		$this->assertStringContainsString( '<!-- wp:post-content {"tagName":"main"} /-->', $proof_tmpl );
 		$this->assertStringNotContainsString( '<!-- wp:pattern', $home_tmpl );
 		$this->assertStringNotContainsString( '<!-- wp:pattern', $proof_tmpl );
 		$this->assertStringContainsString( 'Slug: wordpress-is-dead-fixture/page-home', $home_pat );
@@ -493,6 +497,7 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 
 		$theme_dir = $result['theme_dir'];
 		$pattern   = $this->pattern_blocks( $this->read_file( $theme_dir . '/patterns/page-semantic-main-page-body.php' ) );
+		$template  = $this->read_file( $theme_dir . '/templates/page-semantic-main-page-body.html' );
 		$header    = $this->read_file( $theme_dir . '/parts/header.html' );
 		$footer    = $this->read_file( $theme_dir . '/parts/footer.html' );
 		$post      = get_post( $result['pages']['semantic-main-page-body.html'] ?? 0 );
@@ -507,7 +512,18 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( 'chrome-icon', $pattern );
 		$this->assertStringContainsString( 'Header Search', $header );
 		$this->assertStringContainsString( 'Footer Chrome', $footer );
+		$this->assertStringContainsString( '<!-- wp:post-content {"tagName":"main"} /-->', $template );
 		$this->assertSame( trim( $pattern ), trim( $post->post_content ) );
+
+		$previous_theme = get_stylesheet();
+		switch_theme( $result['theme_slug'] );
+		$frontend_rendered = $this->render_template_for_post( $template, $post );
+		switch_theme( $previous_theme );
+
+		$this->assertSame( 1, substr_count( $frontend_rendered, '<main' ) );
+		$this->assertStringContainsString( 'Main Story', $frontend_rendered );
+		$this->assertMatchesRegularExpression( '/<main\b[^>]*>.*Main Story.*<\/main>/s', $frontend_rendered );
+		$this->assertDoesNotMatchRegularExpression( '/<main\b[^>]*>.*Header Search.*<\/main>/s', $frontend_rendered );
 	}
 
 	/**
@@ -1226,7 +1242,9 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 
 		foreach ( parse_blocks( $template ) as $block ) {
 			if ( 'core/post-content' === ( $block['blockName'] ?? '' ) ) {
-				$rendered .= do_blocks( $post->post_content );
+				$content  = do_blocks( $post->post_content );
+				$tag_name = $block['attrs']['tagName'] ?? 'div';
+				$rendered .= sprintf( '<%1$s class="entry-content wp-block-post-content">%2$s</%1$s>', tag_escape( $tag_name ), $content );
 				continue;
 			}
 
