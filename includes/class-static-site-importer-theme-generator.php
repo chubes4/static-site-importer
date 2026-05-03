@@ -124,6 +124,7 @@ class Static_Site_Importer_Theme_Generator {
 		$permalinks              = self::page_permalinks( $page_ids );
 		$fragments               = $document->fragments();
 		self::$conversion_report = self::new_conversion_report( $html_path, isset( $args['source_metadata'] ) && is_array( $args['source_metadata'] ) ? $args['source_metadata'] : array() );
+		self::record_products_manifest( $site_dir );
 
 		self::$active_theme_dir         = $theme_dir;
 		self::$active_theme_uri         = trailingslashit( get_theme_root_uri( $theme_slug ) ) . $theme_slug;
@@ -2536,6 +2537,268 @@ class Static_Site_Importer_Theme_Generator {
 				'Semantic fidelity requires browser DOM extraction; use semantic_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',
 			),
 		);
+	}
+
+	/**
+	 * Record and validate a generated store products manifest when present.
+	 *
+	 * @param string $site_dir Static site directory.
+	 * @return void
+	 */
+	private static function record_products_manifest( string $site_dir ): void {
+		$path = trailingslashit( $site_dir ) . 'products.json';
+		if ( ! is_readable( $path ) ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads an optional local static-site manifest for report-only validation.
+		$raw = file_get_contents( $path );
+		if ( false === $raw ) {
+			self::set_products_manifest_report(
+				$path,
+				false,
+				array(),
+				array(
+					array(
+						'path'    => '$',
+						'message' => 'products.json could not be read.',
+					),
+				)
+			);
+			return;
+		}
+
+		$data = json_decode( $raw, true );
+		if ( JSON_ERROR_NONE !== json_last_error() ) {
+			self::set_products_manifest_report(
+				$path,
+				false,
+				array(),
+				array(
+					array(
+						'path'    => '$',
+						'message' => 'products.json is not valid JSON: ' . json_last_error_msg(),
+					),
+				)
+			);
+			return;
+		}
+
+		$validation = self::validate_products_manifest( $data );
+		self::set_products_manifest_report( $path, empty( $validation['errors'] ), $validation['products'], $validation['errors'] );
+	}
+
+	/**
+	 * Store products manifest validation results on the import report.
+	 *
+	 * @param string               $path     Manifest path.
+	 * @param bool                 $valid    Whether the manifest is valid.
+	 * @param array<int,array>     $products Validated product summaries.
+	 * @param array<int,array>     $errors   Validation errors.
+	 * @return void
+	 */
+	private static function set_products_manifest_report( string $path, bool $valid, array $products, array $errors ): void {
+		self::$conversion_report['commerce'] = array(
+			'products_manifest' => array(
+				'present'       => true,
+				'path'          => $path,
+				'contract'      => array(
+					'schema'          => 'static-site-importer/products.json',
+					'schema_version'  => 1,
+					'required_fields' => array( 'name', 'slug', 'regular_price' ),
+					'optional_fields' => array( 'sale_price', 'description', 'short_description', 'categories', 'image', 'status', 'stock_status', 'stock_quantity', 'source_selectors' ),
+				),
+				'valid'         => $valid,
+				'product_count' => count( $products ),
+				'products'      => $products,
+				'errors'        => $errors,
+			),
+		);
+
+		if ( $valid ) {
+			return;
+		}
+
+		self::$conversion_report['diagnostics'][] = array(
+			'code'     => 'products_manifest_invalid',
+			'severity' => 'warning',
+			'source'   => 'products.json',
+			'message'  => 'products.json is present but does not match the Static Site Importer generated-store contract.',
+			'errors'   => $errors,
+		);
+	}
+
+	/**
+	 * Validate the generated store products manifest contract.
+	 *
+	 * @param mixed $data Decoded JSON data.
+	 * @return array{products:array<int,array<string,mixed>>,errors:array<int,array<string,string>>}
+	 */
+	private static function validate_products_manifest( $data ): array {
+		$products = array();
+		$errors   = array();
+
+		if ( ! is_array( $data ) || array_is_list( $data ) ) {
+			return array(
+				'products' => array(),
+				'errors'   => array(
+					array(
+						'path'    => '$',
+						'message' => 'products.json must be an object with schema_version and products fields.',
+					),
+				),
+			);
+		}
+
+		if ( 1 !== (int) ( $data['schema_version'] ?? 0 ) ) {
+			$errors[] = array(
+				'path'    => '$.schema_version',
+				'message' => 'schema_version must be 1.',
+			);
+		}
+
+		if ( ! isset( $data['products'] ) || ! is_array( $data['products'] ) || ! array_is_list( $data['products'] ) ) {
+			$errors[] = array(
+				'path'    => '$.products',
+				'message' => 'products must be a JSON array.',
+			);
+			return array(
+				'products' => array(),
+				'errors'   => $errors,
+			);
+		}
+
+		foreach ( $data['products'] as $index => $product ) {
+			$path_prefix = '$.products[' . $index . ']';
+			if ( ! is_array( $product ) || array_is_list( $product ) ) {
+				$errors[] = array(
+					'path'    => $path_prefix,
+					'message' => 'Product must be an object.',
+				);
+				continue;
+			}
+
+			$name          = self::manifest_string( $product, 'name' );
+			$slug          = self::manifest_string( $product, 'slug' );
+			$regular_price = self::manifest_string( $product, 'regular_price' );
+			$sale_price    = self::manifest_string( $product, 'sale_price', false );
+
+			if ( '' === $name ) {
+				$errors[] = array(
+					'path'    => $path_prefix . '.name',
+					'message' => 'name is required and must be a non-empty string.',
+				);
+			}
+
+			if ( '' === $slug || ! preg_match( '/^[a-z0-9]+(?:-[a-z0-9]+)*$/', $slug ) ) {
+				$errors[] = array(
+					'path'    => $path_prefix . '.slug',
+					'message' => 'slug is required and must be a lowercase URL slug.',
+				);
+			}
+
+			if ( '' === $regular_price || ! self::is_manifest_price( $regular_price ) ) {
+				$errors[] = array(
+					'path'    => $path_prefix . '.regular_price',
+					'message' => 'regular_price is required and must be a decimal string such as "19.00".',
+				);
+			}
+
+			if ( '' !== $sale_price && ! self::is_manifest_price( $sale_price ) ) {
+				$errors[] = array(
+					'path'    => $path_prefix . '.sale_price',
+					'message' => 'sale_price must be a decimal string such as "15.00" when provided.',
+				);
+			}
+
+			foreach ( array( 'description', 'short_description', 'status', 'stock_status', 'image' ) as $field ) {
+				if ( isset( $product[ $field ] ) && ! is_string( $product[ $field ] ) ) {
+					$errors[] = array(
+						'path'    => $path_prefix . '.' . $field,
+						'message' => $field . ' must be a string when provided.',
+					);
+				}
+			}
+
+			foreach ( array( 'categories', 'source_selectors' ) as $field ) {
+				if ( ! isset( $product[ $field ] ) ) {
+					continue;
+				}
+				if ( ! is_array( $product[ $field ] ) || ! array_is_list( $product[ $field ] ) ) {
+					$errors[] = array(
+						'path'    => $path_prefix . '.' . $field,
+						'message' => $field . ' must be an array of strings when provided.',
+					);
+					continue;
+				}
+
+				foreach ( $product[ $field ] as $value_index => $value ) {
+					if ( ! is_string( $value ) || '' === trim( $value ) ) {
+						$errors[] = array(
+							'path'    => $path_prefix . '.' . $field . '[' . $value_index . ']',
+							'message' => $field . ' entries must be non-empty strings.',
+						);
+					}
+				}
+			}
+
+			if ( isset( $product['stock_quantity'] ) && ! is_int( $product['stock_quantity'] ) ) {
+				$errors[] = array(
+					'path'    => $path_prefix . '.stock_quantity',
+					'message' => 'stock_quantity must be an integer when provided.',
+				);
+			}
+
+			$summary = array(
+				'name'          => $name,
+				'slug'          => $slug,
+				'regular_price' => $regular_price,
+			);
+			foreach ( array( 'sale_price', 'description', 'short_description', 'categories', 'image', 'status', 'stock_status', 'stock_quantity', 'source_selectors' ) as $field ) {
+				if ( array_key_exists( $field, $product ) ) {
+					$summary[ $field ] = $product[ $field ];
+				}
+			}
+
+			$products[] = $summary;
+		}
+
+		return array(
+			'products' => empty( $errors ) ? $products : array(),
+			'errors'   => $errors,
+		);
+	}
+
+	/**
+	 * Read a string field from a decoded manifest object.
+	 *
+	 * @param array<string,mixed> $data     Manifest object.
+	 * @param string              $key      Field key.
+	 * @param bool                $required Whether missing fields should return an empty string.
+	 * @return string
+	 */
+	private static function manifest_string( array $data, string $key, bool $required = true ): string {
+		if ( ! array_key_exists( $key, $data ) ) {
+			return '';
+		}
+
+		$value = $data[ $key ];
+		if ( ! is_string( $value ) ) {
+			return '';
+		}
+
+		$value = trim( $value );
+		return $required || '' !== $value ? $value : '';
+	}
+
+	/**
+	 * Check whether a manifest price uses a stable decimal string format.
+	 *
+	 * @param string $price Price string.
+	 * @return bool
+	 */
+	private static function is_manifest_price( string $price ): bool {
+		return 1 === preg_match( '/^(?:0|[1-9][0-9]*)(?:\.[0-9]{2})?$/', $price );
 	}
 
 	/**
