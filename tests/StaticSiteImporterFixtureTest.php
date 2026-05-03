@@ -235,6 +235,49 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Source nav wrapper selectors keep matching when a branded nav uses a navigation entity.
+	 */
+	public function test_branded_nav_wrapper_gets_safe_selector_parity(): void {
+		$html_path = $this->write_temp_fixture(
+			'rsm-nav-wrapper.html',
+			'<!doctype html><html><head><title>RSM Nav Wrapper</title><style>' .
+			'nav { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; }' .
+			'nav .nav-logo { font-weight: 800; }' .
+			'@media (max-width: 700px) { nav { position: sticky; } }' .
+			'</style></head><body>' .
+			'<nav><div class="nav-logo"><span>RSM</span> / Static Site Importer</div><ul class="nav-links"><li><a href="#context">Context</a></li><li><a href="#impact">Studio Impact</a></li></ul></nav>' .
+			'<main><section id="context"><h1>RSM import</h1><p>Body copy.</p></section><section id="impact"><h2>Impact</h2><p>More copy.</p></section></main>' .
+			'</body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'RSM Nav Wrapper',
+				'slug'      => 'rsm-nav-wrapper',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$header    = $this->read_file( $theme_dir . '/parts/header.html' );
+		$style     = $this->read_file( $theme_dir . '/style.css' );
+		$nav_post  = get_page_by_path( 'rsm-nav-wrapper-header-navigation', OBJECT, 'wp_navigation' );
+
+		$this->assertStringContainsString( 'static-site-importer-source-nav', $header );
+		$this->assertStringContainsString( '<!-- wp:navigation ', $header );
+		$this->assertStringNotContainsString( '"tagName":"nav"', $header );
+		$this->assertStringContainsString( '.static-site-importer-source-nav { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; }', $style );
+		$this->assertStringContainsString( '.static-site-importer-source-nav .nav-logo { font-weight: 800; }', $style );
+		$this->assertStringContainsString( '@media (max-width: 700px) { .static-site-importer-source-nav { position: sticky; } }', $style );
+		$this->assertInstanceOf( WP_Post::class, $nav_post );
+	}
+
+	/**
 	 * Pure top-level nav fragments still become a reusable navigation entity.
 	 */
 	public function test_pure_top_level_nav_still_converts_to_navigation_entity(): void {

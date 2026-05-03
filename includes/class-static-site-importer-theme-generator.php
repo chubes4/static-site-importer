@@ -577,7 +577,13 @@ class Static_Site_Importer_Theme_Generator {
 		if ( 'nav' === $tag && ! str_contains( $children, '<!-- wp:navigation ' ) ) {
 			$wrapper_tag = 'nav';
 		}
-		return self::group_block( $children, $element->getAttribute( 'class' ), $wrapper_tag );
+
+		$class_name = $element->getAttribute( 'class' );
+		if ( 'nav' === $tag && 'nav' !== $wrapper_tag ) {
+			$class_name = self::append_class_token( $class_name, 'static-site-importer-source-nav' );
+		}
+
+		return self::group_block( $children, $class_name, $wrapper_tag );
 	}
 
 	/**
@@ -2444,12 +2450,100 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return string
 	 */
 	private static function style_css( string $theme_name, string $css, array $button_classes = array() ): string {
-		$button_bridge    = self::button_style_bridge_css( $css, $button_classes );
-		$editor_bridge    = self::editor_absolute_overlay_css( $css );
-		$admin_bar_bridge = self::admin_bar_top_chrome_css( $css );
-		$css              = self::scope_source_button_css( $css, $button_classes );
+		$button_bridge              = self::button_style_bridge_css( $css, $button_classes );
+		$editor_bridge              = self::editor_absolute_overlay_css( $css );
+		$admin_bar_bridge           = self::admin_bar_top_chrome_css( $css );
+		$source_nav_selector_bridge = self::source_nav_selector_bridge_css( $css );
+		$css                        = self::scope_source_button_css( $css, $button_classes );
 
-		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Imported from static HTML using Block Format Bridge.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge . $editor_bridge . $admin_bar_bridge;
+		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Imported from static HTML using Block Format Bridge.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge . $editor_bridge . $admin_bar_bridge . $source_nav_selector_bridge;
+	}
+
+	/**
+	 * Build selector parity rules for source nav wrappers converted to group blocks.
+	 *
+	 * @param string $css Source CSS.
+	 * @return string Additional CSS rules.
+	 */
+	private static function source_nav_selector_bridge_css( string $css ): string {
+		$css = preg_replace( '/\/\*.*?\*\//s', '', $css ) ?? $css;
+		if ( '' === trim( $css ) || ! str_contains( strtolower( $css ), 'nav' ) ) {
+			return '';
+		}
+
+		$rules = self::source_nav_selector_bridge_rules_from_css( $css );
+		if ( empty( $rules ) ) {
+			return '';
+		}
+
+		return "\n/* Static Site Importer: preserve source nav wrapper selectors on converted navigation groups. */\n" . implode( "\n", array_unique( $rules ) ) . "\n";
+	}
+
+	/**
+	 * Build source nav selector bridge rules from one CSS scope.
+	 *
+	 * @param string $css CSS to inspect.
+	 * @return array<int, string> CSS rules.
+	 */
+	private static function source_nav_selector_bridge_rules_from_css( string $css ): array {
+		$rules  = array();
+		$length = strlen( $css );
+		$offset = 0;
+
+		while ( $offset < $length && preg_match( '/\G\s*([^{}]+)\{/', $css, $match, 0, $offset ) ) {
+			$prelude    = trim( $match[1] );
+			$body_start = $offset + strlen( $match[0] );
+			$body_end   = self::find_css_block_end( $css, $body_start );
+			if ( null === $body_end ) {
+				break;
+			}
+
+			$body   = trim( substr( $css, $body_start, $body_end - $body_start ) );
+			$offset = $body_end + 1;
+
+			if ( str_starts_with( $prelude, '@' ) ) {
+				$nested = self::source_nav_selector_bridge_rules_from_css( $body );
+				foreach ( $nested as $rule ) {
+					$rules[] = $prelude . ' { ' . $rule . ' }';
+				}
+				continue;
+			}
+
+			$selectors = array();
+			foreach ( explode( ',', $prelude ) as $selector ) {
+				$rewritten = self::source_nav_selector_bridge_selector( trim( $selector ) );
+				if ( null !== $rewritten ) {
+					$selectors[] = $rewritten;
+				}
+			}
+
+			if ( empty( $selectors ) ) {
+				continue;
+			}
+
+			$rules[] = implode( ', ', array_unique( $selectors ) ) . ' { ' . $body . ' }';
+		}
+
+		return $rules;
+	}
+
+	/**
+	 * Rewrite a selector so source nav wrappers match converted group wrappers.
+	 *
+	 * @param string $selector CSS selector.
+	 * @return string|null Rewritten selector, or null when no safe nav token exists.
+	 */
+	private static function source_nav_selector_bridge_selector( string $selector ): ?string {
+		if ( '' === $selector || str_starts_with( $selector, '@' ) ) {
+			return null;
+		}
+
+		$rewritten = preg_replace( '/(^|[\s>+~])nav(?=($|[\s>+~.#:\[]))/', '$1.static-site-importer-source-nav', $selector );
+		if ( ! is_string( $rewritten ) || $rewritten === $selector ) {
+			return null;
+		}
+
+		return $rewritten;
 	}
 
 	/**
