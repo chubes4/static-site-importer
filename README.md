@@ -1,21 +1,22 @@
 # Static Site Importer
 
-Import a static HTML site into WordPress as a block theme using the bundled [Block Format Bridge](https://github.com/chubes4/block-format-bridge) converter.
+Import a static HTML site into WordPress pages and a companion block theme using the bundled [Block Format Bridge](https://github.com/chubes4/block-format-bridge) converter.
 
 Static Site Importer is a WordPress plugin. It installs [Block Format Bridge](https://github.com/chubes4/block-format-bridge) through Composer and loads its bundled converter directly from `vendor/`.
 
 ## What It Does
 
 - Adds an **Import HTML** button on the **Appearance -> Themes** screen.
-- Accepts pasted HTML, a direct `.html` / `.htm` upload, or a ZIP containing an `index.html` file.
-- Provides a WP-CLI importer for a local HTML entry file.
-- Discovers sibling `*.html` files beside the entry file and imports them as WordPress pages.
+- Accepts pasted HTML, a direct `.html` / `.htm` upload, or a ZIP containing a static-site folder with an `index.html` entry point.
+- Provides a WP-CLI importer for a local HTML entry file; the source file does not need to be named `index.html` unless you want automatic front-page assignment.
+- Discovers readable sibling `*.html` files beside the selected entry file and imports them as WordPress pages.
 - Converts static HTML fragments through `bfb_convert( $html, 'html', 'blocks' )`.
-- Generates a block theme with shared header/footer template parts, page templates, page patterns, `theme.json`, `style.css`, and optional `assets/site.js`.
+- Stores converted page bodies on the imported WordPress pages as `post_content`.
+- Generates a block theme with shared header/footer template parts, `core/post-content` templates, page patterns for reusable/reference artifacts, `theme.json`, `style.css`, and optional `assets/site.js`.
 - Rewrites local `.html` links to the imported WordPress page permalinks.
 - Creates deterministic `wp_navigation` posts for supported header/footer navigation and references them from generated template parts.
-- Preserves imported pages as editor-visible WordPress page shells while the visible imported layouts live in generated block-theme patterns and templates.
-- Optionally activates the generated theme and assigns the imported `index.html` page as the front page.
+- Keeps imported pages native and editor-visible; page content belongs to WordPress pages while the generated theme owns shared chrome, background decoration, styles, scripts, and template wrappers.
+- Optionally activates the generated theme and assigns the imported `index.html` page as the front page when that page exists.
 
 ## Requirements
 
@@ -24,16 +25,16 @@ Static Site Importer is a WordPress plugin. It installs [Block Format Bridge](ht
 - Composer dependencies installed for development/source checkouts.
 - Node dependencies installed only when running the JavaScript block-validation smoke tests.
 
-The current Composer dependency is [`chubes4/block-format-bridge:^0.6.7`](https://github.com/chubes4/block-format-bridge). That package includes the prefixed HTML-to-blocks converter used by the importer.
+The current Composer dependency is [`chubes4/block-format-bridge:^0.7.1`](https://github.com/chubes4/block-format-bridge). That package includes the prefixed HTML-to-blocks converter used by the importer.
 
 ## Admin Usage
 
 1. Open **Appearance -> Themes** and click **Import HTML** beside the standard **Add Theme** button.
-2. Paste a single HTML document, upload a single `.html` / `.htm` file, or upload a ZIP containing `index.html`.
+2. Paste a single HTML document, upload a single `.html` / `.htm` file, or upload a ZIP containing a static-site folder with an `index.html` entry point.
 3. Optionally provide a theme name and slug.
 4. Leave **Activate imported theme** checked if the generated theme should become active immediately.
 
-The admin path always overwrites an existing generated theme with the same slug. Pasted HTML and direct HTML uploads are copied into a generated upload work directory as `index.html` and imported as a single-page site. ZIP uploads are for multi-page static sites or bundled HTML exports; they are extracted to an upload work directory, the selected `index.html` is used as the entry file, and sibling HTML files from that extracted site directory are imported.
+The admin path always overwrites an existing generated theme with the same slug. Pasted HTML and direct HTML uploads are copied into a generated upload work directory as `index.html` and imported as a single-page site. ZIP uploads are for multi-page static sites or bundled HTML exports; they are extracted to an upload work directory, the selected `index.html` is used as the entry file, and sibling HTML files from that extracted site directory are imported. The importer does not require the original source model to be a single `index.html`; it needs one selected HTML entry file and imports the sibling HTML pages it can read.
 
 ZIP intake rules:
 
@@ -45,14 +46,18 @@ ZIP intake rules:
 ## CLI Usage
 
 ```bash
-wp static-site-importer import-theme /path/to/index.html \
+wp static-site-importer import-theme /path/to/site/index.html \
   --slug=wordpress-is-dead \
   --name="WordPress Is Dead" \
   --activate \
   --overwrite
 ```
 
-The CLI path imports all readable sibling `*.html` files in the same directory as the provided entry file. `index.html` becomes the `home` page slug and is used for the generated `front-page.html` pattern reference.
+The CLI path imports all readable sibling `*.html` files in the same directory as the provided entry file. The entry file supplies the theme title, shared source chrome, background decoration, styles, and inline scripts; each sibling HTML file supplies a WordPress page body.
+
+`index.html` has special front-page behavior: it becomes the `home` page slug and, when `--activate` is used, is assigned as the site's static front page. If the imported directory has no `index.html`, the pages are still imported, but the importer does not assign `page_on_front` automatically.
+
+By default, source directories are deleted after a successful clean import so generated upload work directories do not accumulate. Sources are preserved when conversion quality checks report issues. Use `--keep-source` with CLI imports when you want to keep the original local source directory after a successful clean import for debugging or development.
 
 ## Generated Theme Shape
 
@@ -78,9 +83,10 @@ Important behavior:
 - `style.css` contains the source linked local stylesheets, inline styles, and compatibility rules that preserve source button classes on `core/button` links.
 - `functions.php` enqueues frontend styles, editor styles, and optional generated `assets/site.js`.
 - `theme.json` extracts conservative color palette tokens from obvious `:root` CSS custom properties.
-- Shared chrome is stored in `parts/header.html` and `parts/footer.html`.
-- Page-specific layouts are stored in `patterns/page-*.php` and referenced from matching `templates/page-*.html` files.
-- Imported WordPress page posts keep lightweight placeholder content so routing, titles, front-page assignment, and editor visibility stay native.
+- Shared chrome is stored in `parts/header.html` and, when present in the source, `parts/footer.html`.
+- Generated templates are lightweight block-theme wrappers: header template part, imported background decoration, `core/post-content`, and optional footer template part.
+- Imported WordPress page posts store the converted page body in `post_content`, so routing, titles, front-page assignment, editor visibility, and body edits stay native.
+- Page patterns are generated as reusable/reference copies of each converted page body; they are not the primary storage for imported page content.
 
 ## Validation
 
@@ -160,8 +166,8 @@ This repo is Homeboy-managed:
 ## Current Boundaries And Limitations
 
 - The importer is intentionally static-site-to-block-theme glue. Block Format Bridge owns format conversion; HTML-to-block transform fidelity belongs upstream in BFB/h2bc.
-- The importer currently discovers flat sibling `*.html` files beside the entry file; it does not crawl arbitrary nested routes.
-- Admin imports accept pasted HTML, a direct `.html` / `.htm` file, or a ZIP with an `index.html`; CLI imports take a direct HTML file path.
+- The importer currently discovers flat sibling `*.html` files beside the selected entry file; it does not crawl arbitrary nested routes.
+- Admin imports accept pasted HTML, a direct `.html` / `.htm` file, or a ZIP with a root `index.html` or exactly one nested `index.html`; CLI imports take a direct HTML file path.
 - Linked local stylesheets and inline styles are copied into `style.css`; inline scripts are copied into `assets/site.js`. Other asset copying is not a general-purpose crawler yet.
 - Navigation persistence is limited to supported header/footer shapes that can be converted into deterministic `wp_navigation` entities without guessing.
 - External live triage has exercised additional static sites, but the committed first-party fixture is `tests/fixtures/wordpress-is-dead/`.
@@ -170,4 +176,4 @@ This repo is Homeboy-managed:
 
 This plugin owns the static-site import workflow and generated WordPress artifacts. [Block Format Bridge](https://github.com/chubes4/block-format-bridge) owns content-format conversion.
 
-Imported pages remain WordPress pages for routing, titles, front-page assignment, and editor visibility. Their imported body layouts live in generated block-theme artifacts: `patterns/page-*.php` plus matching `templates/page-*.html` files. The generic `templates/page.html` stays a `wp:post-content` fallback for pages created after import.
+Imported pages remain WordPress pages for routing, titles, front-page assignment, editor visibility, and body content edits. Their imported body layouts live on the page posts as block markup in `post_content`. The generated block theme owns shared header/footer parts, optional background decoration, frontend/editor styles, scripts, and template wrappers that render page bodies through `core/post-content`; the generic `templates/page.html` stays the fallback for pages created after import.
