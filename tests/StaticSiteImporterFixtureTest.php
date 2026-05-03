@@ -737,6 +737,65 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Header and footer chrome keep source layout wrappers without broad HTML fallbacks.
+	 */
+	public function test_header_footer_chrome_structure_survives_theme_part_conversion(): void {
+		$html_path = $this->write_temp_fixture(
+			'relay-atlas-chrome.html',
+			'<!doctype html><html><head><title>Relay Atlas Chrome</title></head><body>' .
+			'<nav><div class="nav-inner"><a href="/" class="nav-logo"><svg class="logo-mark" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 2 22 20H2Z" fill="currentColor"/></svg><span>Relay Atlas</span></a><ul class="nav-links"><li><a href="#features">Features</a></li><li><a href="#pricing">Pricing</a></li></ul><div class="nav-cta"><a href="#signin" class="login-link">Sign in</a><a href="#start" class="btn-primary">Start free</a></div></div></nav>' .
+			'<main><section id="features"><h1>Map every handoff</h1><p>Relay Atlas keeps launch teams aligned.</p></section><section id="pricing"><h2>Pricing</h2><p>Simple plans.</p></section></main>' .
+			'<footer><div class="footer-inner"><div class="footer-left"><svg class="footer-logo-mark" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor"/></svg><span>Relay Atlas</span></div><ul class="footer-links"><li><a href="#features">Features</a></li><li><a href="#pricing">Pricing</a></li></ul></div></footer>' .
+			'</body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Relay Atlas Chrome',
+				'slug'      => 'relay-atlas-chrome',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir  = $result['theme_dir'];
+		$header     = $this->read_file( $theme_dir . '/parts/header.html' );
+		$footer     = $this->read_file( $theme_dir . '/parts/footer.html' );
+		$report     = json_decode( $this->read_file( $result['report_path'] ), true );
+		$header_nav = get_page_by_path( 'relay-atlas-chrome-header-navigation', OBJECT, 'wp_navigation' );
+		$footer_nav = get_page_by_path( 'relay-atlas-chrome-footer-navigation', OBJECT, 'wp_navigation' );
+
+		foreach ( array( 'static-site-importer-source-nav', 'nav-inner', 'nav-logo', 'nav-links', 'nav-cta' ) as $class_name ) {
+			$this->assertStringContainsString( $class_name, $header );
+		}
+		foreach ( array( 'footer-inner', 'footer-left', 'footer-links' ) as $class_name ) {
+			$this->assertStringContainsString( $class_name, $footer );
+		}
+
+		$this->assertStringNotContainsString( '<!-- wp:html --><nav', $header );
+		$this->assertStringNotContainsString( '<!-- wp:html --><div class="nav-inner"', $header );
+		$this->assertStringNotContainsString( '<!-- wp:paragraph {"className":"nav-cta"}', $header );
+		$this->assertStringContainsString( '<!-- wp:group {"className":"nav-cta"}', $header );
+		$this->assertSame( 1, substr_count( $header, '"className":"nav-inner"' ) );
+
+		$this->assertStringNotContainsString( '<!-- wp:html --><footer', $footer );
+		$this->assertStringNotContainsString( '<!-- wp:html --><div class="footer-inner"', $footer );
+		$this->assertStringNotContainsString( '<!-- wp:html --><div class="footer-left"', $footer );
+		$this->assertSame( 1, substr_count( $footer, '"className":"footer-inner"' ) );
+
+		$this->assertInstanceOf( WP_Post::class, $header_nav );
+		$this->assertInstanceOf( WP_Post::class, $footer_nav );
+		$this->assertStringContainsString( '"label":"Features"', $header_nav->post_content );
+		$this->assertStringContainsString( '"label":"Pricing"', $footer_nav->post_content );
+		$this->assertSame( 0, $report['quality']['unsafe_svg_count'] ?? null );
+		$this->assertNotEmpty( $report['assets']['svg_icons'] ?? array() );
+	}
+
+	/**
 	 * Unsafe inline SVG remains visible in the import report instead of being accepted silently.
 	 */
 	public function test_unsafe_inline_svg_is_reported(): void {
