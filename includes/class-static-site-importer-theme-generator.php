@@ -551,7 +551,7 @@ class Static_Site_Importer_Theme_Generator {
 		if ( self::can_convert_element_to_navigation( $element ) ) {
 			$navigation = self::navigation_ref_block( $element, $theme_slug, $location );
 			if ( null !== $navigation ) {
-				return self::group_block( $navigation, $element->getAttribute( 'class' ), 'nav' === $tag ? 'nav' : 'div' );
+				return $navigation;
 			}
 		}
 
@@ -569,7 +569,10 @@ class Static_Site_Importer_Theme_Generator {
 			return self::html_block( self::node_html( $doc, $element ) );
 		}
 
-		$wrapper_tag = in_array( $tag, array( 'header', 'footer', 'nav' ), true ) ? $tag : 'div';
+		$wrapper_tag = in_array( $tag, array( 'header', 'footer' ), true ) ? $tag : 'div';
+		if ( 'nav' === $tag && ! str_contains( $children, '<!-- wp:navigation ' ) ) {
+			$wrapper_tag = 'nav';
+		}
 		return self::group_block( $children, $element->getAttribute( 'class' ), $wrapper_tag );
 	}
 
@@ -635,7 +638,11 @@ class Static_Site_Importer_Theme_Generator {
 
 		foreach ( self::direct_element_children( $element ) as $child ) {
 			$child_tag = strtolower( $child->tagName );
-			if ( 'nav' === $tag && in_array( $child_tag, array( 'a', 'ul', 'ol' ), true ) ) {
+			if ( 'nav' === $tag && in_array( $child_tag, array( 'ul', 'ol' ), true ) ) {
+				continue;
+			}
+
+			if ( 'nav' === $tag && 'a' === $child_tag && self::is_simple_navigation_anchor( $child ) ) {
 				continue;
 			}
 
@@ -644,6 +651,26 @@ class Static_Site_Importer_Theme_Generator {
 			}
 
 			return false;
+		}
+
+		return true;
+	}
+
+	/**
+	 * Check whether a direct nav anchor is a menu item rather than branded chrome.
+	 *
+	 * @param DOMElement $element Anchor element.
+	 * @return bool
+	 */
+	private static function is_simple_navigation_anchor( DOMElement $element ): bool {
+		if ( preg_match( '/(^|[-_\s])(brand|logo)([-_\s]|$)/i', $element->getAttribute( 'class' ) ) ) {
+			return false;
+		}
+
+		foreach ( self::direct_element_children( $element ) as $child ) {
+			if ( 'span' !== strtolower( $child->tagName ) ) {
+				return false;
+			}
 		}
 
 		return true;
@@ -680,6 +707,10 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		$class = trim( $element->getAttribute( 'class' ) );
+		if ( preg_match( '/(^|[-_\s])(brand|logo)([-_\s]|$)/i', $class ) ) {
+			return self::html_block( self::node_html( $doc, $element ) );
+		}
+
 		if ( preg_match( '/(^|[-_\s])(btn|button|cta|pill)([-_\s]|$)/i', $class ) ) {
 			$attrs = array( 'url' => esc_url_raw( $href ) );
 			if ( '' !== $class ) {
