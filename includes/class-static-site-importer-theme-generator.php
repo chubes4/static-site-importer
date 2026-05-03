@@ -860,6 +860,11 @@ class Static_Site_Importer_Theme_Generator {
 
 		$class = trim( $element->getAttribute( 'class' ) );
 		if ( preg_match( '/(^|[-_\s])(brand|logo)([-_\s]|$)/i', $class ) ) {
+			$brand_anchor = self::brand_anchor_inline_block( $doc, $element );
+			if ( null !== $brand_anchor ) {
+				return $brand_anchor;
+			}
+
 			if ( ! self::element_has_only_phrasing_content( $element ) ) {
 				return self::logo_anchor_block( $doc, $element, $href, $class );
 			}
@@ -883,6 +888,92 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return self::paragraph_block( '<a href="' . esc_url( $href ) . '"' . ( '' !== $class ? ' class="' . esc_attr( $class ) . '"' : '' ) . '>' . esc_html( $label ) . '</a>' );
+	}
+
+	/**
+	 * Preserve one brand anchor when block-level logo wrappers can become inline spans.
+	 *
+	 * @param DOMDocument $doc     Source DOM document.
+	 * @param DOMElement  $element Anchor element.
+	 * @return string|null
+	 */
+	private static function brand_anchor_inline_block( DOMDocument $doc, DOMElement $element ): ?string {
+		$inner = self::brand_anchor_inline_children_html( $doc, $element );
+		if ( null === $inner || ( '' === trim( wp_strip_all_tags( $inner ) ) && ! str_contains( strtolower( $inner ), '<img' ) ) ) {
+			return null;
+		}
+
+		return self::paragraph_block( '<a' . self::element_attribute_markup( $element ) . '>' . $inner . '</a>' );
+	}
+
+	/**
+	 * Convert a brand anchor's children to valid phrasing HTML.
+	 *
+	 * @param DOMDocument $doc     Source DOM document.
+	 * @param DOMElement  $element Source element.
+	 * @return string|null
+	 */
+	private static function brand_anchor_inline_children_html( DOMDocument $doc, DOMElement $element ): ?string {
+		$parts = array();
+		foreach ( $element->childNodes as $child ) {
+			$part = self::brand_anchor_inline_node_html( $doc, $child );
+			if ( null === $part ) {
+				return null;
+			}
+
+			$parts[] = $part;
+		}
+
+		return implode( '', $parts );
+	}
+
+	/**
+	 * Convert one node to phrasing HTML for a preserved brand anchor.
+	 *
+	 * @param DOMDocument $doc  Source DOM document.
+	 * @param DOMNode     $node Source node.
+	 * @return string|null
+	 */
+	private static function brand_anchor_inline_node_html( DOMDocument $doc, DOMNode $node ): ?string {
+		if ( $node instanceof DOMText ) {
+			return esc_html( $node->textContent );
+		}
+
+		if ( ! $node instanceof DOMElement ) {
+			return '';
+		}
+
+		$tag = strtolower( $node->tagName );
+		if ( 'div' === $tag ) {
+			$inner = self::brand_anchor_inline_children_html( $doc, $node );
+			return null === $inner ? null : '<span' . self::element_attribute_markup( $node ) . '>' . $inner . '</span>';
+		}
+
+		if ( 'img' === $tag ) {
+			return self::node_html( $doc, $node );
+		}
+
+		if ( ! self::is_phrasing_element( $node ) ) {
+			return null;
+		}
+
+		$inner = self::brand_anchor_inline_children_html( $doc, $node );
+		return null === $inner ? null : '<' . $tag . self::element_attribute_markup( $node ) . '>' . $inner . '</' . $tag . '>';
+	}
+
+	/**
+	 * Serialize source attributes for HTML rebuilt from DOM nodes.
+	 *
+	 * @param DOMElement $element Source element.
+	 * @return string
+	 */
+	private static function element_attribute_markup( DOMElement $element ): string {
+		$attributes = '';
+		foreach ( $element->attributes as $attribute ) {
+			$attributes .= ' ' . strtolower( $attribute->name ) . '="' . esc_attr( $attribute->value ) . '"';
+		}
+
+		return $attributes;
 	}
 
 	/**

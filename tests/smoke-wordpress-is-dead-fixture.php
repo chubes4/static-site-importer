@@ -474,6 +474,54 @@ if ( false !== $wrote_branded_nav ) {
 	}
 }
 
+$footer_brand_anchor_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-footer-brand-anchor.html';
+$wrote_footer_brand_anchor   = file_put_contents(
+	$footer_brand_anchor_fixture,
+	'<!doctype html><html><head><title>Footer Brand Anchor</title></head><body>' .
+	'<main><section><h1>Footer brand anchor</h1><p>Body copy.</p></section></main>' .
+	'<footer>' .
+	'<a href="#" class="footer-brand"><div class="footer-logo-mark"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 4h4v4H2zM8 4h4v1.5H8zM8 7h4v1.5H8zM2 9.5h10v1H2z" fill="white"/></svg></div><span class="footer-wordmark">Relay Atlas</span></a>' .
+	'<ul class="footer-links"><li><a href="#features">Features</a></li><li><a href="#pricing">Pricing</a></li></ul>' .
+	'<span class="footer-copy">&copy; 2025 Relay Atlas, Inc.</span>' .
+	'</footer>' .
+	'</body></html>'
+);
+$assert( false !== $wrote_footer_brand_anchor, 'footer-brand-anchor-fixture-written' );
+
+if ( false !== $wrote_footer_brand_anchor ) {
+	$footer_brand_anchor_result = Static_Site_Importer_Theme_Generator::import_theme(
+		$footer_brand_anchor_fixture,
+		array(
+			'name'      => 'Footer Brand Anchor',
+			'slug'      => 'footer-brand-anchor',
+			'overwrite' => true,
+			'activate'  => false,
+		)
+	);
+	$assert( ! is_wp_error( $footer_brand_anchor_result ), 'footer-brand-anchor-import-succeeds', is_wp_error( $footer_brand_anchor_result ) ? $footer_brand_anchor_result->get_error_message() : '' );
+	if ( ! is_wp_error( $footer_brand_anchor_result ) ) {
+		$footer_brand_anchor_footer = $read( $footer_brand_anchor_result['theme_dir'] . '/parts/footer.html' );
+		$footer_brand_anchor_report = json_decode( $read( $footer_brand_anchor_result['report_path'] ?? '' ), true );
+		$footer_brand_anchor_post   = get_page_by_path( 'footer-brand-anchor-footer-navigation', OBJECT, 'wp_navigation' );
+		$assert( ! str_contains( $footer_brand_anchor_footer, '<!-- wp:html' ), 'footer-brand-anchor-has-no-core-html-blocks', $footer_brand_anchor_footer );
+		$assert( str_contains( $footer_brand_anchor_footer, '<a href="#" class="footer-brand">' ), 'footer-brand-anchor-keeps-one-brand-anchor', $footer_brand_anchor_footer );
+		$assert( str_contains( $footer_brand_anchor_footer, '<span class="footer-logo-mark"><img' ), 'footer-brand-anchor-keeps-logo-class-inside-anchor', $footer_brand_anchor_footer );
+		$assert( str_contains( $footer_brand_anchor_footer, '<span class="footer-wordmark">Relay Atlas</span>' ), 'footer-brand-anchor-keeps-wordmark-inside-anchor', $footer_brand_anchor_footer );
+		$assert( ! str_contains( $footer_brand_anchor_footer, '<div class="wp-block-group footer-brand">' ), 'footer-brand-anchor-class-stays-on-anchor' );
+		$assert( ! str_contains( $footer_brand_anchor_footer, '<a href="#">Relay Atlas</a>' ), 'footer-brand-anchor-does-not-split-wordmark-link' );
+		$assert( ! preg_match( '/<p[^>]*>\s*<a[^>]*>.*<div/is', $footer_brand_anchor_footer ), 'footer-brand-anchor-avoids-invalid-paragraph-anchor-content', $footer_brand_anchor_footer );
+		$assert( str_contains( $footer_brand_anchor_footer, '<!-- wp:navigation ' ), 'footer-brand-anchor-footer-uses-navigation-block' );
+		$assert( str_contains( $footer_brand_anchor_footer, '2025 Relay Atlas, Inc.' ), 'footer-brand-anchor-keeps-copy' );
+		$assert( $footer_brand_anchor_post instanceof WP_Post, 'footer-brand-anchor-navigation-post-exists' );
+		if ( $footer_brand_anchor_post instanceof WP_Post ) {
+			$assert( str_contains( $footer_brand_anchor_post->post_content, '"label":"Features"' ), 'footer-brand-anchor-menu-includes-features' );
+			$assert( ! str_contains( $footer_brand_anchor_post->post_content, 'Relay Atlas' ), 'footer-brand-anchor-menu-excludes-brand-text' );
+		}
+		$assert( 0 === ( $footer_brand_anchor_report['quality']['core_html_block_count'] ?? -1 ), 'footer-brand-anchor-report-has-zero-core-html-blocks' );
+		$assert( 0 === ( $footer_brand_anchor_report['quality']['invalid_block_count'] ?? -1 ), 'footer-brand-anchor-report-has-zero-invalid-blocks' );
+	}
+}
+
 $pure_nav_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-pure-nav-header.html';
 $wrote_pure_nav   = file_put_contents(
 	$pure_nav_fixture,
