@@ -109,7 +109,7 @@ class Static_Site_Importer_Theme_Generator {
 
 		$permalinks              = self::page_permalinks( $page_ids );
 		$fragments               = $document->fragments();
-		self::$conversion_report = self::new_conversion_report( $html_path );
+		self::$conversion_report = self::new_conversion_report( $html_path, isset( $args['source_metadata'] ) && is_array( $args['source_metadata'] ) ? $args['source_metadata'] : array() );
 
 		self::$active_theme_dir        = $theme_dir;
 		self::$active_theme_uri        = trailingslashit( get_theme_root_uri( $theme_slug ) ) . $theme_slug;
@@ -1845,10 +1845,16 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param string $html_path Imported entry file.
 	 * @return array<string, mixed>
 	 */
-	private static function new_conversion_report( string $html_path ): array {
+	private static function new_conversion_report( string $html_path, array $source_metadata = array() ): array {
 		return array(
 			'version'              => 1,
 			'entry_file'           => $html_path,
+			'source'               => array_merge(
+				array(
+					'type' => empty( $source_metadata ) ? 'file' : (string) ( $source_metadata['source_type'] ?? 'file' ),
+				),
+				$source_metadata
+			),
 			'quality'              => array(
 				'pass'                              => true,
 				'fallback_count'                    => 0,

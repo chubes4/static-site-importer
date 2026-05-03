@@ -7,8 +7,8 @@ Static Site Importer is a WordPress plugin. It installs [Block Format Bridge](ht
 ## What It Does
 
 - Adds an **Import HTML** button on the **Appearance -> Themes** screen.
-- Accepts pasted HTML, a direct `.html` / `.htm` upload, or a ZIP containing a static-site folder with an `index.html` entry point.
-- Provides a WP-CLI importer for a local HTML entry file; the source file does not need to be named `index.html` unless you want automatic front-page assignment.
+- Accepts pasted HTML, one public HTML URL, a direct `.html` / `.htm` upload, or a ZIP containing a static-site folder with an `index.html` entry point.
+- Provides a WP-CLI importer for a local HTML entry file or one public HTML URL; the local source file does not need to be named `index.html` unless you want automatic front-page assignment.
 - Discovers readable sibling `*.html` files beside the selected entry file and imports them as WordPress pages.
 - Converts static HTML fragments through `bfb_convert( $html, 'html', 'blocks' )`.
 - Stores converted page bodies on the imported WordPress pages as `post_content`.
@@ -30,11 +30,20 @@ The current Composer dependency is [`chubes4/block-format-bridge:^0.7.1`](https:
 ## Admin Usage
 
 1. Open **Appearance -> Themes** and click **Import HTML** beside the standard **Add Theme** button.
-2. Paste a single HTML document, upload a single `.html` / `.htm` file, or upload a ZIP containing a static-site folder with an `index.html` entry point.
+2. Paste a single HTML document, enter a public `http` / `https` URL, upload a single `.html` / `.htm` file, or upload a ZIP containing a static-site folder with an `index.html` entry point.
 3. Optionally provide a theme name and slug.
 4. Leave **Activate imported theme** checked if the generated theme should become active immediately.
 
-The admin path always overwrites an existing generated theme with the same slug. Pasted HTML and direct HTML uploads are copied into a generated upload work directory as `index.html` and imported as a single-page site. ZIP uploads are for multi-page static sites or bundled HTML exports; they are extracted to an upload work directory, the selected `index.html` is used as the entry file, and sibling HTML files from that extracted site directory are imported. The importer does not require the original source model to be a single `index.html`; it needs one selected HTML entry file and imports the sibling HTML pages it can read.
+The admin path always overwrites an existing generated theme with the same slug. Pasted HTML, fetched URL HTML, and direct HTML uploads are copied into a generated upload work directory as `index.html` and imported as a single-page site. ZIP uploads are for multi-page static sites or bundled HTML exports; they are extracted to an upload work directory, the selected `index.html` is used as the entry file, and sibling HTML files from that extracted site directory are imported. The importer does not require the original source model to be a single `index.html`; it needs one selected HTML entry file and imports the sibling HTML pages it can read.
+
+URL intake rules:
+
+- Fetches one URL only; this is not a crawler and does not execute JavaScript.
+- Only `http` and `https` URLs are accepted.
+- Localhost, loopback, link-local, private, and otherwise reserved IP targets are rejected before connecting.
+- Redirect targets are revalidated with the same policy and capped.
+- Requests use a timeout and maximum response size, require an HTML-like content type, and do not forward cookies, authorization headers, or embedded URL credentials.
+- Import reports include source URL, final URL, status code, content type, fetch timestamps, response size, and redirect history.
 
 ZIP intake rules:
 
@@ -51,13 +60,24 @@ wp static-site-importer import-theme /path/to/site/index.html \
   --name="WordPress Is Dead" \
   --activate \
   --overwrite
+
+wp static-site-importer import-theme \
+  --url=https://example.com/ \
+  --slug=example-import \
+  --keep-source \
+  --report=report.json
+
+wp static-site-importer import-url https://example.com/ \
+  --slug=example-import \
+  --keep-source \
+  --report=report.json
 ```
 
 The CLI path imports all readable sibling `*.html` files in the same directory as the provided entry file. The entry file supplies the theme title, shared source chrome, background decoration, styles, and inline scripts; each sibling HTML file supplies a WordPress page body.
 
 `index.html` has special front-page behavior: it becomes the `home` page slug and, when `--activate` is used, is assigned as the site's static front page. If the imported directory has no `index.html`, the pages are still imported, but the importer does not assign `page_on_front` automatically.
 
-By default, source directories are deleted after a successful clean import so generated upload work directories do not accumulate. Sources are preserved when conversion quality checks report issues. Use `--keep-source` with CLI imports when you want to keep the original local source directory after a successful clean import for debugging or development.
+By default, source directories are deleted after a successful clean import so generated upload work directories do not accumulate. Sources are preserved when conversion quality checks report issues. Use `--keep-source` with CLI imports when you want to keep the original local source directory or fetched URL fixture after a successful clean import for debugging or development.
 
 ## Generated Theme Shape
 
@@ -124,6 +144,7 @@ PHP smokes run inside WordPress and load the plugin's bundled Block Format Bridg
 
 ```bash
 wp eval-file tests/smoke-admin-import-html-entry.php
+wp eval-file tests/smoke-url-import-entry.php
 wp eval-file tests/smoke-editor-style-support.php
 wp eval-file tests/smoke-wordpress-is-dead-fixture.php
 ```
@@ -167,7 +188,7 @@ This repo is Homeboy-managed:
 
 - The importer is intentionally static-site-to-block-theme glue. Block Format Bridge owns format conversion; HTML-to-block transform fidelity belongs upstream in BFB/h2bc.
 - The importer currently discovers flat sibling `*.html` files beside the selected entry file; it does not crawl arbitrary nested routes.
-- Admin imports accept pasted HTML, a direct `.html` / `.htm` file, or a ZIP with a root `index.html` or exactly one nested `index.html`; CLI imports take a direct HTML file path.
+- Admin imports accept pasted HTML, one public URL, a direct `.html` / `.htm` file, or a ZIP with a root `index.html` or exactly one nested `index.html`; CLI imports take a direct HTML file path or one public URL.
 - Linked local stylesheets and inline styles are copied into `style.css`; inline scripts are copied into `assets/site.js`. Other asset copying is not a general-purpose crawler yet.
 - Navigation persistence is limited to supported header/footer shapes that can be converted into deterministic `wp_navigation` entities without guessing.
 - External live triage has exercised additional static sites, but the committed first-party fixture is `tests/fixtures/wordpress-is-dead/`.

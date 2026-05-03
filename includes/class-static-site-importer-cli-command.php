@@ -21,8 +21,11 @@ class Static_Site_Importer_CLI_Command {
 	 *
 	 * ## OPTIONS
 	 *
-	 * <html-file>
-	 * : Path to index.html.
+	 * [<html-file>]
+	 * : Path to index.html. Optional when --url is provided.
+	 *
+	 * [--url=<url>]
+	 * : Fetch one public http/https HTML URL and import it as index.html. Redirects are validated with SSRF protections before connecting.
 	 *
 	 * [--slug=<slug>]
 	 * : Theme slug.
@@ -56,9 +59,29 @@ class Static_Site_Importer_CLI_Command {
 	 * @return void
 	 */
 	public function import_theme( array $args, array $assoc_args ): void {
-		$html_file = $args[0] ?? '';
+		$html_file       = $args[0] ?? '';
+		$source_metadata = array();
+		if ( isset( $assoc_args['url'] ) && '' !== trim( (string) $assoc_args['url'] ) ) {
+			if ( '' !== $html_file ) {
+				WP_CLI::error( 'Use either <html-file> or --url, not both.' );
+				return;
+			}
+
+			$fetch = Static_Site_Importer_URL_Fetcher::fetch_to_work_dir(
+				(string) $assoc_args['url'],
+				trailingslashit( wp_upload_dir()['basedir'] ) . 'static-site-importer/' . wp_generate_uuid4()
+			);
+			if ( is_wp_error( $fetch ) ) {
+				WP_CLI::error( $fetch->get_error_message() );
+				return;
+			}
+
+			$html_file       = $fetch['html_path'];
+			$source_metadata = $fetch['metadata'];
+		}
+
 		if ( '' === $html_file ) {
-			WP_CLI::error( 'Missing <html-file> argument.' );
+			WP_CLI::error( 'Missing <html-file> argument or --url option.' );
 			return;
 		}
 
@@ -73,6 +96,7 @@ class Static_Site_Importer_CLI_Command {
 				'fail_on_quality' => isset( $assoc_args['fail-on-quality'] ),
 				'max_fallbacks'   => isset( $assoc_args['max-fallbacks'] ) ? (int) $assoc_args['max-fallbacks'] : null,
 				'report'          => isset( $assoc_args['report'] ) ? (string) $assoc_args['report'] : '',
+				'source_metadata' => $source_metadata,
 			)
 		);
 
@@ -95,6 +119,9 @@ class Static_Site_Importer_CLI_Command {
 		if ( ! empty( $result['source_cleanup_error'] ) ) {
 			WP_CLI::warning( sprintf( 'Source cleanup skipped: %s', $result['source_cleanup_error'] ) );
 		}
+		if ( ! empty( $source_metadata['final_url'] ) ) {
+			WP_CLI::line( sprintf( 'Fetched URL: %s', $source_metadata['final_url'] ) );
+		}
 		WP_CLI::line( sprintf( 'Conversion quality: %s (%d unsupported HTML fallbacks, %d invalid blocks, %d content-loss aborts).', $result['quality']['pass'] ? 'pass' : 'needs review', $result['quality']['fallback_count'], $result['quality']['invalid_block_count'], $result['quality']['content_loss_count'] ) );
 
 		if ( ! $result['quality']['pass'] ) {
@@ -105,5 +132,55 @@ class Static_Site_Importer_CLI_Command {
 			WP_CLI::error( 'Conversion quality gate failed. Theme files were written for inspection.' );
 			return;
 		}
+	}
+
+	/**
+	 * Import one public URL as a block theme.
+	 *
+	 * ## OPTIONS
+	 *
+	 * <url>
+	 * : Public http/https URL to fetch.
+	 *
+	 * [--slug=<slug>]
+	 * : Theme slug.
+	 *
+	 * [--name=<name>]
+	 * : Theme name.
+	 *
+	 * [--activate]
+	 * : Activate the generated theme.
+	 *
+	 * [--overwrite]
+	 * : Overwrite an existing theme directory.
+	 *
+	 * [--keep-source]
+	 * : Preserve the fetched source directory after a successful clean import.
+	 *
+	 * [--fail-on-quality]
+	 * : Exit non-zero when conversion quality checks report fallbacks, invalid blocks, or content loss.
+	 *
+	 * [--max-fallbacks=<count>]
+	 * : Exit non-zero when unsupported HTML fallback count exceeds this threshold.
+	 *
+	 * [--report=<path>]
+	 * : Copy the generated import report JSON to an external archive path.
+	 *
+	 * [--format=<format>]
+	 * : Output format. Use json for machine-readable command output.
+	 *
+	 * @param array<int, string>   $args       Positional args.
+	 * @param array<string, mixed> $assoc_args Associative args.
+	 * @return void
+	 */
+	public function import_url( array $args, array $assoc_args ): void {
+		$url = $args[0] ?? '';
+		if ( '' === trim( $url ) ) {
+			WP_CLI::error( 'Missing <url> argument.' );
+			return;
+		}
+
+		$assoc_args['url'] = $url;
+		$this->import_theme( array(), $assoc_args );
 	}
 }
