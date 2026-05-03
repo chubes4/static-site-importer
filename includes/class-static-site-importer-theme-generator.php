@@ -1230,6 +1230,8 @@ class Static_Site_Importer_Theme_Generator {
 				'points',
 				'transform',
 				'opacity',
+				'preserveAspectRatio',
+				'preserveaspectratio',
 				'fill-rule',
 				'clip-rule',
 				'clip-path',
@@ -1268,6 +1270,10 @@ class Static_Site_Importer_Theme_Generator {
 		if ( $doc->documentElement->hasAttribute( 'viewbox' ) && ! $doc->documentElement->hasAttribute( 'viewBox' ) ) {
 			$doc->documentElement->setAttribute( 'viewBox', $doc->documentElement->getAttribute( 'viewbox' ) );
 			$doc->documentElement->removeAttribute( 'viewbox' );
+		}
+		if ( $doc->documentElement->hasAttribute( 'preserveaspectratio' ) && ! $doc->documentElement->hasAttribute( 'preserveAspectRatio' ) ) {
+			$doc->documentElement->setAttribute( 'preserveAspectRatio', $doc->documentElement->getAttribute( 'preserveaspectratio' ) );
+			$doc->documentElement->removeAttribute( 'preserveaspectratio' );
 		}
 
 		$svg = $doc->saveXML( $doc->documentElement );
