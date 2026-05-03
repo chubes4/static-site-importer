@@ -3957,10 +3957,11 @@ class Static_Site_Importer_Theme_Generator {
 	private static function editor_style_css( string $css, array $button_classes = array() ): string {
 		$button_bridge              = self::button_style_bridge_css( $css, $button_classes );
 		$editor_bridge              = self::editor_absolute_overlay_css( $css );
+		$editor_reveal_bridge       = self::editor_reveal_animation_css( $css );
 		$source_nav_selector_bridge = self::source_nav_selector_bridge_css( $css );
 		$css                        = self::scope_source_button_css( $css, $button_classes );
 
-		return "/*\nStatic Site Importer editor styles.\nGenerated separately from frontend style.css so editor wrapper repairs do not leak to public rendering.\n*/\n\n" . $css . "\n" . $button_bridge . $source_nav_selector_bridge . $editor_bridge;
+		return "/*\nStatic Site Importer editor styles.\nGenerated separately from frontend style.css so editor wrapper repairs do not leak to public rendering.\n*/\n\n" . $css . "\n" . $button_bridge . $source_nav_selector_bridge . $editor_bridge . $editor_reveal_bridge;
 	}
 
 	/**
@@ -4235,6 +4236,111 @@ class Static_Site_Importer_Theme_Generator {
 		$css .= "\n/* Static Site Importer: hide empty decorative layer group controls in the Site Editor. */\n" . implode( ', ', array_unique( $placeholder_rules ) ) . ' { display: none; }' . "\n";
 
 		return $css;
+	}
+
+	/**
+	 * Build editor-only visibility resets for JS-driven reveal animation starts.
+	 *
+	 * Source sites often initialize reveal targets with opacity:0 plus a transform,
+	 * then use frontend JavaScript to animate them into place. The editor canvas does
+	 * not run that frontend script, so scope the neutralization to editor styles.
+	 *
+	 * @param string $css Source CSS.
+	 * @return string Additional editor-only CSS rules.
+	 */
+	private static function editor_reveal_animation_css( string $css ): string {
+		$classes = self::reveal_animation_classes_from_css( $css );
+		if ( empty( $classes ) ) {
+			return '';
+		}
+
+		$selectors = array();
+		foreach ( $classes as $class ) {
+			if ( preg_match( '/^[A-Za-z_-][A-Za-z0-9_-]*$/', $class ) ) {
+				$selectors[] = '.editor-styles-wrapper .' . $class;
+			}
+		}
+
+		if ( empty( $selectors ) ) {
+			return '';
+		}
+
+		return "\n/* Static Site Importer: show JS-revealed animation content in editor canvases. */\n" . implode( ', ', array_unique( $selectors ) ) . ' { opacity: 1 !important; transform: none !important; }' . "\n";
+	}
+
+	/**
+	 * Collect terminal selector classes from rules declaring hidden transform reveals.
+	 *
+	 * @param string $css Source CSS.
+	 * @return array<int, string> Class names.
+	 */
+	private static function reveal_animation_classes_from_css( string $css ): array {
+		$css       = preg_replace( '/\/\*.*?\*\//s', '', $css ) ?? $css;
+		$lower_css = strtolower( $css );
+		if ( '' === trim( $css ) || ! str_contains( $lower_css, 'opacity' ) || ! str_contains( $lower_css, 'transform' ) || ! str_contains( $css, '.' ) ) {
+			return array();
+		}
+
+		$classes = self::reveal_animation_classes_from_css_scope( $css );
+		sort( $classes, SORT_STRING );
+
+		return $classes;
+	}
+
+	/**
+	 * Collect hidden transform reveal classes inside one CSS block list.
+	 *
+	 * @param string $css CSS to inspect.
+	 * @return array<int, string> Class names.
+	 */
+	private static function reveal_animation_classes_from_css_scope( string $css ): array {
+		$classes = array();
+		$length  = strlen( $css );
+		$offset  = 0;
+
+		while ( $offset < $length && preg_match( '/\G\s*([^{}]+)\{/', $css, $match, 0, $offset ) ) {
+			$prelude    = trim( $match[1] );
+			$body_start = $offset + strlen( $match[0] );
+			$body_end   = self::find_css_block_end( $css, $body_start );
+			if ( null === $body_end ) {
+				break;
+			}
+
+			$body   = substr( $css, $body_start, $body_end - $body_start );
+			$offset = $body_end + 1;
+
+			if ( str_starts_with( $prelude, '@' ) ) {
+				$classes = array_merge( $classes, self::reveal_animation_classes_from_css_scope( $body ) );
+				continue;
+			}
+
+			$opacity   = self::css_declaration_value( $body, 'opacity' );
+			$transform = self::css_declaration_value( $body, 'transform' );
+			if ( ! self::css_opacity_is_zero( $opacity ) || null === $transform || preg_match( '/^none\s*(?:!important\s*)?$/i', $transform ) ) {
+				continue;
+			}
+
+			foreach ( explode( ',', $prelude ) as $selector ) {
+				$classes = array_merge( $classes, self::selector_terminal_classes( trim( $selector ) ) );
+			}
+		}
+
+		return array_values( array_unique( $classes ) );
+	}
+
+	/**
+	 * Determine whether an opacity declaration hides the element.
+	 *
+	 * @param string|null $opacity Opacity declaration value.
+	 * @return bool Whether the value is zero.
+	 */
+	private static function css_opacity_is_zero( ?string $opacity ): bool {
+		if ( null === $opacity ) {
+			return false;
+		}
+
+		$opacity = trim( preg_replace( '/\s*!important\s*$/i', '', $opacity ) ?? $opacity );
+		return (bool) preg_match( '/^0(?:\.0+)?%?$/', $opacity );
 	}
 
 	/**
