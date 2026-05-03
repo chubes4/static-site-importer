@@ -801,7 +801,7 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	public function test_footer_template_part_svg_icons_materialize_as_theme_assets(): void {
 		$html_path = $this->write_temp_fixture(
 			'footer-svg-icon.html',
-			'<!doctype html><html><head><title>Footer SVG Icon</title></head><body><main><h1>Footer SVG Icon</h1><p>Body copy.</p></main><footer class="site-footer"><div class="footer-inner"><div class="footer-row"><div class="footer-brand"><span>Relay Atlas</span><svg viewbox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="width: 12px; height: 12px;"><path d="M8 2L14 5.5V10.5L8 14L2 10.5V5.5L8 2Z"></path></svg></div><ul class="footer-nav"><li><a href="/privacy.html">Privacy</a></li></ul></div></div></footer></body></html>'
+			'<!doctype html><html><head><title>Footer SVG Icon</title></head><body><main><h1>Footer SVG Icon</h1><p>Body copy.</p></main><footer class="site-footer"><div class="footer-inner"><div class="footer-row"><div class="footer-brand"><span>Relay Atlas</span><svg viewbox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" width="14" height="14"><path d="M8 2L14 5.5V10.5L8 14L2 10.5V5.5L8 2Z"></path></svg></div><ul class="footer-nav"><li><a href="/privacy.html">Privacy</a></li></ul></div></div></footer></body></html>'
 		);
 
 		$result = Static_Site_Importer_Theme_Generator::import_theme(
@@ -824,8 +824,14 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( '<!-- wp:image ', $footer );
 		$this->assertStringNotContainsString( '<!-- wp:html', $footer );
 		$this->assertStringContainsString( '/assets/icons/', $footer );
+		$this->assertStringContainsString( '<figure class="wp-block-image size-large"><img src="', $footer );
+		$this->assertStringContainsString( ' alt=""/></figure>', $footer );
+		$this->assertStringNotContainsString( ' width="14"', $footer );
+		$this->assertStringNotContainsString( ' height="14"', $footer );
+		$this->assertStringNotContainsString( ' decoding="async"', $footer );
 		$this->assertSame( 0, $report['quality']['unsafe_svg_count'] ?? null );
 		$this->assertSame( 0, $report['quality']['fallback_count'] ?? null );
+		$this->assertSame( 0, $report['quality']['invalid_block_count'] ?? null );
 		$this->assertNotEmpty( $report['assets']['svg_icons'] ?? array() );
 
 		$asset = $report['assets']['svg_icons'][0] ?? array();

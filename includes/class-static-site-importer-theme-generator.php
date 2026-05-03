@@ -856,12 +856,6 @@ class Static_Site_Importer_Theme_Generator {
 			'src' => esc_url( $src ),
 			'alt' => esc_attr( $element->getAttribute( 'alt' ) ),
 		);
-		foreach ( array( 'width', 'height', 'decoding', 'loading' ) as $attribute ) {
-			$value = trim( $element->getAttribute( $attribute ) );
-			if ( '' !== $value ) {
-				$img_attrs[ $attribute ] = esc_attr( $value );
-			}
-		}
 
 		$img_markup = '<img';
 		foreach ( $img_attrs as $name => $value ) {
