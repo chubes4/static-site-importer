@@ -78,6 +78,10 @@ class Block_Supports_Smoke_Element
     {
         return null;
     }
+    public function query_selector_all(string $selector): array
+    {
+        return [];
+    }
     public function get_text_content(): string
     {
         return \trim(\strip_tags($this->inner_html));
@@ -144,6 +148,22 @@ $assert(($group_block['attrs']['tagName'] ?? '') === 'section', 'group-tag-name'
 $assert(($group_block['attrs']['ariaLabel'] ?? '') === 'Primary content', 'group-aria-label');
 $assert(($group_block['attrs']['style']['color']['background'] ?? '') === '#fff', 'group-background');
 $assert(($group_block['attrs']['style']['spacing']['padding']['left'] ?? '') === '3rem', 'group-padding-left');
+$border_group = new Block_Supports_Smoke_Element('div', ['class' => 'wp-block-group benchmark-card', 'style' => 'border: 1px solid var(--border); background-color: var(--surface-2); margin-top: 2px; padding: 24px;'], '<p>Inner</p>');
+$border_group_transform = $find_transform($border_group, 'core/group');
+$border_group_block = $border_group_transform ? \call_user_func($border_group_transform['transform'], $border_group, $handler) : null;
+$assert($border_group_block && $border_group_block['blockName'] === 'core/group', 'border-group-transform-found');
+$assert(($border_group_block['attrs']['style']['border']['width'] ?? '') === '1px', 'group-border-shorthand-width');
+$assert(($border_group_block['attrs']['style']['border']['style'] ?? '') === 'solid', 'group-border-shorthand-style');
+$assert(($border_group_block['attrs']['style']['border']['color'] ?? '') === 'var(--border)', 'group-border-shorthand-color');
+$assert(\str_contains($border_group_block['innerHTML'] ?? '', 'border-width:1px'), 'group-border-serialized-width', $border_group_block['innerHTML'] ?? '');
+$assert(\str_contains($border_group_block['innerHTML'] ?? '', 'border-style:solid'), 'group-border-serialized-style', $border_group_block['innerHTML'] ?? '');
+$assert(\str_contains($border_group_block['innerHTML'] ?? '', 'border-color:var(--border)'), 'group-border-serialized-color', $border_group_block['innerHTML'] ?? '');
+$misparsed_border_group = new Block_Supports_Smoke_Element('div', ['class' => 'wp-block-group has-background benchmark-card', 'style' => 'border-width: 1px solid var(--border); background-color: var(--surface-2); margin-top: 2px; padding: 24px;'], '<p>Inner</p>');
+$misparsed_border_group_transform = $find_transform($misparsed_border_group, 'core/group');
+$misparsed_border_group_block = $misparsed_border_group_transform ? \call_user_func($misparsed_border_group_transform['transform'], $misparsed_border_group, $handler) : null;
+$assert($misparsed_border_group_block && $misparsed_border_group_block['blockName'] === 'core/group', 'misparsed-border-group-transform-found');
+$assert(!isset($misparsed_border_group_block['attrs']['style']['border']['width']), 'group-drops-invalid-border-width');
+$assert(!\str_contains($misparsed_border_group_block['innerHTML'] ?? '', 'border-width:1px solid var(--border)'), 'group-does-not-serialize-invalid-border-width', $misparsed_border_group_block['innerHTML'] ?? '');
 $separator = new Block_Supports_Smoke_Element('hr', ['class' => 'wp-block-separator alignwide is-style-dots custom-separator']);
 $separator_transform = $find_transform($separator, 'core/separator');
 $separator_block = $separator_transform ? \call_user_func($separator_transform['transform'], $separator) : null;

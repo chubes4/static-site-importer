@@ -17,7 +17,7 @@ class HTML_To_Blocks_SVG_Icon_Classifier
     private const MAX_DEPTH = 5;
     private const MAX_ICON_SIZE = 256;
     private const ALLOWED_TAGS = ['svg', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse', 'g', 'title', 'desc'];
-    private const ALLOWED_ATTRIBUTES = ['aria-hidden', 'aria-label', 'class', 'cx', 'cy', 'd', 'fill', 'height', 'points', 'r', 'role', 'stroke', 'stroke-linecap', 'stroke-linejoin', 'stroke-width', 'viewbox', 'width', 'x', 'x1', 'x2', 'y', 'y1', 'y2'];
+    private const ALLOWED_ATTRIBUTES = ['aria-hidden', 'aria-label', 'class', 'cx', 'cy', 'd', 'fill', 'fill-opacity', 'height', 'points', 'r', 'role', 'rx', 'ry', 'stroke', 'stroke-linecap', 'stroke-linejoin', 'stroke-opacity', 'stroke-width', 'viewbox', 'width', 'x', 'x1', 'x2', 'y', 'y1', 'y2'];
     /**
      * Classifies a source fragment as a safe inline SVG icon or a rejected SVG.
      *
@@ -81,7 +81,7 @@ class HTML_To_Blocks_SVG_Icon_Classifier
     private static function sanitize_element(\DOMElement $source, \DOMDocument $document, int $depth, array &$state): ?\DOMElement
     {
         $tag = \strtolower($source->tagName);
-        if (!\in_array($tag, self::ALLOWED_TAGS, \true) || \preg_match('/^animate/i', $tag) === 1 || $tag === 'set') {
+        if (!\in_array($tag, self::ALLOWED_TAGS, \true) || \preg_match('/^animate/i', $tag) === 1) {
             $state['reason'] = 'disallowed_tag';
             return null;
         }
@@ -118,7 +118,7 @@ class HTML_To_Blocks_SVG_Icon_Classifier
                 $target->appendChild($child_element);
                 continue;
             }
-            if ($child instanceof \DOMComment || $child instanceof \DOMCdataSection || $child instanceof \DOMProcessingInstruction) {
+            if (\in_array($child->nodeType, [\XML_COMMENT_NODE, \XML_CDATA_SECTION_NODE, \XML_PI_NODE], \true)) {
                 $state['reason'] = 'disallowed_node';
                 return null;
             }
@@ -157,6 +157,9 @@ class HTML_To_Blocks_SVG_Icon_Classifier
     {
         if ($view_box !== '') {
             $parts = \preg_split('/[\s,]+/', \trim($view_box));
+            if (!\is_array($parts)) {
+                return \false;
+            }
             if (\count($parts) !== 4 || !\is_numeric($parts[2]) || !\is_numeric($parts[3])) {
                 return \false;
             }
@@ -173,5 +176,17 @@ class HTML_To_Blocks_SVG_Icon_Classifier
             }
         }
         return $view_box !== '' || $width !== '' || $height !== '';
+    }
+}
+if (!\function_exists('BlockFormatBridge\Vendor\html_to_blocks_classify_inline_svg_icon')) {
+    /**
+     * Classifies and sanitizes an inline SVG icon for downstream materialization.
+     *
+     * @param string $svg Source SVG fragment.
+     * @return array Classification result with is_safe, svg, metadata, and reason keys.
+     */
+    function html_to_blocks_classify_inline_svg_icon(string $svg): array
+    {
+        return HTML_To_Blocks_SVG_Icon_Classifier::classify($svg);
     }
 }

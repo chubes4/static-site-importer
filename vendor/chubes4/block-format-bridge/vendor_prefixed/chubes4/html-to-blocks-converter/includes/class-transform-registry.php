@@ -51,6 +51,9 @@ class HTML_To_Blocks_Transform_Registry
             $classification = HTML_To_Blocks_SVG_Icon_Classifier::classify($element->get_outer_html());
             $svg = $classification['svg'] ?? '';
             $metadata = $classification['metadata'] ?? [];
+            if (\function_exists('do_action')) {
+                \do_action('html_to_blocks_safe_inline_svg_icon', $svg, $metadata, $classification);
+            }
             return ['blockName' => 'html-to-blocks/svg-icon', 'attrs' => ['svg' => $svg, 'metadata' => $metadata], 'innerBlocks' => [], 'innerHTML' => $svg, 'innerContent' => [$svg]];
         }]];
     }
@@ -634,7 +637,7 @@ class HTML_To_Blocks_Transform_Registry
         }, 'transform' => function ($element) {
             return self::create_static_visual_button_paragraph($element);
         }], ['blockName' => 'core/buttons', 'priority' => 8, 'selector' => 'div,p', 'isMatch' => function ($element) {
-            return self::is_button_anchor_container($element);
+            return self::is_button_anchor_container($element) || self::is_single_button_anchor_wrapper($element);
         }, 'transform' => function ($element) {
             return self::create_buttons_block_from_container($element);
         }], ['blockName' => 'core/buttons', 'priority' => 9, 'selector' => 'a', 'isMatch' => function ($element) {
@@ -673,6 +676,33 @@ class HTML_To_Blocks_Transform_Registry
             }
         }
         return \true;
+    }
+    /**
+     * Checks whether an alignment/action wrapper contains one button-like CTA anchor.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Element to inspect.
+     * @return bool True when the wrapper can safely become core/buttons.
+     */
+    private static function is_single_button_anchor_wrapper($element): bool
+    {
+        if (!\in_array($element->get_tag_name(), ['DIV', 'P'], \true)) {
+            return \false;
+        }
+        $children = self::get_direct_anchor_children_from_html($element->get_inner_html());
+        if (\count($children) !== 1 || !self::is_button_like_anchor($children[0])) {
+            return \false;
+        }
+        return self::is_action_link_container($element) || self::is_alignment_button_wrapper($element);
+    }
+    /**
+     * Checks for explicit alignment wrapper classes commonly used around CTAs.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Element to inspect.
+     * @return bool True when the wrapper class signals visual alignment.
+     */
+    private static function is_alignment_button_wrapper($element): bool
+    {
+        return self::class_matches($element, '/(?:^|[-_\s])(?:center|centered|text[-_]?center|aligncenter|align[-_]?center)(?:$|[-_\s])/i');
     }
     /**
      * Checks whether a wrapper contains only static visual button controls.
@@ -2034,16 +2064,145 @@ class HTML_To_Blocks_Transform_Registry
      */
     private static function apply_border_support_attributes(array &$attributes, string $style): void
     {
-        foreach (['color', 'style', 'width', 'radius'] as $part) {
-            $value = self::extract_css_property($style, 'border-' . $part);
-            if ($value !== '') {
-                $attributes['style']['border'][$part] = $value;
-            }
-        }
+        $border_parts = [];
         $border = self::extract_css_property($style, 'border');
         if ($border !== '') {
-            $attributes['style']['border']['width'] = $attributes['style']['border']['width'] ?? $border;
+            $border_parts = self::parse_border_shorthand($border);
         }
+        $color = self::extract_css_property($style, 'border-color');
+        if ($color !== '' && self::is_safe_border_color($color)) {
+            $border_parts['color'] = $color;
+        }
+        $border_style = self::extract_css_property($style, 'border-style');
+        if ($border_style !== '' && self::is_safe_border_style($border_style)) {
+            $border_parts['style'] = \strtolower($border_style);
+        }
+        $width = self::extract_css_property($style, 'border-width');
+        if ($width !== '' && self::is_safe_border_width($width)) {
+            $border_parts['width'] = $width;
+        }
+        $radius = self::extract_css_property($style, 'border-radius');
+        if ($radius !== '' && self::is_safe_border_radius($radius)) {
+            $border_parts['radius'] = $radius;
+        }
+        if (!empty($border_parts)) {
+            $attributes['style']['border'] = $border_parts;
+        }
+    }
+    /**
+     * Parses an editor-safe `border` shorthand into block support parts.
+     *
+     * @param string $value CSS border shorthand value.
+     * @return array Border support parts.
+     */
+    private static function parse_border_shorthand(string $value): array
+    {
+        $parts = [];
+        foreach (self::split_css_value_tokens($value) as $token) {
+            $lower_token = \strtolower($token);
+            if (empty($parts['width']) && self::is_safe_border_width($token)) {
+                $parts['width'] = $token;
+                continue;
+            }
+            if (empty($parts['style']) && self::is_safe_border_style($lower_token)) {
+                $parts['style'] = $lower_token;
+                continue;
+            }
+            if (empty($parts['color']) && self::is_safe_border_color($token)) {
+                $parts['color'] = $token;
+            }
+        }
+        return $parts;
+    }
+    /**
+     * Splits CSS value tokens without breaking function arguments.
+     *
+     * @param string $value CSS value.
+     * @return array Tokens.
+     */
+    private static function split_css_value_tokens(string $value): array
+    {
+        $tokens = [];
+        $token = '';
+        $depth = 0;
+        $length = \strlen($value);
+        for ($index = 0; $index < $length; $index++) {
+            $char = $value[$index];
+            if ($char === '(') {
+                $depth++;
+            } elseif ($char === ')' && $depth > 0) {
+                $depth--;
+            }
+            if (\ctype_space($char) && $depth === 0) {
+                if ($token !== '') {
+                    $tokens[] = $token;
+                    $token = '';
+                }
+                continue;
+            }
+            $token .= $char;
+        }
+        if ($token !== '') {
+            $tokens[] = $token;
+        }
+        return $tokens;
+    }
+    /**
+     * Checks whether a border width is safe and editor-valid.
+     *
+     * @param string $value CSS border width.
+     * @return bool True when safe.
+     */
+    private static function is_safe_border_width(string $value): bool
+    {
+        $value = \trim($value);
+        if ($value === '' || \preg_match('/\s/', $value)) {
+            return \false;
+        }
+        return \in_array(\strtolower($value), ['thin', 'medium', 'thick'], \true) || \preg_match('/^(?:0|[0-9.]+(?:px|em|rem|%|vw|vh|vmin|vmax))$/i', $value) === 1;
+    }
+    /**
+     * Checks whether a border style is safe and editor-valid.
+     *
+     * @param string $value CSS border style.
+     * @return bool True when safe.
+     */
+    private static function is_safe_border_style(string $value): bool
+    {
+        return \in_array(\strtolower(\trim($value)), ['none', 'hidden', 'dotted', 'dashed', 'solid', 'double', 'groove', 'ridge', 'inset', 'outset'], \true);
+    }
+    /**
+     * Checks whether a border color is safe to preserve mechanically.
+     *
+     * @param string $value CSS border color.
+     * @return bool True when safe.
+     */
+    private static function is_safe_border_color(string $value): bool
+    {
+        $value = \trim($value);
+        if ($value === '' || \strlen($value) > 100 || \preg_match('/(?:url\s*\(|expression\s*\(|javascript\s*:|behavior\s*:)/i', $value)) {
+            return \false;
+        }
+        return \preg_match('/^(?:#[0-9a-f]{3,8}|[a-z]+|rgba?\([^()]+\)|hsla?\([^()]+\)|var\(\s*--[A-Za-z0-9_-]+\s*\))$/i', $value) === 1;
+    }
+    /**
+     * Checks whether a border radius is safe to preserve mechanically.
+     *
+     * @param string $value CSS border radius.
+     * @return bool True when safe.
+     */
+    private static function is_safe_border_radius(string $value): bool
+    {
+        $tokens = self::split_css_value_tokens(\trim($value));
+        if (empty($tokens) || \count($tokens) > 4) {
+            return \false;
+        }
+        foreach ($tokens as $token) {
+            if (!self::is_safe_border_width($token)) {
+                return \false;
+            }
+        }
+        return \true;
     }
     /**
      * Extracts one CSS declaration value from a style attribute.
@@ -2104,6 +2263,9 @@ class HTML_To_Blocks_Transform_Registry
             return self::is_empty_decorative_element($element);
         }
         if ($tag !== 'DIV') {
+            return \false;
+        }
+        if (self::is_project_card_status_element($element) && !self::is_empty_element($element)) {
             return \false;
         }
         if (\trim($element->get_text_content()) !== '' && \trim($element->get_inner_html()) === \trim(wp_strip_all_tags($element->get_inner_html()))) {
@@ -2357,7 +2519,17 @@ class HTML_To_Blocks_Transform_Registry
      */
     private static function is_empty_decorative_element($element): bool
     {
-        return self::is_empty_element($element) && self::class_matches($element, '/(?:^|[-_\s])(background|bg|pattern|texture|divider|separator|connector|rule|line|overlay|grain|noise|glow|gradient|dot|mark|bullet|icon|orb|blob|fill|progress|meter|gauge|today|traffic[-_]?light|tl[-_]?(?:red|yellow|green)|task[-_\s]?check)(?:$|[-_\s]|\d)/i');
+        return self::is_empty_element($element) && (self::is_project_card_status_element($element) || self::class_matches($element, '/(?:^|[-_\s])(background|bg|pattern|texture|divider|separator|connector|rule|line|blank|overlay|grain|noise|glow|gradient|dot|mark|bullet|icon|orb|blob|fill|progress|meter|gauge|today|traffic[-_]?light|tl[-_]?(?:red|yellow|green)|task[-_\s]?check)(?:$|[-_\s]|\d)/i'));
+    }
+    /**
+     * Checks whether an element is a project-card status chip/dot.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element The source element.
+     * @return bool True when the classes match the project-card status pattern.
+     */
+    private static function is_project_card_status_element($element): bool
+    {
+        return 'DIV' === $element->get_tag_name() && self::class_matches($element, '/(?:^|\s)pcard-status(?:\s|$)/i') && self::class_matches($element, '/(?:^|\s)status-(?:done|active|warn|idle)(?:\s|$)/i');
     }
     /**
      * Checks whether an element has no meaningful text or child elements.

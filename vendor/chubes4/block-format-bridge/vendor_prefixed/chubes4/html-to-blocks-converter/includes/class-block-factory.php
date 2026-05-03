@@ -121,6 +121,15 @@ class HTML_To_Blocks_Block_Factory
         if (!\is_array($style)) {
             return '';
         }
+        $border = $style['border'] ?? [];
+        if (\is_array($border)) {
+            foreach (['color', 'style', 'width', 'radius'] as $part) {
+                $value = $border[$part] ?? null;
+                if (\is_string($value) && $value !== '') {
+                    $declarations[] = 'border-' . $part . ':' . $value;
+                }
+            }
+        }
         $text_color = $style['color']['text'] ?? null;
         if (\is_string($text_color) && $text_color !== '') {
             $declarations[] = 'color:' . $text_color;
