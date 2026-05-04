@@ -677,6 +677,16 @@ class Static_Site_Importer_Theme_Generator {
 
 		$container          = $footer_children[0];
 		$container_children = self::direct_element_children( $container );
+		if ( 2 === count( $container_children ) && 'div' === strtolower( $container_children[0]->tagName ) && 'ul' === strtolower( $container_children[1]->tagName ) ) {
+			$list_blocks = self::footer_navigation_or_list_block( $doc, $container_children[1], $theme_slug, 'footer' );
+			if ( null === $list_blocks ) {
+				return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
+			}
+
+			$container_blocks = self::theme_part_element_block( $doc, $container_children[0], $theme_slug, 'footer' ) . $list_blocks;
+			return self::group_block( self::group_block( $container_blocks, $container->getAttribute( 'class' ) ), $footer->getAttribute( 'class' ), 'footer' );
+		}
+
 		if ( 1 !== count( $container_children ) || 'div' !== strtolower( $container_children[0]->tagName ) ) {
 			return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
 		}
@@ -687,7 +697,7 @@ class Static_Site_Importer_Theme_Generator {
 			return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
 		}
 
-		$list_blocks = self::footer_link_list_block( $doc, $row_children[1] );
+		$list_blocks = self::footer_navigation_or_list_block( $doc, $row_children[1], $theme_slug, 'footer' );
 		if ( null === $list_blocks ) {
 			return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
 		}
@@ -724,6 +734,10 @@ class Static_Site_Importer_Theme_Generator {
 
 		if ( 'a' === $tag ) {
 			return self::link_element_block( $doc, $element );
+		}
+
+		if ( self::should_preserve_theme_part_source_element( $element ) ) {
+			return self::freeform_block( self::node_html( $doc, $element ) );
 		}
 
 		if ( 'img' === $tag ) {
@@ -963,6 +977,22 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Check whether classed chrome needs exact source element ownership.
+	 *
+	 * @param DOMElement $element Source element.
+	 * @return bool
+	 */
+	private static function should_preserve_theme_part_source_element( DOMElement $element ): bool {
+		$tag = strtolower( $element->tagName );
+		if ( ! in_array( $tag, array( 'div', 'span' ), true ) || ! self::element_has_only_phrasing_content( $element ) ) {
+			return false;
+		}
+
+		$class = trim( $element->getAttribute( 'class' ) );
+		return preg_match( '/(^|[-_\s])footer-logo([-_\s]|$)/i', $class ) === 1;
+	}
+
+	/**
 	 * Check whether an element can be represented as one paragraph with inline markup.
 	 *
 	 * @param DOMElement $element Source element.
@@ -1077,7 +1107,7 @@ class Static_Site_Importer_Theme_Generator {
 			return null;
 		}
 
-		if ( ! str_contains( strtolower( $inner ), '<img' ) ) {
+		if ( ! str_contains( strtolower( $inner ), '<img' ) && empty( self::direct_element_children( $element ) ) ) {
 			return self::paragraph_block( '<a' . self::element_attribute_markup( $element ) . '>' . $inner . '</a>' );
 		}
 
@@ -1436,6 +1466,26 @@ class Static_Site_Importer_Theme_Generator {
 		$class_attr    = trim( 'wp-block-list ' . $class );
 
 		return '<!-- wp:list' . $comment_attrs . ' --><' . $tag . ' class="' . esc_attr( $class_attr ) . '">' . implode( '', $items ) . '</' . $tag . '><!-- /wp:list -->';
+	}
+
+	/**
+	 * Build a footer navigation entity when the row owns one utility menu, otherwise a visible list.
+	 *
+	 * @param DOMDocument $doc        Source DOM document.
+	 * @param DOMElement  $element    Source list element.
+	 * @param string      $theme_slug Imported theme slug.
+	 * @param string      $location   Theme part location.
+	 * @return string|null
+	 */
+	private static function footer_navigation_or_list_block( DOMDocument $doc, DOMElement $element, string $theme_slug, string $location ): ?string {
+		if ( self::can_convert_element_to_navigation( $element ) ) {
+			$navigation = self::navigation_ref_block( $element, $theme_slug, $location );
+			if ( null !== $navigation ) {
+				return $navigation;
+			}
+		}
+
+		return self::footer_link_list_block( $doc, $element );
 	}
 
 	/**
