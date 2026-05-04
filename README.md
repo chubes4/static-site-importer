@@ -52,6 +52,46 @@ ZIP intake rules:
 - If there are multiple nested `index.html` files and no root `index.html`, the import fails so the entry point is not guessed.
 - Archive entries with absolute paths, `../` traversal segments, or server-side executable extensions are rejected before extraction when PHP's `ZipArchive` inspection is available.
 
+## Generated Store Contract
+
+Static store generators may include an optional `products.json` file beside the selected entry HTML file. When present, Static Site Importer validates the manifest and records the contract result under `commerce.products_manifest` in `import-report.json`. When absent, non-commerce imports keep their existing report shape and no `commerce` section is added.
+
+Minimal schema:
+
+```json
+{
+  "schema_version": 1,
+  "products": [
+    {
+      "name": "Signal Hoodie",
+      "slug": "signal-hoodie",
+      "regular_price": "64.00"
+    }
+  ]
+}
+```
+
+Required fields:
+
+- `schema_version`: integer `1`.
+- `products`: array of product objects.
+- `products[].name`: non-empty string.
+- `products[].slug`: lowercase URL slug using letters, numbers, and hyphens.
+- `products[].regular_price`: decimal string such as `19.00`.
+
+Optional product fields:
+
+- `sale_price`: decimal string.
+- `description` and `short_description`: strings.
+- `categories`: array of non-empty category-name strings.
+- `image`: string path relative to the static site source.
+- `status`: string product post status metadata.
+- `stock_status`: string stock status metadata.
+- `stock_quantity`: integer stock quantity.
+- `source_selectors`: array of non-empty CSS selector strings for source-product cards.
+
+Invalid manifests do not abort the import. The report marks the manifest invalid and records path-addressed diagnostics such as `$.products[0].slug` so generators can fix the exact field.
+
 ## CLI Usage
 
 ```bash
