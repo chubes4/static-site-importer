@@ -405,14 +405,16 @@ if ( false !== $wrote_footer_chrome ) {
 
 		$assert( ! str_contains( $footer_chrome_footer, '<!-- wp:html' ), 'footer-chrome-has-no-core-html-blocks', $footer_chrome_footer );
 		$assert( ! str_contains( $footer_chrome_footer, 'core/html' ), 'footer-chrome-has-no-raw-core-html-name', $footer_chrome_footer );
-		$assert( str_contains( $footer_chrome_footer, '<!-- wp:freeform --><div class="footer-logo">' ), 'footer-logo-preserves-source-wrapper' );
+		$assert( str_contains( $footer_chrome_footer, '<!-- wp:paragraph {"className":"footer-logo"}' ), 'footer-logo-uses-native-paragraph' );
 		$assert( str_contains( $footer_chrome_footer, 'width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block;' ), 'footer-logo-decorative-span-style-survives' );
 		$assert( str_contains( $footer_chrome_footer, 'Studio Code — by Automattic' ), 'footer-logo-text-survives' );
-		$assert( str_contains( $footer_chrome_footer, '<!-- wp:freeform --><div class="footer-meta">' ), 'footer-meta-preserves-source-wrapper' );
+		$assert( str_contains( $footer_chrome_footer, '<!-- wp:paragraph {"className":"footer-meta"}' ), 'footer-meta-uses-native-paragraph' );
+		$assert( ! str_contains( $footer_chrome_footer, '<!-- wp:freeform' ), 'footer-chrome-has-no-freeform-blocks', $footer_chrome_footer );
 		$assert( str_contains( $footer_chrome_style, 'display: flex; align-items: center; justify-content: space-between' ), 'footer-flex-alignment-css-survives' );
 		$assert( str_contains( $footer_chrome_style, 'footer .footer-logo' ) && str_contains( $footer_chrome_style, 'gap: 8px' ), 'footer-logo-spacing-css-survives' );
 		$assert( str_contains( $footer_chrome_style, 'flex-direction: column; gap: 12px; text-align: center' ), 'footer-responsive-spacing-css-survives' );
 		$assert( 0 === ( $footer_document['core_html_block_count'] ?? -1 ), 'footer-chrome-report-has-zero-footer-core-html-blocks' );
+		$assert( 0 === ( $footer_document['freeform_block_count'] ?? -1 ), 'footer-chrome-report-has-zero-footer-freeform-blocks' );
 	}
 }
 

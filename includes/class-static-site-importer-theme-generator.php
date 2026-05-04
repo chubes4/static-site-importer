@@ -608,7 +608,7 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		if ( self::should_preserve_theme_part_phrasing_element( $element ) ) {
-			return self::freeform_block( self::node_html( $doc, $element ) );
+			return self::paragraph_block( self::node_inner_html( $doc, $element ), $element->getAttribute( 'class' ) );
 		}
 
 		if ( self::is_link_cluster_container( $element ) ) {
@@ -952,6 +952,10 @@ class Static_Site_Importer_Theme_Generator {
 		$inner = self::brand_anchor_inline_children_html( $doc, $element );
 		if ( null === $inner || ( '' === trim( wp_strip_all_tags( $inner ) ) && ! str_contains( strtolower( $inner ), '<img' ) ) ) {
 			return null;
+		}
+
+		if ( ! str_contains( strtolower( $inner ), '<img' ) ) {
+			return self::paragraph_block( '<a' . self::element_attribute_markup( $element ) . '>' . $inner . '</a>' );
 		}
 
 		return self::freeform_block( '<a' . self::element_attribute_markup( $element ) . '>' . $inner . '</a>' );
