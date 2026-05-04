@@ -15,13 +15,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Static_Site_Importer_Document {
 
 	/**
-	 * Source HTML.
-	 *
-	 * @var string
-	 */
-	private string $html;
-
-	/**
 	 * DOM document.
 	 *
 	 * @var DOMDocument
@@ -34,8 +27,7 @@ class Static_Site_Importer_Document {
 	 * @param string $html Source HTML.
 	 */
 	public function __construct( string $html ) {
-		$this->html = $html;
-		$this->dom  = new DOMDocument();
+		$this->dom = new DOMDocument();
 
 		$previous = libxml_use_internal_errors( true );
 		$this->dom->loadHTML( $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD );
@@ -104,10 +96,6 @@ class Static_Site_Importer_Document {
 	public function stylesheet_hrefs(): array {
 		$hrefs = array();
 		foreach ( $this->dom->getElementsByTagName( 'link' ) as $link ) {
-			if ( ! $link instanceof DOMElement ) {
-				continue;
-			}
-
 			$rel  = strtolower( trim( $link->getAttribute( 'rel' ) ) );
 			$href = trim( $link->getAttribute( 'href' ) );
 			if ( '' === $href || ! str_contains( ' ' . $rel . ' ', ' stylesheet ' ) ) {
@@ -224,7 +212,7 @@ class Static_Site_Importer_Document {
 	 */
 	private function first_plausible_global_header( DOMElement $root ): ?DOMElement {
 		foreach ( $this->dom->getElementsByTagName( 'header' ) as $header ) {
-			if ( $header instanceof DOMElement && $this->is_plausible_global_header( $root, $header ) ) {
+			if ( $this->is_plausible_global_header( $root, $header ) ) {
 				return $header;
 			}
 		}
@@ -241,10 +229,6 @@ class Static_Site_Importer_Document {
 	 */
 	private function first_plausible_global_nav( DOMElement $root, ?DOMElement $header ): ?DOMElement {
 		foreach ( $this->dom->getElementsByTagName( 'nav' ) as $nav ) {
-			if ( ! $nav instanceof DOMElement ) {
-				continue;
-			}
-
 			if ( $header instanceof DOMElement && $this->is_descendant_of( $nav, $header ) ) {
 				return $nav;
 			}

@@ -902,7 +902,7 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param DOMElement  $element Anchor element.
 	 * @return string
 	 */
-	private static function link_element_block( DOMDocument $doc, DOMElement $element): string {
+	private static function link_element_block( DOMDocument $doc, DOMElement $element ): string {
 		$href  = trim( $element->getAttribute( 'href' ) );
 		$label = trim( $element->textContent );
 		if ( '' === $href || '' === $label ) {
@@ -1029,30 +1029,6 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return $attributes;
-	}
-
-	/**
-	 * Record an explicit semantic approximation/recovery diagnostic for theme-part chrome.
-	 *
-	 * @param string     $location Theme part location.
-	 * @param DOMElement $element  Source element.
-	 * @param string     $code     Diagnostic code.
-	 * @param string     $message  Diagnostic message.
-	 * @return void
-	 */
-	private static function record_theme_part_semantic_diagnostic( string $location, DOMElement $element, string $code, string $message ): void {
-		if ( empty( self::$conversion_report ) ) {
-			return;
-		}
-
-		self::$conversion_report['diagnostics'][] = array(
-			'type'       => 'theme_part_semantic_fidelity',
-			'code'       => $code,
-			'source'     => 'theme-part:' . ( '' !== $location ? $location : 'unknown' ),
-			'element'    => strtolower( $element->tagName ),
-			'class_name' => trim( $element->getAttribute( 'class' ) ),
-			'message'    => $message,
-		);
 	}
 
 	/**

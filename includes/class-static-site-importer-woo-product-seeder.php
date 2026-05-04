@@ -273,7 +273,7 @@ class Static_Site_Importer_Woo_Product_Seeder {
 		$term_ids = array();
 		foreach ( $category_names as $category_name ) {
 			$term = term_exists( $category_name, 'product_cat' );
-			if ( 0 === $term || null === $term ) {
+			if ( null === $term ) {
 				$term = wp_insert_term( $category_name, 'product_cat' );
 			}
 
@@ -281,11 +281,7 @@ class Static_Site_Importer_Woo_Product_Seeder {
 				continue;
 			}
 
-			if ( is_array( $term ) && isset( $term['term_id'] ) ) {
-				$term_ids[] = (int) $term['term_id'];
-			} elseif ( is_int( $term ) ) {
-				$term_ids[] = $term;
-			}
+			$term_ids[] = (int) $term['term_id'];
 		}
 
 		return array_values( array_unique( array_filter( $term_ids ) ) );
