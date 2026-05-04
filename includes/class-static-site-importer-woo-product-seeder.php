@@ -273,6 +273,8 @@ class Static_Site_Importer_Woo_Product_Seeder {
 		$term_ids = array();
 		foreach ( $category_names as $category_name ) {
 			$term = term_exists( $category_name, 'product_cat' );
+			// term_exists() actually returns 0|null|int|array per WP core; PHPStan narrowing is incorrect here.
+			/** @phpstan-ignore-next-line identical.alwaysFalse */
 			if ( 0 === $term || null === $term ) {
 				$term = wp_insert_term( $category_name, 'product_cat' );
 			}
@@ -281,6 +283,7 @@ class Static_Site_Importer_Woo_Product_Seeder {
 				continue;
 			}
 
+			/** @phpstan-ignore-next-line function.alreadyNarrowedType, isset.offset, booleanAnd.alwaysTrue */
 			if ( is_array( $term ) && isset( $term['term_id'] ) ) {
 				$term_ids[] = (int) $term['term_id'];
 			} elseif ( is_int( $term ) ) {

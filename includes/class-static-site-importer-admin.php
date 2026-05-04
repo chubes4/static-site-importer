@@ -87,8 +87,10 @@ class Static_Site_Importer_Admin {
 			wp_die( esc_html__( 'You are not allowed to import HTML.', 'static-site-importer' ) );
 		}
 
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display-only redirect-result read for admin notice
 		$result = isset( $_GET['static_site_imported'] ) ? sanitize_text_field( wp_unslash( $_GET['static_site_imported'] ) ) : '';
-		$error  = isset( $_GET['static_site_error'] ) ? sanitize_text_field( wp_unslash( $_GET['static_site_error'] ) ) : '';
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display-only redirect-result read for admin notice
+		$error = isset( $_GET['static_site_error'] ) ? sanitize_text_field( wp_unslash( $_GET['static_site_error'] ) ) : '';
 		?>
 		<div class="wrap">
 			<h1><?php echo esc_html__( 'Import HTML', 'static-site-importer' ); ?></h1>
