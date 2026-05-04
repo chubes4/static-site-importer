@@ -113,7 +113,6 @@ if ( ! is_wp_error( $result ) ) {
 	$home_pat   = $read( $theme_dir . '/patterns/page-home.php' );
 	$proof_pat  = $read( $theme_dir . '/patterns/page-proof.php' );
 	$header_nav = get_page_by_path( 'wordpress-is-dead-fixture-header-navigation', OBJECT, 'wp_navigation' );
-	$footer_nav = get_page_by_path( 'wordpress-is-dead-fixture-footer-navigation', OBJECT, 'wp_navigation' );
 
 	$assert( str_contains( $front_page, 'wp:post-content' ), 'front-page-renders-page-post-content' );
 	$assert( ! str_contains( $front_page, 'wp:pattern' ), 'front-page-does-not-embed-page-pattern' );
@@ -191,14 +190,9 @@ if ( ! is_wp_error( $result ) ) {
 		$assert( str_contains( $header_nav->post_content, '<!-- wp:navigation-link ' ), 'header-navigation-post-stores-navigation-link-blocks' );
 	}
 	$assert( str_contains( $footer, 'Prompt Liberation Front' ), 'footer-preserves-footer-copy' );
-	$assert( str_contains( $footer, '<!-- wp:navigation ' ), 'footer-uses-native-navigation-block' );
-	$assert( str_contains( $footer, '"ref":' ), 'footer-navigation-references-persistent-entity' );
-	$assert( ! str_contains( $footer, '<!-- wp:navigation-link ' ), 'footer-template-part-does-not-inline-navigation-links' );
-	$assert( $footer_nav instanceof WP_Post, 'footer-navigation-post-exists' );
-	if ( $footer_nav instanceof WP_Post ) {
-		$assert( str_contains( $footer, '"ref":' . $footer_nav->ID ), 'footer-navigation-ref-points-to-post' );
-		$assert( str_contains( $footer_nav->post_content, '<!-- wp:navigation-link ' ), 'footer-navigation-post-stores-navigation-link-blocks' );
-	}
+	$assert( str_contains( $footer, '<!-- wp:list {"className":"links"}' ), 'footer-uses-visible-list-block' );
+	$assert( ! str_contains( $footer, '<!-- wp:navigation ' ), 'footer-does-not-use-responsive-navigation-block' );
+	$assert( ! str_contains( $footer, '<!-- wp:navigation-link ' ), 'footer-does-not-inline-navigation-link-blocks' );
 	$assert( ! preg_match( '/href=("|\')[^"\']+\.html(?:[#?][^"\']*)?\1/i', $footer ), 'footer-has-no-stale-html-links' );
 
 	$second_result = Static_Site_Importer_Theme_Generator::import_theme(
@@ -212,12 +206,8 @@ if ( ! is_wp_error( $result ) ) {
 	);
 	$assert( ! is_wp_error( $second_result ), 'second-import-succeeds', is_wp_error( $second_result ) ? $second_result->get_error_message() : '' );
 	$header_nav_after = get_page_by_path( 'wordpress-is-dead-fixture-header-navigation', OBJECT, 'wp_navigation' );
-	$footer_nav_after = get_page_by_path( 'wordpress-is-dead-fixture-footer-navigation', OBJECT, 'wp_navigation' );
 	if ( $header_nav instanceof WP_Post && $header_nav_after instanceof WP_Post ) {
 		$assert( $header_nav->ID === $header_nav_after->ID, 'second-import-reuses-header-navigation-post' );
-	}
-	if ( $footer_nav instanceof WP_Post && $footer_nav_after instanceof WP_Post ) {
-		$assert( $footer_nav->ID === $footer_nav_after->ID, 'second-import-reuses-footer-navigation-post' );
 	}
 	$assert( str_contains( $style, '--accent' ) && str_contains( $style, '.compare' ) && str_contains( $style, '.manifesto-list' ), 'style-preserves-source-css' );
 	$assert( str_contains( $style, '.wp-block-button.btn > .wp-block-button__link:where(.wp-element-button)' ), 'style-resets-source-button-classes-on-core-button-links' );
@@ -426,6 +416,46 @@ if ( false !== $wrote_footer_chrome ) {
 	}
 }
 
+$footer_link_columns_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-footer-link-columns.html';
+$wrote_footer_link_columns   = file_put_contents(
+	$footer_link_columns_fixture,
+	'<!doctype html><html><head><title>Footer Link Columns</title><style>' .
+	'footer { background: #1a1a16; }' .
+	'.footer-col-title { color: var(--amber); }' .
+	'.footer-links { list-style: none; display: flex; flex-direction: column; gap: 0.6rem; }' .
+	'.footer-links a { color: rgba(240,228,194,0.5); }' .
+	'</style></head><body>' .
+	'<main><section><h1>Footer link columns</h1><p>Body copy.</p></section></main>' .
+	'<footer><div class="footer-grid"><div class="footer-col"><p class="footer-col-title">Conference</p><ul class="footer-links"><li><a href="#schedule">Schedule</a></li><li><a href="#speakers">Speakers</a></li></ul></div><div class="footer-col"><p class="footer-col-title">Visit</p><ul class="footer-links"><li><a href="#venue">Venue</a></li><li><a href="#tickets">Tickets</a></li></ul></div></div></footer>' .
+	'</body></html>'
+);
+$assert( false !== $wrote_footer_link_columns, 'footer-link-columns-fixture-written' );
+
+if ( false !== $wrote_footer_link_columns ) {
+	$footer_link_columns_result = Static_Site_Importer_Theme_Generator::import_theme(
+		$footer_link_columns_fixture,
+		array(
+			'name'      => 'Footer Link Columns',
+			'slug'      => 'footer-link-columns',
+			'overwrite' => true,
+			'activate'  => false,
+		)
+	);
+	$assert( ! is_wp_error( $footer_link_columns_result ), 'footer-link-columns-import-succeeds', is_wp_error( $footer_link_columns_result ) ? $footer_link_columns_result->get_error_message() : '' );
+	if ( ! is_wp_error( $footer_link_columns_result ) ) {
+		$footer_link_columns_footer     = $read( $footer_link_columns_result['theme_dir'] . '/parts/footer.html' );
+		$footer_link_columns_rendered   = do_blocks( $footer_link_columns_footer );
+		$footer_link_columns_list_count = substr_count( $footer_link_columns_footer, '<!-- wp:list {"className":"footer-links"}' );
+
+		$assert( 2 === $footer_link_columns_list_count, 'footer-link-columns-converts-both-lists-to-visible-list-blocks', 'count=' . $footer_link_columns_list_count );
+		$assert( ! str_contains( $footer_link_columns_footer, '<!-- wp:navigation ' ), 'footer-link-columns-do-not-use-navigation-blocks' );
+		$assert( str_contains( $footer_link_columns_footer, '"className":"footer-links"' ), 'footer-link-columns-preserve-footer-links-class' );
+		$assert( str_contains( $footer_link_columns_footer, 'Conference' ) && str_contains( $footer_link_columns_footer, 'Visit' ), 'footer-link-columns-preserve-column-titles' );
+		$assert( str_contains( $footer_link_columns_footer, 'Schedule' ) && str_contains( $footer_link_columns_footer, 'Tickets' ), 'footer-link-columns-store-visible-links-inline' );
+		$assert( ! str_contains( $footer_link_columns_rendered, 'wp-block-navigation__responsive-container-open' ), 'footer-link-columns-render-without-overlay-open-button', $footer_link_columns_rendered );
+	}
+}
+
 $leading_nav_fixture = trailingslashit( get_temp_dir() ) . 'static-site-importer-leading-nav-header.html';
 $wrote_leading_nav   = file_put_contents(
 	$leading_nav_fixture,
@@ -527,7 +557,6 @@ if ( false !== $wrote_footer_brand_anchor ) {
 	if ( ! is_wp_error( $footer_brand_anchor_result ) ) {
 		$footer_brand_anchor_footer = $read( $footer_brand_anchor_result['theme_dir'] . '/parts/footer.html' );
 		$footer_brand_anchor_report = json_decode( $read( $footer_brand_anchor_result['report_path'] ?? '' ), true );
-		$footer_brand_anchor_post   = get_page_by_path( 'footer-brand-anchor-footer-navigation', OBJECT, 'wp_navigation' );
 		$assert( ! str_contains( $footer_brand_anchor_footer, '<!-- wp:html' ), 'footer-brand-anchor-has-no-core-html-blocks', $footer_brand_anchor_footer );
 		$assert( str_contains( $footer_brand_anchor_footer, '<a href="#" class="footer-brand">' ), 'footer-brand-anchor-keeps-one-brand-anchor', $footer_brand_anchor_footer );
 		$assert( str_contains( $footer_brand_anchor_footer, '<span class="footer-logo-mark"><img' ), 'footer-brand-anchor-keeps-logo-class-inside-anchor', $footer_brand_anchor_footer );
@@ -535,13 +564,10 @@ if ( false !== $wrote_footer_brand_anchor ) {
 		$assert( ! str_contains( $footer_brand_anchor_footer, '<div class="wp-block-group footer-brand">' ), 'footer-brand-anchor-class-stays-on-anchor' );
 		$assert( ! str_contains( $footer_brand_anchor_footer, '<a href="#">Relay Atlas</a>' ), 'footer-brand-anchor-does-not-split-wordmark-link' );
 		$assert( ! preg_match( '/<p[^>]*>\s*<a[^>]*>.*<div/is', $footer_brand_anchor_footer ), 'footer-brand-anchor-avoids-invalid-paragraph-anchor-content', $footer_brand_anchor_footer );
-		$assert( str_contains( $footer_brand_anchor_footer, '<!-- wp:navigation ' ), 'footer-brand-anchor-footer-uses-navigation-block' );
+		$assert( str_contains( $footer_brand_anchor_footer, '<!-- wp:list {"className":"footer-links"}' ), 'footer-brand-anchor-footer-uses-visible-list-block' );
+		$assert( ! str_contains( $footer_brand_anchor_footer, '<!-- wp:navigation ' ), 'footer-brand-anchor-footer-does-not-use-navigation-block' );
 		$assert( str_contains( $footer_brand_anchor_footer, '2025 Relay Atlas, Inc.' ), 'footer-brand-anchor-keeps-copy' );
-		$assert( $footer_brand_anchor_post instanceof WP_Post, 'footer-brand-anchor-navigation-post-exists' );
-		if ( $footer_brand_anchor_post instanceof WP_Post ) {
-			$assert( str_contains( $footer_brand_anchor_post->post_content, '"label":"Features"' ), 'footer-brand-anchor-menu-includes-features' );
-			$assert( ! str_contains( $footer_brand_anchor_post->post_content, 'Relay Atlas' ), 'footer-brand-anchor-menu-excludes-brand-text' );
-		}
+		$assert( str_contains( $footer_brand_anchor_footer, 'Features' ) && str_contains( $footer_brand_anchor_footer, 'Pricing' ), 'footer-brand-anchor-list-includes-links' );
 		$assert( 0 === ( $footer_brand_anchor_report['quality']['core_html_block_count'] ?? -1 ), 'footer-brand-anchor-report-has-zero-core-html-blocks' );
 		$assert( 0 === ( $footer_brand_anchor_report['quality']['invalid_block_count'] ?? -1 ), 'footer-brand-anchor-report-has-zero-invalid-blocks' );
 	}

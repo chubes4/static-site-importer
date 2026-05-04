@@ -564,12 +564,12 @@ class Static_Site_Importer_Theme_Generator {
 			return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
 		}
 
-		$navigation_blocks = self::navigation_ref_block( $row_children[1], $theme_slug, 'footer' );
-		if ( null === $navigation_blocks ) {
+		$list_blocks = self::footer_link_list_block( $doc, $row_children[1] );
+		if ( null === $list_blocks ) {
 			return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
 		}
 
-		$row_blocks       = self::theme_part_element_block( $doc, $row_children[0], $theme_slug, 'footer' ) . $navigation_blocks;
+		$row_blocks       = self::theme_part_element_block( $doc, $row_children[0], $theme_slug, 'footer' ) . $list_blocks;
 		$container_blocks = self::group_block( $row_blocks, $row->getAttribute( 'class' ) );
 		return self::group_block( self::group_block( $container_blocks, $container->getAttribute( 'class' ) ), $footer->getAttribute( 'class' ), 'footer' );
 	}
@@ -585,6 +585,13 @@ class Static_Site_Importer_Theme_Generator {
 	 */
 	private static function theme_part_element_block( DOMDocument $doc, DOMElement $element, string $theme_slug, string $location ): string {
 		$tag = strtolower( $element->tagName );
+		if ( 'footer' === $location && in_array( $tag, array( 'ul', 'ol' ), true ) && self::can_convert_element_to_navigation( $element ) ) {
+			$list = self::footer_link_list_block( $doc, $element );
+			if ( null !== $list ) {
+				return $list;
+			}
+		}
+
 		if ( self::can_convert_element_to_navigation( $element ) ) {
 			$navigation = self::navigation_ref_block( $element, $theme_slug, $location );
 			if ( null !== $navigation ) {
@@ -1276,6 +1283,56 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return implode( "\n", $blocks );
+	}
+
+	/**
+	 * Build a visible editable list block for footer utility links.
+	 *
+	 * @param DOMDocument $doc     Source DOM document.
+	 * @param DOMElement  $element Source list element.
+	 * @return string|null
+	 */
+	private static function footer_link_list_block( DOMDocument $doc, DOMElement $element ): ?string {
+		$tag = strtolower( $element->tagName );
+		if ( ! in_array( $tag, array( 'ul', 'ol' ), true ) ) {
+			return null;
+		}
+
+		$items = array();
+		foreach ( self::direct_element_children( $element ) as $child ) {
+			if ( 'li' !== strtolower( $child->tagName ) || 0 === $child->getElementsByTagName( 'a' )->length ) {
+				return null;
+			}
+
+			$item_attrs = array();
+			$class      = trim( $child->getAttribute( 'class' ) );
+			if ( '' !== $class ) {
+				$item_attrs['className'] = $class;
+			}
+
+			$comment_attrs = empty( $item_attrs ) ? '' : ' ' . wp_json_encode( $item_attrs, JSON_UNESCAPED_SLASHES );
+			$class_attr    = '' === $class ? '' : ' class="' . esc_attr( $class ) . '"';
+			$items[]       = '<!-- wp:list-item' . $comment_attrs . ' --><li' . $class_attr . '>' . self::node_inner_html( $doc, $child ) . '</li><!-- /wp:list-item -->';
+		}
+
+		if ( empty( $items ) ) {
+			return null;
+		}
+
+		$attrs = array();
+		if ( 'ol' === $tag ) {
+			$attrs['ordered'] = true;
+		}
+
+		$class = trim( $element->getAttribute( 'class' ) );
+		if ( '' !== $class ) {
+			$attrs['className'] = $class;
+		}
+
+		$comment_attrs = empty( $attrs ) ? '' : ' ' . wp_json_encode( $attrs, JSON_UNESCAPED_SLASHES );
+		$class_attr    = trim( 'wp-block-list ' . $class );
+
+		return '<!-- wp:list' . $comment_attrs . ' --><' . $tag . ' class="' . esc_attr( $class_attr ) . '">' . implode( '', $items ) . '</' . $tag . '><!-- /wp:list -->';
 	}
 
 	/**
