@@ -61,6 +61,11 @@ const steps = [
     args: [ ...wpCli.slice( 1 ), 'eval-file', path.join( repoRoot, 'tests/smoke-extracted-chrome-fragments.php' ) ],
   },
   {
+    name: 'Branded inline chrome smoke',
+    command: wpCli[ 0 ],
+    args: [ ...wpCli.slice( 1 ), 'eval-file', path.join( repoRoot, 'tests/smoke-branded-inline-chrome.php' ) ],
+  },
+  {
     name: 'Generated theme JS block validation',
     command: process.execPath,
     args: [
