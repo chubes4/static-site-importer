@@ -81,11 +81,11 @@ class Static_Site_Importer_Theme_Generator {
 	private static array $decorative_empty_group_classes = array();
 
 	/**
-	 * Import an HTML file as a block theme.
+	 * Import a static-site HTML entry file as a block theme.
 	 *
-	 * @param string $html_path  HTML file path.
+	 * @param string $html_path  HTML entry file path.
 	 * @param array  $args       Import args.
-	 * @return array{theme_slug:string,theme_name:string,theme_dir:string,report_path:string,external_report_path:string,source_dir:string,source_deleted:bool,source_cleanup_error:string,pages:array<string,int>,quality:array<string,mixed>}|WP_Error
+	 * @return array{theme_slug:string,theme_name:string,theme_dir:string,report_path:string,external_report_path:string,source_dir:string,source_deleted:bool,source_cleanup_error:string,pages:array<string,int>,quality:array<string,mixed>,source_documents:array<string,mixed>}|WP_Error
 	 */
 	public static function import_theme( string $html_path, array $args = array() ) {
 		if ( ! function_exists( 'bfb_convert' ) ) {
@@ -134,6 +134,7 @@ class Static_Site_Importer_Theme_Generator {
 		$permalinks              = self::page_permalinks( $page_ids );
 		$fragments               = $document->fragments();
 		self::$conversion_report = self::new_conversion_report( $html_path, isset( $args['source_metadata'] ) && is_array( $args['source_metadata'] ) ? $args['source_metadata'] : array() );
+		self::record_source_documents_summary( $site_dir, $pages, $permalinks );
 		self::record_products_manifest( $site_dir );
 		self::$active_commerce_context = self::commerce_context_from_args( $args );
 		self::record_commerce_context_summary();
@@ -260,6 +261,7 @@ class Static_Site_Importer_Theme_Generator {
 			'source_cleanup_error' => $source_cleanup_error,
 			'pages'                => $page_ids,
 			'quality'              => $quality,
+			'source_documents'     => self::$conversion_report['source_documents'],
 		);
 	}
 
@@ -405,7 +407,9 @@ class Static_Site_Importer_Theme_Generator {
 		foreach ( $pages as $filename => $page ) {
 			$slug         = self::page_slug( $filename );
 			$pattern_slug = sanitize_key( $theme_slug ) . '/page-' . $slug;
-			$content_body = self::rewrite_internal_links( $page->body(), $permalinks );
+			$content_body = 'markdown' === $page->body_format()
+				? self::rewrite_markdown_links( $page->body(), $permalinks, $filename )
+				: self::rewrite_internal_links( $page->body(), $permalinks );
 			$content      = self::convert_fragment( $content_body, 'main:' . $filename, $page->body_format() );
 
 			$patterns[ $filename ] = $pattern_slug;
@@ -487,7 +491,10 @@ class Static_Site_Importer_Theme_Generator {
 				$href               = html_entity_decode( $matches[2], ENT_QUOTES );
 				$parts              = explode( '#', $href, 2 );
 				$path_without_query = strtok( $parts[0], '?' );
-				$filename           = basename( false === $path_without_query ? $parts[0] : $path_without_query );
+				$filename           = ltrim( false === $path_without_query ? $parts[0] : $path_without_query, './' );
+				if ( ! isset( $permalinks[ $filename ] ) ) {
+					$filename = basename( $filename );
+				}
 				if ( ! isset( $permalinks[ $filename ] ) ) {
 					return $matches[0];
 				}
@@ -522,6 +529,45 @@ class Static_Site_Importer_Theme_Generator {
 			},
 			$rewritten
 		) ?? $rewritten;
+	}
+
+	/**
+	 * Rewrite local Markdown links to imported WordPress page permalinks.
+	 *
+	 * @param string               $markdown        Markdown source.
+	 * @param array<string,string> $permalinks      Permalinks keyed by source filename.
+	 * @param string               $source_filename Current source filename.
+	 * @return string
+	 */
+	private static function rewrite_markdown_links( string $markdown, array $permalinks, string $source_filename ): string {
+		if ( '' === trim( $markdown ) || empty( $permalinks ) ) {
+			return $markdown;
+		}
+
+		return preg_replace_callback(
+			'/\]\(([^)]+)\)/',
+			static function ( array $matches ) use ( $permalinks, $source_filename ): string {
+				$href = trim( $matches[1] );
+				if ( preg_match( '/^[a-z][a-z0-9+.-]*:/i', $href ) || str_starts_with( $href, '#' ) ) {
+					return $matches[0];
+				}
+
+				$parts = explode( '#', $href, 2 );
+				$path  = strtok( $parts[0], '?' );
+				$key   = self::resolve_source_link_key( $source_filename, false === $path ? $parts[0] : $path );
+				if ( ! isset( $permalinks[ $key ] ) ) {
+					return $matches[0];
+				}
+
+				$replacement = $permalinks[ $key ];
+				if ( isset( $parts[1] ) && '' !== $parts[1] ) {
+					$replacement .= '#' . $parts[1];
+				}
+
+				return '](' . $replacement . ')';
+			},
+			$markdown
+		) ?? $markdown;
 	}
 
 	/**
@@ -2328,6 +2374,47 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Convert Markdown to block markup.
+	 *
+	 * @param string $markdown Markdown source.
+	 * @param string $source   Source label for diagnostics.
+	 * @return string
+	 */
+	private static function convert_markdown_document( string $markdown, string $source ): string {
+		if ( '' === trim( $markdown ) ) {
+			return '';
+		}
+
+		self::start_conversion_fragment( $source, $markdown );
+		$diagnostic_listener = static function ( string $code, string $message, array $context ) use ( $source ): void {
+			if ( 'commonmark_conversion_failed' !== $code && 'commonmark_unavailable' !== $code ) {
+				return;
+			}
+
+			++self::$conversion_report['source_documents']['markdown_parse_error_count'];
+			self::$conversion_report['diagnostics'][] = array(
+				'type'    => 'markdown_parse_error',
+				'source'  => $source,
+				'code'    => $code,
+				'message' => $message,
+				'context' => $context,
+			);
+		};
+
+		add_action( 'bfb_diagnostic', $diagnostic_listener, 10, 3 );
+		// @phpstan-ignore-next-line function.notFound -- Loaded by the bundled Block Format Bridge runtime.
+		$blocks = empty( self::$active_commerce_context ) ? bfb_convert( $markdown, 'markdown', 'blocks' ) : bfb_convert( $markdown, 'markdown', 'blocks', self::conversion_options( $source ) );
+		remove_action( 'bfb_diagnostic', $diagnostic_listener, 10 );
+
+		if ( '' === $blocks ) {
+			self::record_conversion_empty( $source, $markdown );
+		}
+		self::finish_conversion_fragment( $source, $blocks );
+
+		return $blocks;
+	}
+
+	/**
 	 * Mark empty absolute-positioned groups so editor CSS can hide only decorative placeholders.
 	 *
 	 * @param string $block_markup Serialized block markup.
@@ -2656,6 +2743,18 @@ class Static_Site_Importer_Theme_Generator {
 				'svg_sprite_reference_failure_count' => 0,
 				'failure_reasons'                    => array(),
 			),
+			'source_documents'    => array(
+				'total_count'                => 0,
+				'counts_by_format'           => array(
+					'html'     => 0,
+					'markdown' => 0,
+					'mdx'      => 0,
+				),
+				'skipped_mdx_count'          => 0,
+				'unresolved_links'           => array(),
+				'unresolved_link_count'      => 0,
+				'markdown_parse_error_count' => 0,
+			),
 			'conversion_fragments' => array(),
 			'commerce_context'     => array(
 				'supplied'       => false,
@@ -2695,6 +2794,176 @@ class Static_Site_Importer_Theme_Generator {
 				'Semantic fidelity requires browser DOM extraction; use semantic_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',
 			),
 		);
+	}
+
+	/**
+	 * Record source document counts and skipped/linked source diagnostics.
+	 *
+	 * @param string                                           $site_dir    Source site directory.
+	 * @param array<string, Static_Site_Importer_Source_Page> $pages       Imported pages.
+	 * @param array<string,string>                             $permalinks Imported page permalinks.
+	 * @return void
+	 */
+	private static function record_source_documents_summary( string $site_dir, array $pages, array $permalinks ): void {
+		$counts = array(
+			'html'     => 0,
+			'markdown' => 0,
+			'mdx'      => 0,
+		);
+		foreach ( $pages as $page ) {
+			$format = $page->type();
+			if ( isset( $counts[ $format ] ) ) {
+				++$counts[ $format ];
+			}
+		}
+
+		$mdx_files = self::collect_source_files_by_extension( $site_dir, array( 'mdx' ) );
+		$counts['mdx'] = count( $mdx_files );
+		foreach ( $mdx_files as $mdx_file ) {
+			self::$conversion_report['diagnostics'][] = array(
+				'type'    => 'unsupported_source_document',
+				'format'  => 'mdx',
+				'source'  => $mdx_file,
+				'message' => 'MDX source documents are not supported by Static Site Importer and were skipped. Build MDX to static HTML first, or provide plain .md/.markdown content.',
+			);
+		}
+
+		$unresolved = self::collect_unresolved_source_links( $pages, $permalinks );
+		self::$conversion_report['source_documents'] = array_merge(
+			self::$conversion_report['source_documents'],
+			array(
+				'total_count'           => array_sum( $counts ),
+				'counts_by_format'      => $counts,
+				'skipped_mdx_count'     => count( $mdx_files ),
+				'unresolved_links'      => $unresolved,
+				'unresolved_link_count' => count( $unresolved ),
+			)
+		);
+	}
+
+	/**
+	 * Collect source file paths by extension under a source directory.
+	 *
+	 * @param string            $site_dir   Source site directory.
+	 * @param array<int,string> $extensions Lowercase extensions.
+	 * @return array<int,string> Relative source paths.
+	 */
+	private static function collect_source_files_by_extension( string $site_dir, array $extensions ): array {
+		$files = array();
+		$root  = realpath( $site_dir );
+		if ( false === $root ) {
+			return $files;
+		}
+
+		$iterator = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $site_dir, FilesystemIterator::SKIP_DOTS ) );
+		foreach ( $iterator as $file ) {
+			if ( ! $file instanceof SplFileInfo || ! $file->isFile() || ! in_array( strtolower( $file->getExtension() ), $extensions, true ) ) {
+				continue;
+			}
+
+			$path = $file->getPathname();
+			if ( ! self::path_is_under( $path, $root ) ) {
+				continue;
+			}
+
+			$files[] = str_replace( DIRECTORY_SEPARATOR, '/', ltrim( substr( $path, strlen( trailingslashit( $root ) ) ), DIRECTORY_SEPARATOR ) );
+		}
+
+		sort( $files, SORT_STRING );
+		return $files;
+	}
+
+	/**
+	 * Collect local links that do not resolve to imported source documents.
+	 *
+	 * @param array<string, Static_Site_Importer_Source_Page> $pages      Imported pages.
+	 * @param array<string,string>                             $permalinks Imported page permalinks.
+	 * @return array<int,array{source:string,href:string}>
+	 */
+	private static function collect_unresolved_source_links( array $pages, array $permalinks ): array {
+		$unresolved = array();
+		foreach ( $pages as $filename => $page ) {
+			$source = $page->body();
+			foreach ( self::extract_local_source_links( $source, 'markdown' === $page->body_format() ) as $href ) {
+				$path = strtok( explode( '#', $href, 2 )[0], '?' );
+				$key  = self::resolve_source_link_key( $filename, false === $path ? $href : $path );
+				if ( isset( $permalinks[ $key ] ) || isset( $permalinks[ basename( $key ) ] ) ) {
+					continue;
+				}
+
+				$unresolved[] = array(
+					'source' => $filename,
+					'href'   => $href,
+				);
+			}
+		}
+
+		return $unresolved;
+	}
+
+	/**
+	 * Extract local HTML or Markdown links from source content.
+	 *
+	 * @param string $source      Source content.
+	 * @param bool   $is_markdown Whether the source is Markdown.
+	 * @return array<int,string>
+	 */
+	private static function extract_local_source_links( string $source, bool $is_markdown ): array {
+		$links = array();
+		$regex = $is_markdown ? '/\]\(([^)]+)\)/' : '/\bhref=("|\')([^"\']+)(\1)/i';
+		if ( preg_match_all( $regex, $source, $matches ) ) {
+			foreach ( $is_markdown ? $matches[1] : $matches[2] as $href ) {
+				$href = trim( html_entity_decode( (string) $href, ENT_QUOTES ) );
+				if ( '' === $href || str_starts_with( $href, '#' ) || preg_match( '/^[a-z][a-z0-9+.-]*:/i', $href ) ) {
+					continue;
+				}
+
+				$extension = strtolower( pathinfo( strtok( explode( '#', $href, 2 )[0], '?' ) ?: $href, PATHINFO_EXTENSION ) );
+				if ( in_array( $extension, array( 'html', 'htm', 'md', 'markdown', 'mdx' ), true ) ) {
+					$links[] = $href;
+				}
+			}
+		}
+
+		return array_values( array_unique( $links ) );
+	}
+
+	/**
+	 * Resolve a local link against its source document path.
+	 *
+	 * @param string $source_filename Current source filename.
+	 * @param string $href_path       Link path without query or fragment.
+	 * @return string Source document key.
+	 */
+	private static function resolve_source_link_key( string $source_filename, string $href_path ): string {
+		$key = ltrim( str_replace( '\\', '/', $href_path ), './' );
+		if ( '' === $key || str_starts_with( $key, '/' ) ) {
+			return ltrim( $key, '/' );
+		}
+
+		$base_dir = dirname( $source_filename );
+		if ( '.' === $base_dir || '' === $base_dir || str_starts_with( $href_path, './' ) ) {
+			$combined = ( '.' === $base_dir || '' === $base_dir ) ? $key : $base_dir . '/' . ltrim( $href_path, './' );
+		} elseif ( ! str_contains( $key, '/' ) ) {
+			$combined = $base_dir . '/' . $key;
+		} else {
+			$combined = $key;
+		}
+
+		$parts = array();
+		foreach ( explode( '/', str_replace( '\\', '/', $combined ) ) as $part ) {
+			if ( '' === $part || '.' === $part ) {
+				continue;
+			}
+			if ( '..' === $part ) {
+				array_pop( $parts );
+				continue;
+			}
+
+			$parts[] = $part;
+		}
+
+		return implode( '/', $parts );
 	}
 
 	/**
@@ -3940,6 +4209,24 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return self::write_file( $path, $content );
+	}
+
+	/**
+	 * Determine whether a path resolves inside a base directory.
+	 *
+	 * @param string $path Path to test.
+	 * @param string $base Base directory.
+	 * @return bool
+	 */
+	private static function path_is_under( string $path, string $base ): bool {
+		$real_path = realpath( $path );
+		$real_base = realpath( $base );
+
+		if ( false === $real_path || false === $real_base ) {
+			return false;
+		}
+
+		return 0 === strpos( trailingslashit( $real_path ), trailingslashit( $real_base ) );
 	}
 
 	/**
