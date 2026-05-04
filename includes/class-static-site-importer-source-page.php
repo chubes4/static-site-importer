@@ -57,11 +57,18 @@ class Static_Site_Importer_Source_Page {
 	private string $body_format;
 
 	/**
-	 * Raw frontmatter captured for follow-up metadata parsing work.
+	 * Raw frontmatter.
 	 *
 	 * @var string
 	 */
 	private string $frontmatter;
+
+	/**
+	 * Parsed conservative frontmatter metadata.
+	 *
+	 * @var array<string,string>
+	 */
+	private array $metadata;
 
 	/**
 	 * Constructor.
@@ -73,8 +80,9 @@ class Static_Site_Importer_Source_Page {
 	 * @param string                        $body        Conversion body.
 	 * @param string                        $body_format Conversion body format.
 	 * @param string                        $frontmatter Raw frontmatter.
+	 * @param array<string,string>          $metadata    Parsed metadata.
 	 */
-	private function __construct( string $source_key, string $path, string $type, Static_Site_Importer_Document $document, string $body, string $body_format, string $frontmatter = '' ) {
+	private function __construct( string $source_key, string $path, string $type, Static_Site_Importer_Document $document, string $body, string $body_format, string $frontmatter = '', array $metadata = array() ) {
 		$this->source_key  = $source_key;
 		$this->path        = $path;
 		$this->type        = $type;
@@ -82,6 +90,7 @@ class Static_Site_Importer_Source_Page {
 		$this->body        = $body;
 		$this->body_format = $body_format;
 		$this->frontmatter = $frontmatter;
+		$this->metadata    = $metadata;
 	}
 
 	/**
@@ -105,9 +114,6 @@ class Static_Site_Importer_Source_Page {
 	/**
 	 * Create a source page from a Markdown file.
 	 *
-	 * This intentionally only strips and carries raw frontmatter. Issue #137 owns
-	 * full metadata parsing; this class leaves the seam without baking schema in.
-	 *
 	 * @param string $site_dir Static site root.
 	 * @param string $path     Absolute Markdown file path.
 	 * @return self|WP_Error
@@ -122,15 +128,20 @@ class Static_Site_Importer_Source_Page {
 			return new WP_Error( 'static_site_importer_empty_file', sprintf( 'Markdown file is empty: %s', $path ) );
 		}
 
-		$parts       = self::strip_frontmatter( $markdown );
+		$parts = self::parse_markdown_source( $markdown, basename( $path ) );
+		if ( is_wp_error( $parts ) ) {
+			return $parts;
+		}
+
 		$content     = $parts['content'];
 		$frontmatter = $parts['frontmatter'];
+		$metadata    = $parts['metadata'];
 		$html        = self::markdown_to_html( $content );
 		if ( is_wp_error( $html ) ) {
 			return $html;
 		}
 
-		return new self( self::relative_source_key( $site_dir, $path ), $path, 'markdown', new Static_Site_Importer_Document( '<main>' . $html . '</main>' ), $content, 'markdown', $frontmatter );
+		return new self( self::relative_source_key( $site_dir, $path ), $path, 'markdown', new Static_Site_Importer_Document( '<main>' . $html . '</main>' ), $content, 'markdown', $frontmatter, $metadata );
 	}
 
 	/**
@@ -188,12 +199,33 @@ class Static_Site_Importer_Source_Page {
 	}
 
 	/**
-	 * Raw frontmatter for future metadata coordination.
+	 * Raw frontmatter.
 	 *
 	 * @return string
 	 */
 	public function frontmatter(): string {
 		return $this->frontmatter;
+	}
+
+	/**
+	 * Parsed frontmatter metadata.
+	 *
+	 * @return array<string,string>
+	 */
+	public function metadata(): array {
+		return $this->metadata;
+	}
+
+	/**
+	 * Get one parsed frontmatter metadata value.
+	 *
+	 * @param string $key Metadata key.
+	 * @return string
+	 */
+	public function metadata_value( string $key ): string {
+		$key = strtolower( str_replace( '-', '_', $key ) );
+
+		return $this->metadata[ $key ] ?? '';
 	}
 
 	/**
@@ -214,23 +246,98 @@ class Static_Site_Importer_Source_Page {
 	}
 
 	/**
-	 * Strip leading YAML-style frontmatter without interpreting its schema.
+	 * Parse Markdown body and conservative YAML-style frontmatter metadata.
 	 *
 	 * @param string $markdown Markdown source.
-	 * @return array{frontmatter:string,content:string}
+	 * @param string $source   Source label for diagnostics.
+	 * @return array{frontmatter:string,content:string,metadata:array<string,string>}|WP_Error
 	 */
-	private static function strip_frontmatter( string $markdown ): array {
-		if ( 1 !== preg_match( '/\A---\R(?P<frontmatter>.*?)\R---\R?/s', $markdown, $matches ) ) {
+	private static function parse_markdown_source( string $markdown, string $source ) {
+		$markdown = preg_replace( "/\r\n?|\n/", "\n", $markdown ) ?? $markdown;
+		$markdown = preg_replace( '/^\xEF\xBB\xBF/', '', $markdown ) ?? $markdown;
+		$lines    = explode( "\n", $markdown );
+
+		if ( '---' !== trim( $lines[0] ) ) {
 			return array(
 				'frontmatter' => '',
 				'content'     => $markdown,
+				'metadata'    => array(),
 			);
 		}
 
+		$closing_line = null;
+		$count        = count( $lines );
+		for ( $i = 1; $i < $count; $i++ ) {
+			if ( '---' === trim( $lines[ $i ] ) ) {
+				$closing_line = $i;
+				break;
+			}
+		}
+
+		if ( null === $closing_line ) {
+			return new WP_Error( 'static_site_importer_malformed_markdown_frontmatter', sprintf( 'Malformed frontmatter in %s: missing closing --- delimiter.', $source ) );
+		}
+
+		$frontmatter_lines = array_slice( $lines, 1, $closing_line - 1 );
+		$metadata          = self::parse_frontmatter_lines( $frontmatter_lines, $source );
+		if ( is_wp_error( $metadata ) ) {
+			return $metadata;
+		}
+
 		return array(
-			'frontmatter' => (string) $matches['frontmatter'],
-			'content'     => substr( $markdown, strlen( $matches[0] ) ),
+			'frontmatter' => implode( "\n", $frontmatter_lines ),
+			'content'     => ltrim( implode( "\n", array_slice( $lines, $closing_line + 1 ) ), "\n" ),
+			'metadata'    => $metadata,
 		);
+	}
+
+	/**
+	 * Parse conservative key/value YAML frontmatter lines.
+	 *
+	 * @param array<int,string> $lines  Frontmatter lines.
+	 * @param string            $source Source label for diagnostics.
+	 * @return array<string,string>|WP_Error
+	 */
+	private static function parse_frontmatter_lines( array $lines, string $source ) {
+		$metadata = array();
+		foreach ( $lines as $index => $line ) {
+			$trimmed = trim( $line );
+			if ( '' === $trimmed || str_starts_with( $trimmed, '#' ) ) {
+				continue;
+			}
+
+			if ( ! preg_match( '/^([A-Za-z0-9_-]+):\s*(.*)$/', $line, $matches ) ) {
+				return new WP_Error( 'static_site_importer_malformed_markdown_frontmatter', sprintf( 'Malformed frontmatter in %s on line %d: expected "key: value".', $source, $index + 2 ) );
+			}
+
+			$key   = strtolower( str_replace( '-', '_', $matches[1] ) );
+			$value = trim( $matches[2] );
+			if ( '' !== $value && ( '[' === $value[0] || '{' === $value[0] ) ) {
+				return new WP_Error( 'static_site_importer_malformed_markdown_frontmatter', sprintf( 'Malformed frontmatter in %s on line %d: only scalar metadata values are supported.', $source, $index + 2 ) );
+			}
+
+			$metadata[ $key ] = self::unquote_scalar( $value );
+		}
+
+		return $metadata;
+	}
+
+	/**
+	 * Unquote a simple YAML scalar value.
+	 *
+	 * @param string $value Scalar value.
+	 * @return string
+	 */
+	private static function unquote_scalar( string $value ): string {
+		$length = strlen( $value );
+		if ( $length >= 2 ) {
+			$quote = $value[0];
+			if ( ( '"' === $quote || "'" === $quote ) && $quote === $value[ $length - 1 ] ) {
+				return substr( $value, 1, -1 );
+			}
+		}
+
+		return $value;
 	}
 
 	/**
