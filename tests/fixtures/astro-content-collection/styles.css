@@ -1,0 +1,11 @@
+.site-header,
+.site-footer {
+	display: flex;
+	gap: 1rem;
+	padding: 1rem;
+}
+
+.markdown-card {
+	border: 1px solid currentColor;
+	padding: 1rem;
+}
