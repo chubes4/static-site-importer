@@ -1644,6 +1644,60 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Mixed HTML and Markdown sources share one route map for internal link rewrites.
+	 */
+	public function test_mixed_html_markdown_source_links_rewrite_through_shared_route_map(): void {
+		$plugin_root = dirname( __DIR__ );
+		$fixture     = $plugin_root . '/tests/fixtures/mixed-source-links/index.html';
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$fixture,
+			array(
+				'name'        => 'Mixed Source Links',
+				'slug'        => 'mixed-source-links',
+				'overwrite'   => true,
+				'activate'    => false,
+				'keep_source' => true,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'index.html', $result['pages'] );
+		$this->assertArrayHasKey( 'about.markdown', $result['pages'] );
+		$this->assertArrayHasKey( 'docs/intro.md', $result['pages'] );
+		$this->assertArrayHasKey( 'docs/install.markdown', $result['pages'] );
+
+		$home_permalink    = get_permalink( $result['pages']['index.html'] );
+		$about_permalink   = get_permalink( $result['pages']['about.markdown'] );
+		$intro_permalink   = get_permalink( $result['pages']['docs/intro.md'] );
+		$install_permalink = get_permalink( $result['pages']['docs/install.markdown'] );
+
+		$header_nav    = get_page_by_path( 'mixed-source-links-header-navigation', OBJECT, 'wp_navigation' );
+		$home_content  = get_post( $result['pages']['index.html'] )->post_content;
+		$about_content = get_post( $result['pages']['about.markdown'] )->post_content;
+		$intro_content = get_post( $result['pages']['docs/intro.md'] )->post_content;
+		$install       = get_post( $result['pages']['docs/install.markdown'] );
+
+		$this->assertInstanceOf( WP_Post::class, $header_nav );
+		$this->assertStringContainsString( (string) $intro_permalink, $header_nav->post_content, 'HTML chrome should rewrite HTML-to-Markdown links.' );
+		$this->assertStringContainsString( (string) $about_permalink, $header_nav->post_content, 'HTML chrome should rewrite .markdown links.' );
+		$this->assertStringContainsString( (string) $install_permalink, $header_nav->post_content, 'HTML chrome should rewrite clean root-relative Markdown routes.' );
+		$this->assertStringContainsString( (string) $intro_permalink, $home_content, 'HTML body should rewrite HTML-to-Markdown links.' );
+		$this->assertStringContainsString( (string) $home_permalink, $about_content, 'Markdown should rewrite Markdown-to-HTML links.' );
+		$this->assertStringContainsString( (string) $install_permalink, $about_content, 'Markdown should rewrite clean Markdown routes.' );
+		$this->assertStringContainsString( (string) $about_permalink, $intro_content, 'Markdown should rewrite relative Markdown-to-Markdown links.' );
+		$this->assertStringContainsString( (string) $install_permalink, $intro_content, 'Markdown should rewrite extension-swapped Markdown routes.' );
+		$this->assertInstanceOf( WP_Post::class, $install );
+		$this->assertStringContainsString( (string) $home_permalink, $install->post_content );
+
+		$report      = json_decode( $this->read_file( $result['report_path'] ), true );
+		$diagnostics = $report['diagnostics'] ?? array();
+		$this->assertContains( 'unresolved_internal_link', wp_list_pluck( $diagnostics, 'type' ) );
+		$this->assertContains( 'local_asset_not_materialized', wp_list_pluck( $diagnostics, 'type' ) );
+	}
+
+	/**
 	 * Reads a generated file.
 	 */
 	private function read_file( string $path ): string {

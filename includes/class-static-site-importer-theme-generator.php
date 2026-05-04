@@ -136,6 +136,7 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		$permalinks              = self::page_permalinks( $page_ids );
+		$route_map               = self::source_route_map( $pages, $permalinks );
 		$fragments               = $document->fragments();
 		self::$conversion_report = self::new_conversion_report( $html_path, isset( $args['source_metadata'] ) && is_array( $args['source_metadata'] ) ? $args['source_metadata'] : array() );
 		self::record_source_documents_summary( $site_dir, $pages, $permalinks );
@@ -157,12 +158,12 @@ class Static_Site_Importer_Theme_Generator {
 		);
 		self::pre_register_svg_symbol_sprites( $fragments, $pages );
 
-		$background_blocks = self::convert_fragment( self::rewrite_internal_links( $fragments['background'], $permalinks ), 'background:index.html' );
-		$header_blocks     = self::convert_header_fragment( self::strip_active_classes( self::rewrite_internal_links( $fragments['header'], $permalinks ) ), $theme_slug );
+		$background_blocks = self::convert_fragment( self::rewrite_internal_links( $fragments['background'], $route_map, basename( $html_path ), 'background:' . basename( $html_path ) ), 'background:index.html' );
+		$header_blocks     = self::convert_header_fragment( self::strip_active_classes( self::rewrite_internal_links( $fragments['header'], $route_map, basename( $html_path ), 'header:' . basename( $html_path ) ) ), $theme_slug );
 		$has_footer_part   = '' !== trim( $fragments['footer'] );
-		$footer_blocks     = $has_footer_part ? self::convert_footer_fragment( self::rewrite_internal_links( $fragments['footer'], $permalinks ), $theme_slug ) : '';
+		$footer_blocks     = $has_footer_part ? self::convert_footer_fragment( self::rewrite_internal_links( $fragments['footer'], $route_map, basename( $html_path ), 'footer:' . basename( $html_path ) ), $theme_slug ) : '';
 
-		$page_artifacts = self::page_artifacts( $pages, $permalinks, $theme_slug );
+		$page_artifacts = self::page_artifacts( $pages, $route_map, $theme_slug );
 
 		$result = self::write_page_contents( $pages, $page_ids, $page_artifacts['contents'] );
 		if ( is_wp_error( $result ) ) {
@@ -428,11 +429,11 @@ class Static_Site_Importer_Theme_Generator {
 	 * Build page-specific template and pattern artifacts.
 	 *
 	 * @param array<string, Static_Site_Importer_Source_Page> $pages      Pages.
-	 * @param array<string,string>                                                      $permalinks Permalinks keyed by filename.
+	 * @param array<string,string>                          $route_map Route map.
 	 * @param string                                                                    $theme_slug Theme slug.
 	 * @return array{patterns:array<string,string>,files:array<string,string>,contents:array<string,string>}
 	 */
-	private static function page_artifacts( array $pages, array $permalinks, string $theme_slug ): array {
+	private static function page_artifacts( array $pages, array $route_map, string $theme_slug ): array {
 		$patterns = array();
 		$files    = array();
 		$contents = array();
@@ -440,10 +441,7 @@ class Static_Site_Importer_Theme_Generator {
 		foreach ( $pages as $filename => $page ) {
 			$slug         = self::page_slug( $filename, $page );
 			$pattern_slug = sanitize_key( $theme_slug ) . '/page-' . $slug;
-			$content_body = 'markdown' === $page->body_format()
-				? self::rewrite_markdown_links( $page->body(), $permalinks, $filename )
-				: self::rewrite_internal_links( $page->body(), $permalinks );
-			$content      = self::convert_fragment( $content_body, 'main:' . $filename, $page->body_format() );
+			$content      = self::source_page_content_blocks( $page, $route_map );
 
 			$patterns[ $filename ] = $pattern_slug;
 			$files[ $filename ]    = self::pattern_file( self::page_title( $filename, $page ), $pattern_slug, $content );
@@ -507,100 +505,103 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Rewrite local source-page links to imported WordPress page permalinks.
+	 * Build a route map for source document links.
 	 *
-	 * @param string               $html       HTML fragment.
-	 * @param array<string,string> $permalinks Permalinks keyed by filename.
+	 * @param array<string, Static_Site_Importer_Source_Page> $pages      Pages.
+	 * @param array<string,string>                          $permalinks Permalinks keyed by source path.
+	 * @return array<string,string>
+	 */
+	private static function source_route_map( array $pages, array $permalinks ): array {
+		$candidates = array();
+		foreach ( $pages as $source_path => $page ) {
+			$permalink = $permalinks[ $source_path ] ?? '';
+			if ( '' === $permalink ) {
+				continue;
+			}
+
+			foreach ( self::source_route_keys( $page->source_key() ) as $key ) {
+				$candidates[ $key ][ $permalink ] = true;
+			}
+		}
+
+		$route_map = array();
+		foreach ( $candidates as $key => $matches ) {
+			if ( 1 === count( $matches ) ) {
+				$route_map[ $key ] = (string) array_key_first( $matches );
+			}
+		}
+
+		return $route_map;
+	}
+
+	/**
+	 * Build deterministic route keys for a discovered source path.
+	 *
+	 * @param string $relative_path Source-relative path.
+	 * @return array<int,string>
+	 */
+	private static function source_route_keys( string $relative_path ): array {
+		$relative_path = self::normalize_route_path( $relative_path );
+		if ( '' === $relative_path ) {
+			return array();
+		}
+
+		$extensionless = preg_replace( '/\.(?:html?|md|markdown)$/i', '', $relative_path );
+		$extensionless = '' === trim( (string) $extensionless ) ? $relative_path : (string) $extensionless;
+		$extensions    = array( 'html', 'htm', 'md', 'markdown' );
+		$keys          = array( $relative_path, '/' . $relative_path, './' . $relative_path );
+
+		foreach ( $extensions as $extension ) {
+			$keys[] = $extensionless . '.' . $extension;
+			$keys[] = '/' . $extensionless . '.' . $extension;
+		}
+
+		if ( preg_match( '#(^|/)index$#i', $extensionless ) ) {
+			$clean = preg_replace( '#(^|/)index$#i', '$1', $extensionless );
+			$clean = trim( (string) $clean, '/' );
+			$keys[] = '' === $clean ? '/' : $clean;
+			$keys[] = '' === $clean ? '/' : '/' . $clean . '/';
+			if ( '' !== $clean ) {
+				$keys[] = $clean . '/';
+			}
+		} else {
+			$keys[] = $extensionless;
+			$keys[] = '/' . $extensionless;
+			$keys[] = $extensionless . '/';
+			$keys[] = '/' . $extensionless . '/';
+		}
+
+		return array_values( array_unique( array_filter( $keys, static fn ( string $key ): bool => '' !== trim( $key ) ) ) );
+	}
+
+	/**
+	 * Rewrite local document links to imported WordPress page permalinks.
+	 *
+	 * @param string               $html        HTML fragment.
+	 * @param array<string,string> $route_map   Route map.
+	 * @param string               $source_path Source-relative source path.
+	 * @param string               $source      Diagnostic source label.
 	 * @return string
 	 */
-	private static function rewrite_internal_links( string $html, array $permalinks ): string {
-		if ( '' === trim( $html ) || empty( $permalinks ) ) {
+	private static function rewrite_internal_links( string $html, array $route_map, string $source_path, string $source ): string {
+		if ( '' === trim( $html ) || empty( $route_map ) ) {
 			return $html;
 		}
 
-		$rewritten = preg_replace_callback(
+		return preg_replace_callback(
 			'/\bhref=("|\')([^"\']+)(\1)/i',
-			static function ( array $matches ) use ( $permalinks ): string {
-				$href               = html_entity_decode( $matches[2], ENT_QUOTES );
-				$parts              = explode( '#', $href, 2 );
-				$path_without_query = strtok( $parts[0], '?' );
-				$filename           = ltrim( false === $path_without_query ? $parts[0] : $path_without_query, './' );
-				if ( ! isset( $permalinks[ $filename ] ) ) {
-					$filename = basename( $filename );
-				}
-				if ( ! isset( $permalinks[ $filename ] ) ) {
+			static function ( array $matches ) use ( $route_map, $source_path, $source ): string {
+				$href        = html_entity_decode( $matches[2], ENT_QUOTES );
+				$replacement = self::resolve_route_href( $href, $source_path, $route_map );
+				if ( null === $replacement ) {
+					self::record_unresolved_internal_link( $source, $source_path, $href );
 					return $matches[0];
-				}
-
-				$replacement = $permalinks[ $filename ];
-				if ( isset( $parts[1] ) && '' !== $parts[1] ) {
-					$replacement .= '#' . $parts[1];
 				}
 
 				return 'href=' . $matches[1] . esc_url( $replacement ) . $matches[3];
 			},
 			$html
 		) ?? $html;
-
-		return preg_replace_callback(
-			'/(!?\[[^\]]*\]\()([^\s)]+)(\))/i',
-			static function ( array $matches ) use ( $permalinks ): string {
-				$href               = html_entity_decode( $matches[2], ENT_QUOTES );
-				$parts              = explode( '#', $href, 2 );
-				$path_without_query = strtok( $parts[0], '?' );
-				$filename           = basename( false === $path_without_query ? $parts[0] : $path_without_query );
-				if ( ! isset( $permalinks[ $filename ] ) ) {
-					return $matches[0];
-				}
-
-				$replacement = $permalinks[ $filename ];
-				if ( isset( $parts[1] ) && '' !== $parts[1] ) {
-					$replacement .= '#' . $parts[1];
-				}
-
-				return $matches[1] . esc_url( $replacement ) . $matches[3];
-			},
-			$rewritten
-		) ?? $rewritten;
-	}
-
-	/**
-	 * Rewrite local Markdown links to imported WordPress page permalinks.
-	 *
-	 * @param string               $markdown        Markdown source.
-	 * @param array<string,string> $permalinks      Permalinks keyed by source filename.
-	 * @param string               $source_filename Current source filename.
-	 * @return string
-	 */
-	private static function rewrite_markdown_links( string $markdown, array $permalinks, string $source_filename ): string {
-		if ( '' === trim( $markdown ) || empty( $permalinks ) ) {
-			return $markdown;
-		}
-
-		return preg_replace_callback(
-			'/\]\(([^)]+)\)/',
-			static function ( array $matches ) use ( $permalinks, $source_filename ): string {
-				$href = trim( $matches[1] );
-				if ( preg_match( '/^[a-z][a-z0-9+.-]*:/i', $href ) || str_starts_with( $href, '#' ) ) {
-					return $matches[0];
-				}
-
-				$parts = explode( '#', $href, 2 );
-				$path  = strtok( $parts[0], '?' );
-				$key   = self::resolve_source_link_key( $source_filename, false === $path ? $parts[0] : $path );
-				if ( ! isset( $permalinks[ $key ] ) ) {
-					return $matches[0];
-				}
-
-				$replacement = $permalinks[ $key ];
-				if ( isset( $parts[1] ) && '' !== $parts[1] ) {
-					$replacement .= '#' . $parts[1];
-				}
-
-				return '](' . $replacement . ')';
-			},
-			$markdown
-		) ?? $markdown;
 	}
 
 	/**
@@ -1668,6 +1669,67 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Convert one source page body to blocks after shared link rewriting.
+	 *
+	 * @param Static_Site_Importer_Source_Page $page      Source page.
+	 * @param array<string,string>             $route_map Route map.
+	 * @return string
+	 */
+	private static function source_page_content_blocks( Static_Site_Importer_Source_Page $page, array $route_map ): string {
+		$source_path = $page->source_key();
+		$source      = 'main:' . $source_path;
+		$body        = $page->body();
+
+		if ( 'markdown' === $page->body_format() ) {
+			$body = self::rewrite_markdown_links( $body, $route_map, $source_path, $source );
+		} else {
+			$body = self::rewrite_internal_links( $body, $route_map, $source_path, $source );
+		}
+
+		return self::convert_fragment( $body, $source, $page->body_format() );
+	}
+
+	/**
+	 * Rewrite Markdown inline links/images using the shared source route map.
+	 *
+	 * @param string               $markdown    Markdown source.
+	 * @param array<string,string> $route_map   Route map.
+	 * @param string               $source_path Source-relative source path.
+	 * @param string               $source      Diagnostic source label.
+	 * @return string
+	 */
+	private static function rewrite_markdown_links( string $markdown, array $route_map, string $source_path, string $source ): string {
+		if ( '' === trim( $markdown ) ) {
+			return $markdown;
+		}
+
+		return preg_replace_callback(
+			'/(\!?)\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/',
+			static function ( array $matches ) use ( $route_map, $source_path, $source ): string {
+				$prefix      = $matches[1];
+				$label       = $matches[2];
+				$destination = trim( $matches[3], '<>' );
+
+				if ( '!' === $prefix ) {
+					if ( self::is_local_url( $destination ) ) {
+						self::record_unresolved_internal_link( $source, $source_path, $destination, 'local_asset_not_materialized' );
+					}
+					return $matches[0];
+				}
+
+				$replacement = self::resolve_route_href( $destination, $source_path, $route_map );
+				if ( null === $replacement ) {
+					self::record_unresolved_internal_link( $source, $source_path, $destination );
+					return $matches[0];
+				}
+
+				return '[' . $label . '](' . $replacement . ')';
+			},
+			$markdown
+		) ?? $markdown;
+	}
+
+	/**
 	 * Build a WordPress page title from a source document.
 	 *
 	 * @param string                           $filename Source filename.
@@ -1685,11 +1747,19 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		$title = preg_replace( '/\s+[—-]\s+.+$/u', '', $page->document()->title() );
-		return '' === trim( (string) $title ) ? ucwords( str_replace( '-', ' ', self::page_slug( $filename, $page ) ) ) : trim( (string) $title );
+		if ( '' !== trim( (string) $title ) ) {
+			return trim( (string) $title );
+		}
+
+		if ( 'markdown' === $page->type() && preg_match( '/^#\s+(.+)$/m', $page->body(), $matches ) ) {
+			return trim( $matches[1] );
+		}
+
+		return ucwords( str_replace( '-', ' ', self::page_slug( $filename, $page ) ) );
 	}
 
 	/**
-	 * Build a WordPress page slug from a source filename.
+	 * Build a WordPress page slug from a source path.
 	 *
 	 * @param string                                $filename Source filename.
 	 * @param Static_Site_Importer_Source_Page|null $page     Source page.
@@ -1703,12 +1773,18 @@ class Static_Site_Importer_Theme_Generator {
 			}
 		}
 
+		$extensionless = preg_replace( '/\.(?:html?|md|markdown)$/i', '', self::normalize_route_path( $filename ) );
+		$extensionless = trim( (string) $extensionless, '/' );
+
 		if ( self::is_index_source_filename( $filename ) ) {
 			return 'home';
 		}
 
-		$slug = preg_replace( '/\.(?:html?|md|markdown)$/i', '', $filename );
-		return sanitize_title( str_replace( '/', '-', (string) $slug ) );
+		if ( str_ends_with( $extensionless, '/index' ) ) {
+			$extensionless = substr( $extensionless, 0, -6 );
+		}
+
+		return sanitize_title( str_replace( '/', '-', $extensionless ) );
 	}
 
 	/**
@@ -1754,6 +1830,93 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return trim( implode( "\n\n", array_filter( $css ) ) );
+	}
+
+	/**
+	 * Resolve a local link href through the source route map.
+	 *
+	 * @param string               $href        Link href.
+	 * @param string               $source_path Source-relative source path.
+	 * @param array<string,string> $route_map   Route map.
+	 * @return string|null
+	 */
+	private static function resolve_route_href( string $href, string $source_path, array $route_map ): ?string {
+		if ( ! self::is_local_url( $href ) || str_starts_with( $href, '#' ) ) {
+			return null;
+		}
+
+		$parts      = wp_parse_url( $href );
+		$path       = isset( $parts['path'] ) ? (string) $parts['path'] : '';
+		$query      = isset( $parts['query'] ) ? (string) $parts['query'] : '';
+		$fragment   = isset( $parts['fragment'] ) ? (string) $parts['fragment'] : '';
+		$lookup_key = str_starts_with( $path, '/' ) ? self::normalize_route_path( $path ) : self::normalize_route_path( dirname( $source_path ) . '/' . $path );
+
+		$keys = array( $lookup_key, '/' . $lookup_key );
+		if ( str_ends_with( $path, '/' ) ) {
+			$keys[] = trailingslashit( $lookup_key );
+			$keys[] = '/' . trailingslashit( $lookup_key );
+		}
+
+		foreach ( array_values( array_unique( $keys ) ) as $key ) {
+			if ( isset( $route_map[ $key ] ) ) {
+				$replacement = $route_map[ $key ];
+				if ( '' !== $query ) {
+					$replacement = add_query_arg( array(), $replacement ) . '?' . $query;
+				}
+				if ( '' !== $fragment ) {
+					$replacement .= '#' . $fragment;
+				}
+
+				return $replacement;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Normalize a route-like path without resolving outside the source root.
+	 *
+	 * @param string $path Route path.
+	 * @return string
+	 */
+	private static function normalize_route_path( string $path ): string {
+		$path     = str_replace( '\\', '/', strtok( $path, '?' ) ?: $path );
+		$path     = ltrim( $path, '/' );
+		$segments = array();
+		foreach ( explode( '/', $path ) as $segment ) {
+			if ( '' === $segment || '.' === $segment ) {
+				continue;
+			}
+			if ( '..' === $segment ) {
+				array_pop( $segments );
+				continue;
+			}
+
+			$segments[] = $segment;
+		}
+
+		return implode( '/', $segments );
+	}
+
+	/**
+	 * Check whether a URL is local to the imported source tree.
+	 *
+	 * @param string $url URL or path.
+	 * @return bool
+	 */
+	private static function is_local_url( string $url ): bool {
+		$url = trim( $url );
+		if ( '' === $url || str_starts_with( $url, '#' ) ) {
+			return false;
+		}
+
+		$lower = strtolower( $url );
+		if ( preg_match( '#^[a-z][a-z0-9+.-]*:#i', $lower ) || str_starts_with( $lower, '//' ) ) {
+			return false;
+		}
+
+		return true;
 	}
 
 	/**
@@ -2905,6 +3068,28 @@ class Static_Site_Importer_Theme_Generator {
 				'unresolved_links'      => $unresolved,
 				'unresolved_link_count' => count( $unresolved ),
 			)
+		);
+	}
+
+	/**
+	 * Record a local source link or asset that could not be resolved/materialized.
+	 *
+	 * @param string $source      Diagnostic source label.
+	 * @param string $source_path Source-relative source path.
+	 * @param string $href        Original href or source URL.
+	 * @param string $type        Diagnostic type.
+	 * @return void
+	 */
+	private static function record_unresolved_internal_link( string $source, string $source_path, string $href, string $type = 'unresolved_internal_link' ): void {
+		if ( ! self::is_local_url( $href ) ) {
+			return;
+		}
+
+		self::$conversion_report['diagnostics'][] = array(
+			'type'        => $type,
+			'source'      => $source,
+			'source_path' => $source_path,
+			'href'        => $href,
 		);
 	}
 
