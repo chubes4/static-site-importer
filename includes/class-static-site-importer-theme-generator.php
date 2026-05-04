@@ -81,27 +81,24 @@ class Static_Site_Importer_Theme_Generator {
 	private static array $decorative_empty_group_classes = array();
 
 	/**
-	 * Import an HTML file as a block theme.
+	 * Import a static-site HTML entry file as a block theme.
 	 *
-	 * @param string $html_path  HTML file path.
+	 * @param string $html_path  HTML entry file path.
 	 * @param array  $args       Import args.
-	 * @return array{theme_slug:string,theme_name:string,theme_dir:string,report_path:string,external_report_path:string,source_dir:string,source_deleted:bool,source_cleanup_error:string,pages:array<string,int>,quality:array<string,mixed>}|WP_Error
+	 * @return array{theme_slug:string,theme_name:string,theme_dir:string,report_path:string,external_report_path:string,source_dir:string,source_deleted:bool,source_cleanup_error:string,pages:array<string,int>,quality:array<string,mixed>,source_documents:array<string,mixed>}|WP_Error
 	 */
 	public static function import_theme( string $html_path, array $args = array() ) {
 		if ( ! function_exists( 'bfb_convert' ) ) {
 			return new WP_Error( 'static_site_importer_missing_bfb', 'Block Format Bridge is required to import a static site.' );
 		}
 
-		$site_dir    = dirname( $html_path );
-		$source_page = self::source_page_from_path( $site_dir, $html_path );
-		if ( is_wp_error( $source_page ) ) {
-			return $source_page;
+		$document = Static_Site_Importer_Document::from_file( $html_path );
+		if ( is_wp_error( $document ) ) {
+			return $document;
 		}
-		$document = $source_page->document();
 
-		$source_title = self::page_title( $source_page->source_key(), $source_page );
-		$theme_name   = isset( $args['name'] ) && '' !== trim( (string) $args['name'] ) ? sanitize_text_field( (string) $args['name'] ) : $source_title;
-		$theme_slug   = isset( $args['slug'] ) && '' !== trim( (string) $args['slug'] ) ? sanitize_title( (string) $args['slug'] ) : sanitize_title( $theme_name );
+		$theme_name = isset( $args['name'] ) && '' !== trim( (string) $args['name'] ) ? sanitize_text_field( (string) $args['name'] ) : $document->title();
+		$theme_slug = isset( $args['slug'] ) && '' !== trim( (string) $args['slug'] ) ? sanitize_title( (string) $args['slug'] ) : sanitize_title( $theme_name );
 		if ( '' === $theme_slug ) {
 			$theme_slug = 'imported-static-site';
 		}
@@ -118,11 +115,14 @@ class Static_Site_Importer_Theme_Generator {
 			return $result;
 		}
 
-		$pages = self::collect_pages( $site_dir );
-		if ( is_wp_error( $pages ) ) {
-			return $pages;
-		}
+		$site_dir = dirname( $html_path );
+		$pages    = self::collect_pages( $site_dir );
 		if ( empty( $pages ) ) {
+			$source_page = Static_Site_Importer_Source_Page::from_html_file( $site_dir, $html_path );
+			if ( is_wp_error( $source_page ) ) {
+				return $source_page;
+			}
+
 			$pages = array( $source_page->source_key() => $source_page );
 		}
 
@@ -134,6 +134,7 @@ class Static_Site_Importer_Theme_Generator {
 		$permalinks              = self::page_permalinks( $page_ids );
 		$fragments               = $document->fragments();
 		self::$conversion_report = self::new_conversion_report( $html_path, isset( $args['source_metadata'] ) && is_array( $args['source_metadata'] ) ? $args['source_metadata'] : array() );
+		self::record_source_documents_summary( $site_dir, $pages, $permalinks );
 		self::record_products_manifest( $site_dir );
 		self::$active_commerce_context = self::commerce_context_from_args( $args );
 		self::record_commerce_context_summary();
@@ -179,8 +180,7 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		foreach ( $page_artifacts['patterns'] as $filename => $pattern_slug ) {
-			$page = $pages[ $filename ] ?? null;
-			$slug = $page instanceof Static_Site_Importer_Source_Page ? self::page_slug( $filename, $page ) : self::page_slug( $filename );
+			$slug = self::page_slug( $filename );
 			if ( '' === $pattern_slug || '' === $slug ) {
 				continue;
 			}
@@ -229,10 +229,9 @@ class Static_Site_Importer_Theme_Generator {
 		if ( ! empty( $args['activate'] ) ) {
 			switch_theme( $theme_slug );
 
-			$front_page_id = self::front_page_id( $page_ids );
-			if ( $front_page_id > 0 ) {
+			if ( isset( $page_ids['index.html'] ) ) {
 				update_option( 'show_on_front', 'page' );
-				update_option( 'page_on_front', $front_page_id );
+				update_option( 'page_on_front', $page_ids['index.html'] );
 			}
 		}
 
@@ -262,6 +261,7 @@ class Static_Site_Importer_Theme_Generator {
 			'source_cleanup_error' => $source_cleanup_error,
 			'pages'                => $page_ids,
 			'quality'              => $quality,
+			'source_documents'     => self::$conversion_report['source_documents'],
 		);
 	}
 
@@ -269,9 +269,9 @@ class Static_Site_Importer_Theme_Generator {
 	 * Collect importable source pages from a static site directory.
 	 *
 	 * @param string $site_dir Site directory.
-	 * @return array<string, Static_Site_Importer_Source_Page>|WP_Error
+	 * @return array<string, Static_Site_Importer_Source_Page>
 	 */
-	private static function collect_pages( string $site_dir ) {
+	private static function collect_pages( string $site_dir ): array {
 		$pages = array();
 		$paths = glob( trailingslashit( $site_dir ) . '*.html' );
 		foreach ( false === $paths ? array() : $paths as $path ) {
@@ -286,7 +286,7 @@ class Static_Site_Importer_Theme_Generator {
 		foreach ( self::collect_markdown_paths( $site_dir ) as $path ) {
 			$page = Static_Site_Importer_Source_Page::from_markdown_file( $site_dir, $path );
 			if ( is_wp_error( $page ) ) {
-				return $page;
+				continue;
 			}
 
 			$pages[ $page->source_key() ] = $page;
@@ -295,10 +295,10 @@ class Static_Site_Importer_Theme_Generator {
 		uksort(
 			$pages,
 			static function ( string $left, string $right ): int {
-				if ( self::is_index_source_filename( $left ) ) {
+				if ( 'index.html' === $left ) {
 					return -1;
 				}
-				if ( self::is_index_source_filename( $right ) ) {
+				if ( 'index.html' === $right ) {
 					return 1;
 				}
 
@@ -307,17 +307,6 @@ class Static_Site_Importer_Theme_Generator {
 		);
 
 		return $pages;
-	}
-
-	/**
-	 * Build a source page from the entry path.
-	 *
-	 * @param string $site_dir Site directory.
-	 * @param string $path     Source path.
-	 * @return Static_Site_Importer_Source_Page|WP_Error
-	 */
-	private static function source_page_from_path( string $site_dir, string $path ) {
-		return self::is_markdown_source_path( $path ) ? Static_Site_Importer_Source_Page::from_markdown_file( $site_dir, $path ) : Static_Site_Importer_Source_Page::from_html_file( $site_dir, $path );
 	}
 
 	/**
@@ -367,32 +356,6 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Check whether a source filename is the site index.
-	 *
-	 * @param string $filename Source filename.
-	 * @return bool
-	 */
-	private static function is_index_source_filename( string $filename ): bool {
-		return in_array( strtolower( basename( $filename ) ), array( 'index.html', 'index.md', 'index.markdown' ), true );
-	}
-
-	/**
-	 * Get imported front page ID for HTML or Markdown index sources.
-	 *
-	 * @param array<string,int> $page_ids Page IDs keyed by source filename.
-	 * @return int
-	 */
-	private static function front_page_id( array $page_ids ): int {
-		foreach ( $page_ids as $filename => $page_id ) {
-			if ( self::is_index_source_filename( $filename ) ) {
-				return (int) $page_id;
-			}
-		}
-
-		return 0;
-	}
-
-	/**
 	 * Create page shells so links can be rewritten before content conversion.
 	 *
 	 * @param array<string, Static_Site_Importer_Source_Page> $pages Pages.
@@ -401,15 +364,14 @@ class Static_Site_Importer_Theme_Generator {
 	private static function create_page_shells( array $pages ) {
 		$page_ids = array();
 		foreach ( $pages as $filename => $page ) {
-			$title  = self::page_title( $filename, $page );
-			$slug   = self::page_slug( $filename, $page );
-			$status = self::page_status( $page );
+			$title = self::page_title( $filename, $page );
+			$slug  = self::page_slug( $filename );
 
 			$existing = get_page_by_path( $slug, OBJECT, 'page' );
 			$postarr  = array(
 				'post_title'   => $title,
 				'post_name'    => $slug,
-				'post_status'  => $status,
+				'post_status'  => 'publish',
 				'post_type'    => 'page',
 				'post_content' => '',
 			);
@@ -443,9 +405,11 @@ class Static_Site_Importer_Theme_Generator {
 		$contents = array();
 
 		foreach ( $pages as $filename => $page ) {
-			$slug         = self::page_slug( $filename, $page );
+			$slug         = self::page_slug( $filename );
 			$pattern_slug = sanitize_key( $theme_slug ) . '/page-' . $slug;
-			$content_body = self::rewrite_internal_links( $page->body(), $permalinks );
+			$content_body = 'markdown' === $page->body_format()
+				? self::rewrite_markdown_links( $page->body(), $permalinks, $filename )
+				: self::rewrite_internal_links( $page->body(), $permalinks );
 			$content      = self::convert_fragment( $content_body, 'main:' . $filename, $page->body_format() );
 
 			$patterns[ $filename ] = $pattern_slug;
@@ -527,7 +491,10 @@ class Static_Site_Importer_Theme_Generator {
 				$href               = html_entity_decode( $matches[2], ENT_QUOTES );
 				$parts              = explode( '#', $href, 2 );
 				$path_without_query = strtok( $parts[0], '?' );
-				$filename           = basename( false === $path_without_query ? $parts[0] : $path_without_query );
+				$filename           = ltrim( false === $path_without_query ? $parts[0] : $path_without_query, './' );
+				if ( ! isset( $permalinks[ $filename ] ) ) {
+					$filename = basename( $filename );
+				}
 				if ( ! isset( $permalinks[ $filename ] ) ) {
 					return $matches[0];
 				}
@@ -562,6 +529,45 @@ class Static_Site_Importer_Theme_Generator {
 			},
 			$rewritten
 		) ?? $rewritten;
+	}
+
+	/**
+	 * Rewrite local Markdown links to imported WordPress page permalinks.
+	 *
+	 * @param string               $markdown        Markdown source.
+	 * @param array<string,string> $permalinks      Permalinks keyed by source filename.
+	 * @param string               $source_filename Current source filename.
+	 * @return string
+	 */
+	private static function rewrite_markdown_links( string $markdown, array $permalinks, string $source_filename ): string {
+		if ( '' === trim( $markdown ) || empty( $permalinks ) ) {
+			return $markdown;
+		}
+
+		return preg_replace_callback(
+			'/\]\(([^)]+)\)/',
+			static function ( array $matches ) use ( $permalinks, $source_filename ): string {
+				$href = trim( $matches[1] );
+				if ( preg_match( '/^[a-z][a-z0-9+.-]*:/i', $href ) || str_starts_with( $href, '#' ) ) {
+					return $matches[0];
+				}
+
+				$parts = explode( '#', $href, 2 );
+				$path  = strtok( $parts[0], '?' );
+				$key   = self::resolve_source_link_key( $source_filename, false === $path ? $parts[0] : $path );
+				if ( ! isset( $permalinks[ $key ] ) ) {
+					return $matches[0];
+				}
+
+				$replacement = $permalinks[ $key ];
+				if ( isset( $parts[1] ) && '' !== $parts[1] ) {
+					$replacement .= '#' . $parts[1];
+				}
+
+				return '](' . $replacement . ')';
+			},
+			$markdown
+		) ?? $markdown;
 	}
 
 	/**
@@ -646,7 +652,7 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		$inner_blocks = self::theme_part_element_block( $doc, $inner_children[0], $theme_slug, 'header' ) . $navigation_blocks;
-		return self::group_block( self::group_block( $inner_blocks, $inner->getAttribute( 'class' ) ), $header->getAttribute( 'class' ), 'header' );
+		return self::group_block( self::group_block( $inner_blocks, $inner->getAttribute( 'class' ), 'div', $inner->getAttribute( 'id' ) ), $header->getAttribute( 'class' ), 'header', $header->getAttribute( 'id' ) );
 	}
 
 	/**
@@ -671,6 +677,16 @@ class Static_Site_Importer_Theme_Generator {
 
 		$container          = $footer_children[0];
 		$container_children = self::direct_element_children( $container );
+		if ( 2 === count( $container_children ) && 'div' === strtolower( $container_children[0]->tagName ) && 'ul' === strtolower( $container_children[1]->tagName ) ) {
+			$list_blocks = self::footer_navigation_or_list_block( $doc, $container_children[1], $theme_slug, 'footer' );
+			if ( null === $list_blocks ) {
+				return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
+			}
+
+			$container_blocks = self::theme_part_element_block( $doc, $container_children[0], $theme_slug, 'footer' ) . $list_blocks;
+			return self::group_block( self::group_block( $container_blocks, $container->getAttribute( 'class' ) ), $footer->getAttribute( 'class' ), 'footer' );
+		}
+
 		if ( 1 !== count( $container_children ) || 'div' !== strtolower( $container_children[0]->tagName ) ) {
 			return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
 		}
@@ -681,14 +697,14 @@ class Static_Site_Importer_Theme_Generator {
 			return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
 		}
 
-		$list_blocks = self::footer_link_list_block( $doc, $row_children[1] );
+		$list_blocks = self::footer_navigation_or_list_block( $doc, $row_children[1], $theme_slug, 'footer' );
 		if ( null === $list_blocks ) {
 			return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
 		}
 
 		$row_blocks       = self::theme_part_element_block( $doc, $row_children[0], $theme_slug, 'footer' ) . $list_blocks;
-		$container_blocks = self::group_block( $row_blocks, $row->getAttribute( 'class' ) );
-		return self::group_block( self::group_block( $container_blocks, $container->getAttribute( 'class' ) ), $footer->getAttribute( 'class' ), 'footer' );
+		$container_blocks = self::group_block( $row_blocks, $row->getAttribute( 'class' ), 'div', $row->getAttribute( 'id' ) );
+		return self::group_block( self::group_block( $container_blocks, $container->getAttribute( 'class' ), 'div', $container->getAttribute( 'id' ) ), $footer->getAttribute( 'class' ), 'footer', $footer->getAttribute( 'id' ) );
 	}
 
 	/**
@@ -717,7 +733,11 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		if ( 'a' === $tag ) {
-			return self::link_element_block( $doc, $element);
+			return self::link_element_block( $doc, $element );
+		}
+
+		if ( self::should_preserve_theme_part_source_element( $element ) ) {
+			return self::freeform_block( self::node_html( $doc, $element ) );
 		}
 
 		if ( 'img' === $tag ) {
@@ -729,7 +749,7 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		if ( self::is_link_cluster_container( $element ) ) {
-			return self::group_block( self::theme_part_child_blocks( $doc, $element, $theme_slug, $location ), $element->getAttribute( 'class' ) );
+			return self::group_block( self::theme_part_child_blocks( $doc, $element, $theme_slug, $location ), $element->getAttribute( 'class' ), 'div', $element->getAttribute( 'id' ) );
 		}
 
 		if ( self::element_has_only_phrasing_content( $element ) ) {
@@ -739,7 +759,7 @@ class Static_Site_Importer_Theme_Generator {
 		$children = self::theme_part_child_blocks( $doc, $element, $theme_slug, $location );
 		if ( '' === trim( $children ) ) {
 			if ( self::is_empty_decorative_theme_part_element( $element ) ) {
-				return self::group_block( '', self::append_class_token( $element->getAttribute( 'class' ), 'static-site-importer-decorative-layer' ) );
+				return self::group_block( '', self::append_class_token( $element->getAttribute( 'class' ), 'static-site-importer-decorative-layer' ), 'div', $element->getAttribute( 'id' ) );
 			}
 
 			$text = trim( $element->textContent );
@@ -760,7 +780,7 @@ class Static_Site_Importer_Theme_Generator {
 			$class_name = self::append_class_token( $class_name, 'static-site-importer-source-nav' );
 		}
 
-		return self::group_block( $children, $class_name, $wrapper_tag );
+		return self::group_block( $children, $class_name, $wrapper_tag, $element->getAttribute( 'id' ) );
 	}
 
 	/**
@@ -957,6 +977,22 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Check whether classed chrome needs exact source element ownership.
+	 *
+	 * @param DOMElement $element Source element.
+	 * @return bool
+	 */
+	private static function should_preserve_theme_part_source_element( DOMElement $element ): bool {
+		$tag = strtolower( $element->tagName );
+		if ( ! in_array( $tag, array( 'div', 'span' ), true ) || ! self::element_has_only_phrasing_content( $element ) ) {
+			return false;
+		}
+
+		$class = trim( $element->getAttribute( 'class' ) );
+		return preg_match( '/(^|[-_\s])footer-logo([-_\s]|$)/i', $class ) === 1;
+	}
+
+	/**
 	 * Check whether an element can be represented as one paragraph with inline markup.
 	 *
 	 * @param DOMElement $element Source element.
@@ -1071,7 +1107,7 @@ class Static_Site_Importer_Theme_Generator {
 			return null;
 		}
 
-		if ( ! str_contains( strtolower( $inner ), '<img' ) ) {
+		if ( ! str_contains( strtolower( $inner ), '<img' ) && empty( self::direct_element_children( $element ) ) ) {
 			return self::paragraph_block( '<a' . self::element_attribute_markup( $element ) . '>' . $inner . '</a>' );
 		}
 
@@ -1433,16 +1469,38 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Build a footer navigation entity when the row owns one utility menu, otherwise a visible list.
+	 *
+	 * @param DOMDocument $doc        Source DOM document.
+	 * @param DOMElement  $element    Source list element.
+	 * @param string      $theme_slug Imported theme slug.
+	 * @param string      $location   Theme part location.
+	 * @return string|null
+	 */
+	private static function footer_navigation_or_list_block( DOMDocument $doc, DOMElement $element, string $theme_slug, string $location ): ?string {
+		if ( self::can_convert_element_to_navigation( $element ) ) {
+			$navigation = self::navigation_ref_block( $element, $theme_slug, $location );
+			if ( null !== $navigation ) {
+				return $navigation;
+			}
+		}
+
+		return self::footer_link_list_block( $doc, $element );
+	}
+
+	/**
 	 * Build a group block wrapper.
 	 *
 	 * @param string $inner     Inner block markup.
 	 * @param string $class_name Source class attribute.
 	 * @param string $tag_name   Wrapper tag name.
+	 * @param string $anchor     Source ID attribute for native group anchor support.
 	 * @return string
 	 */
-	private static function group_block( string $inner, string $class_name = '', string $tag_name = 'div' ): string {
+	private static function group_block( string $inner, string $class_name = '', string $tag_name = 'div', string $anchor = '' ): string {
 		$class_name = trim( $class_name );
 		$tag_name   = strtolower( $tag_name );
+		$anchor     = trim( $anchor );
 		$attrs      = array();
 		if ( '' !== $class_name ) {
 			$attrs['className'] = $class_name;
@@ -1450,11 +1508,15 @@ class Static_Site_Importer_Theme_Generator {
 		if ( 'div' !== $tag_name ) {
 			$attrs['tagName'] = $tag_name;
 		}
+		if ( '' !== $anchor ) {
+			$attrs['anchor'] = $anchor;
+		}
 
 		$comment_attrs = empty( $attrs ) ? '' : ' ' . wp_json_encode( $attrs, JSON_UNESCAPED_SLASHES );
 		$class_attr    = trim( 'wp-block-group ' . $class_name );
+		$id_attr       = '' === $anchor ? '' : ' id="' . esc_attr( $anchor ) . '"';
 
-		return '<!-- wp:group' . $comment_attrs . ' --><' . $tag_name . ' class="' . esc_attr( $class_attr ) . '">' . $inner . '</' . $tag_name . '><!-- /wp:group -->';
+		return '<!-- wp:group' . $comment_attrs . ' --><' . $tag_name . $id_attr . ' class="' . esc_attr( $class_attr ) . '">' . $inner . '</' . $tag_name . '><!-- /wp:group -->';
 	}
 
 	/**
@@ -1580,52 +1642,27 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return string
 	 */
 	private static function page_title( string $filename, Static_Site_Importer_Source_Page $page ): string {
-		$title = $page->metadata_value( 'title' );
-		if ( '' !== trim( $title ) ) {
-			return sanitize_text_field( $title );
-		}
-
-		if ( self::is_index_source_filename( $filename ) ) {
+		if ( 'index.html' === $filename ) {
 			return 'Home';
 		}
 
 		$title = preg_replace( '/\s+[—-]\s+.+$/u', '', $page->document()->title() );
-		return '' === trim( (string) $title ) ? ucwords( str_replace( '-', ' ', self::page_slug( $filename, $page ) ) ) : trim( (string) $title );
+		return '' === trim( (string) $title ) ? ucwords( str_replace( '-', ' ', self::page_slug( $filename ) ) ) : trim( (string) $title );
 	}
 
 	/**
 	 * Build a WordPress page slug from a source filename.
 	 *
-	 * @param string                                $filename Source filename.
-	 * @param Static_Site_Importer_Source_Page|null $page     Source page.
+	 * @param string $filename Source filename.
 	 * @return string
 	 */
-	private static function page_slug( string $filename, ?Static_Site_Importer_Source_Page $page = null ): string {
-		if ( $page instanceof Static_Site_Importer_Source_Page && '' !== trim( $page->metadata_value( 'slug' ) ) ) {
-			$slug = sanitize_title( $page->metadata_value( 'slug' ) );
-			if ( '' !== $slug ) {
-				return $slug;
-			}
-		}
-
-		if ( self::is_index_source_filename( $filename ) ) {
+	private static function page_slug( string $filename ): string {
+		if ( 'index.html' === $filename ) {
 			return 'home';
 		}
 
 		$slug = preg_replace( '/\.(?:html?|md|markdown)$/i', '', $filename );
 		return sanitize_title( str_replace( '/', '-', (string) $slug ) );
-	}
-
-	/**
-	 * Build a safe WordPress page status from source metadata.
-	 *
-	 * @param Static_Site_Importer_Source_Page $page Source page.
-	 * @return string
-	 */
-	private static function page_status( Static_Site_Importer_Source_Page $page ): string {
-		$status = sanitize_key( $page->metadata_value( 'status' ) );
-
-		return in_array( $status, array( 'publish', 'draft', 'pending', 'private' ), true ) ? $status : 'publish';
 	}
 
 	/**
@@ -2387,6 +2424,47 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Convert Markdown to block markup.
+	 *
+	 * @param string $markdown Markdown source.
+	 * @param string $source   Source label for diagnostics.
+	 * @return string
+	 */
+	private static function convert_markdown_document( string $markdown, string $source ): string {
+		if ( '' === trim( $markdown ) ) {
+			return '';
+		}
+
+		self::start_conversion_fragment( $source, $markdown );
+		$diagnostic_listener = static function ( string $code, string $message, array $context ) use ( $source ): void {
+			if ( 'commonmark_conversion_failed' !== $code && 'commonmark_unavailable' !== $code ) {
+				return;
+			}
+
+			++self::$conversion_report['source_documents']['markdown_parse_error_count'];
+			self::$conversion_report['diagnostics'][] = array(
+				'type'    => 'markdown_parse_error',
+				'source'  => $source,
+				'code'    => $code,
+				'message' => $message,
+				'context' => $context,
+			);
+		};
+
+		add_action( 'bfb_diagnostic', $diagnostic_listener, 10, 3 );
+		// @phpstan-ignore-next-line function.notFound -- Loaded by the bundled Block Format Bridge runtime.
+		$blocks = empty( self::$active_commerce_context ) ? bfb_convert( $markdown, 'markdown', 'blocks' ) : bfb_convert( $markdown, 'markdown', 'blocks', self::conversion_options( $source ) );
+		remove_action( 'bfb_diagnostic', $diagnostic_listener, 10 );
+
+		if ( '' === $blocks ) {
+			self::record_conversion_empty( $source, $markdown );
+		}
+		self::finish_conversion_fragment( $source, $blocks );
+
+		return $blocks;
+	}
+
+	/**
 	 * Mark empty absolute-positioned groups so editor CSS can hide only decorative placeholders.
 	 *
 	 * @param string $block_markup Serialized block markup.
@@ -2715,6 +2793,18 @@ class Static_Site_Importer_Theme_Generator {
 				'svg_sprite_reference_failure_count' => 0,
 				'failure_reasons'                    => array(),
 			),
+			'source_documents'    => array(
+				'total_count'                => 0,
+				'counts_by_format'           => array(
+					'html'     => 0,
+					'markdown' => 0,
+					'mdx'      => 0,
+				),
+				'skipped_mdx_count'          => 0,
+				'unresolved_links'           => array(),
+				'unresolved_link_count'      => 0,
+				'markdown_parse_error_count' => 0,
+			),
 			'conversion_fragments' => array(),
 			'commerce_context'     => array(
 				'supplied'       => false,
@@ -2754,6 +2844,176 @@ class Static_Site_Importer_Theme_Generator {
 				'Semantic fidelity requires browser DOM extraction; use semantic_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',
 			),
 		);
+	}
+
+	/**
+	 * Record source document counts and skipped/linked source diagnostics.
+	 *
+	 * @param string                                           $site_dir    Source site directory.
+	 * @param array<string, Static_Site_Importer_Source_Page> $pages       Imported pages.
+	 * @param array<string,string>                             $permalinks Imported page permalinks.
+	 * @return void
+	 */
+	private static function record_source_documents_summary( string $site_dir, array $pages, array $permalinks ): void {
+		$counts = array(
+			'html'     => 0,
+			'markdown' => 0,
+			'mdx'      => 0,
+		);
+		foreach ( $pages as $page ) {
+			$format = $page->type();
+			if ( isset( $counts[ $format ] ) ) {
+				++$counts[ $format ];
+			}
+		}
+
+		$mdx_files = self::collect_source_files_by_extension( $site_dir, array( 'mdx' ) );
+		$counts['mdx'] = count( $mdx_files );
+		foreach ( $mdx_files as $mdx_file ) {
+			self::$conversion_report['diagnostics'][] = array(
+				'type'    => 'unsupported_source_document',
+				'format'  => 'mdx',
+				'source'  => $mdx_file,
+				'message' => 'MDX source documents are not supported by Static Site Importer and were skipped. Build MDX to static HTML first, or provide plain .md/.markdown content.',
+			);
+		}
+
+		$unresolved = self::collect_unresolved_source_links( $pages, $permalinks );
+		self::$conversion_report['source_documents'] = array_merge(
+			self::$conversion_report['source_documents'],
+			array(
+				'total_count'           => array_sum( $counts ),
+				'counts_by_format'      => $counts,
+				'skipped_mdx_count'     => count( $mdx_files ),
+				'unresolved_links'      => $unresolved,
+				'unresolved_link_count' => count( $unresolved ),
+			)
+		);
+	}
+
+	/**
+	 * Collect source file paths by extension under a source directory.
+	 *
+	 * @param string            $site_dir   Source site directory.
+	 * @param array<int,string> $extensions Lowercase extensions.
+	 * @return array<int,string> Relative source paths.
+	 */
+	private static function collect_source_files_by_extension( string $site_dir, array $extensions ): array {
+		$files = array();
+		$root  = realpath( $site_dir );
+		if ( false === $root ) {
+			return $files;
+		}
+
+		$iterator = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $site_dir, FilesystemIterator::SKIP_DOTS ) );
+		foreach ( $iterator as $file ) {
+			if ( ! $file instanceof SplFileInfo || ! $file->isFile() || ! in_array( strtolower( $file->getExtension() ), $extensions, true ) ) {
+				continue;
+			}
+
+			$path = $file->getPathname();
+			if ( ! self::path_is_under( $path, $root ) ) {
+				continue;
+			}
+
+			$files[] = str_replace( DIRECTORY_SEPARATOR, '/', ltrim( substr( $path, strlen( trailingslashit( $root ) ) ), DIRECTORY_SEPARATOR ) );
+		}
+
+		sort( $files, SORT_STRING );
+		return $files;
+	}
+
+	/**
+	 * Collect local links that do not resolve to imported source documents.
+	 *
+	 * @param array<string, Static_Site_Importer_Source_Page> $pages      Imported pages.
+	 * @param array<string,string>                             $permalinks Imported page permalinks.
+	 * @return array<int,array{source:string,href:string}>
+	 */
+	private static function collect_unresolved_source_links( array $pages, array $permalinks ): array {
+		$unresolved = array();
+		foreach ( $pages as $filename => $page ) {
+			$source = $page->body();
+			foreach ( self::extract_local_source_links( $source, 'markdown' === $page->body_format() ) as $href ) {
+				$path = strtok( explode( '#', $href, 2 )[0], '?' );
+				$key  = self::resolve_source_link_key( $filename, false === $path ? $href : $path );
+				if ( isset( $permalinks[ $key ] ) || isset( $permalinks[ basename( $key ) ] ) ) {
+					continue;
+				}
+
+				$unresolved[] = array(
+					'source' => $filename,
+					'href'   => $href,
+				);
+			}
+		}
+
+		return $unresolved;
+	}
+
+	/**
+	 * Extract local HTML or Markdown links from source content.
+	 *
+	 * @param string $source      Source content.
+	 * @param bool   $is_markdown Whether the source is Markdown.
+	 * @return array<int,string>
+	 */
+	private static function extract_local_source_links( string $source, bool $is_markdown ): array {
+		$links = array();
+		$regex = $is_markdown ? '/\]\(([^)]+)\)/' : '/\bhref=("|\')([^"\']+)(\1)/i';
+		if ( preg_match_all( $regex, $source, $matches ) ) {
+			foreach ( $is_markdown ? $matches[1] : $matches[2] as $href ) {
+				$href = trim( html_entity_decode( (string) $href, ENT_QUOTES ) );
+				if ( '' === $href || str_starts_with( $href, '#' ) || preg_match( '/^[a-z][a-z0-9+.-]*:/i', $href ) ) {
+					continue;
+				}
+
+				$extension = strtolower( pathinfo( strtok( explode( '#', $href, 2 )[0], '?' ) ?: $href, PATHINFO_EXTENSION ) );
+				if ( in_array( $extension, array( 'html', 'htm', 'md', 'markdown', 'mdx' ), true ) ) {
+					$links[] = $href;
+				}
+			}
+		}
+
+		return array_values( array_unique( $links ) );
+	}
+
+	/**
+	 * Resolve a local link against its source document path.
+	 *
+	 * @param string $source_filename Current source filename.
+	 * @param string $href_path       Link path without query or fragment.
+	 * @return string Source document key.
+	 */
+	private static function resolve_source_link_key( string $source_filename, string $href_path ): string {
+		$key = ltrim( str_replace( '\\', '/', $href_path ), './' );
+		if ( '' === $key || str_starts_with( $key, '/' ) ) {
+			return ltrim( $key, '/' );
+		}
+
+		$base_dir = dirname( $source_filename );
+		if ( '.' === $base_dir || '' === $base_dir || str_starts_with( $href_path, './' ) ) {
+			$combined = ( '.' === $base_dir || '' === $base_dir ) ? $key : $base_dir . '/' . ltrim( $href_path, './' );
+		} elseif ( ! str_contains( $key, '/' ) ) {
+			$combined = $base_dir . '/' . $key;
+		} else {
+			$combined = $key;
+		}
+
+		$parts = array();
+		foreach ( explode( '/', str_replace( '\\', '/', $combined ) ) as $part ) {
+			if ( '' === $part || '.' === $part ) {
+				continue;
+			}
+			if ( '..' === $part ) {
+				array_pop( $parts );
+				continue;
+			}
+
+			$parts[] = $part;
+		}
+
+		return implode( '/', $parts );
 	}
 
 	/**
@@ -3999,6 +4259,24 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return self::write_file( $path, $content );
+	}
+
+	/**
+	 * Determine whether a path resolves inside a base directory.
+	 *
+	 * @param string $path Path to test.
+	 * @param string $base Base directory.
+	 * @return bool
+	 */
+	private static function path_is_under( string $path, string $base ): bool {
+		$real_path = realpath( $path );
+		$real_base = realpath( $base );
+
+		if ( false === $real_path || false === $real_base ) {
+			return false;
+		}
+
+		return 0 === strpos( trailingslashit( $real_path ), trailingslashit( $real_base ) );
 	}
 
 	/**

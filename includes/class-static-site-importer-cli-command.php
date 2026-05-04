@@ -15,17 +15,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Static_Site_Importer_CLI_Command {
 
 	/**
-	 * Import an HTML or Markdown file as a block theme.
+	 * Import a static-site HTML entry as a block theme.
 	 *
 	 * @subcommand import-theme
 	 *
 	 * ## OPTIONS
 	 *
-	 * [<html-file>]
-	 * : Path to index.html or index.md. Optional when --url is provided.
+	 * [<html-entry-file>]
+	 * : Path to an HTML shell/chrome entry file. Optional when --url is provided. Sibling HTML files and nested .md/.markdown source documents in the selected source tree are imported as pages; .mdx files are skipped with explicit report diagnostics.
 	 *
 	 * [--url=<url>]
-	 * : Fetch one public http/https HTML URL and import it as index.html. Redirects are validated with SSRF protections before connecting.
+	 * : Fetch one public http/https HTML URL and import it as index.html. Redirects are validated with SSRF protections before connecting. URL intake imports a single fetched HTML document only.
 	 *
 	 * [--slug=<slug>]
 	 * : Theme slug.
@@ -63,7 +63,7 @@ class Static_Site_Importer_CLI_Command {
 		$source_metadata = array();
 		if ( isset( $assoc_args['url'] ) && '' !== trim( (string) $assoc_args['url'] ) ) {
 			if ( '' !== $html_file ) {
-				WP_CLI::error( 'Use either <html-file> or --url, not both.' );
+				WP_CLI::error( 'Use either <html-entry-file> or --url, not both.' );
 				return;
 			}
 
@@ -81,7 +81,7 @@ class Static_Site_Importer_CLI_Command {
 		}
 
 		if ( '' === $html_file ) {
-			WP_CLI::error( 'Missing <html-file> argument or --url option.' );
+			WP_CLI::error( 'Missing <html-entry-file> argument or --url option.' );
 			return;
 		}
 
@@ -122,6 +122,9 @@ class Static_Site_Importer_CLI_Command {
 		if ( ! empty( $source_metadata['final_url'] ) ) {
 			WP_CLI::line( sprintf( 'Fetched URL: %s', $source_metadata['final_url'] ) );
 		}
+		$source_documents = $result['source_documents'] ?? array();
+		$counts           = is_array( $source_documents ) && isset( $source_documents['counts_by_format'] ) && is_array( $source_documents['counts_by_format'] ) ? $source_documents['counts_by_format'] : array();
+		WP_CLI::line( sprintf( 'Source documents: %d HTML, %d Markdown, %d skipped MDX, %d unresolved links.', (int) ( $counts['html'] ?? 0 ), (int) ( $counts['markdown'] ?? 0 ), (int) ( $source_documents['skipped_mdx_count'] ?? 0 ), (int) ( $source_documents['unresolved_link_count'] ?? 0 ) ) );
 		WP_CLI::line( sprintf( 'Conversion quality: %s (%d unsupported HTML fallbacks, %d invalid blocks, %d content-loss aborts).', $result['quality']['pass'] ? 'pass' : 'needs review', $result['quality']['fallback_count'], $result['quality']['invalid_block_count'], $result['quality']['content_loss_count'] ) );
 
 		if ( ! $result['quality']['pass'] ) {
