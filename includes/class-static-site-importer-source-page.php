@@ -43,6 +43,20 @@ class Static_Site_Importer_Source_Page {
 	private Static_Site_Importer_Document $document;
 
 	/**
+	 * Body passed to Block Format Bridge for content conversion.
+	 *
+	 * @var string
+	 */
+	private string $body;
+
+	/**
+	 * Body format passed to Block Format Bridge.
+	 *
+	 * @var string
+	 */
+	private string $body_format;
+
+	/**
 	 * Raw frontmatter captured for follow-up metadata parsing work.
 	 *
 	 * @var string
@@ -56,13 +70,17 @@ class Static_Site_Importer_Source_Page {
 	 * @param string                        $path        Absolute source path.
 	 * @param string                        $type        Source type.
 	 * @param Static_Site_Importer_Document $document    Parsed HTML document.
+	 * @param string                        $body        Conversion body.
+	 * @param string                        $body_format Conversion body format.
 	 * @param string                        $frontmatter Raw frontmatter.
 	 */
-	private function __construct( string $source_key, string $path, string $type, Static_Site_Importer_Document $document, string $frontmatter = '' ) {
+	private function __construct( string $source_key, string $path, string $type, Static_Site_Importer_Document $document, string $body, string $body_format, string $frontmatter = '' ) {
 		$this->source_key  = $source_key;
 		$this->path        = $path;
 		$this->type        = $type;
 		$this->document    = $document;
+		$this->body        = $body;
+		$this->body_format = $body_format;
 		$this->frontmatter = $frontmatter;
 	}
 
@@ -79,7 +97,9 @@ class Static_Site_Importer_Source_Page {
 			return $document;
 		}
 
-		return new self( self::relative_source_key( $site_dir, $path ), $path, 'html', $document );
+		$fragments = $document->fragments();
+
+		return new self( self::relative_source_key( $site_dir, $path ), $path, 'html', $document, $fragments['main'], 'html' );
 	}
 
 	/**
@@ -110,7 +130,7 @@ class Static_Site_Importer_Source_Page {
 			return $html;
 		}
 
-		return new self( self::relative_source_key( $site_dir, $path ), $path, 'markdown', new Static_Site_Importer_Document( '<main>' . $html . '</main>' ), $frontmatter );
+		return new self( self::relative_source_key( $site_dir, $path ), $path, 'markdown', new Static_Site_Importer_Document( '<main>' . $html . '</main>' ), $content, 'markdown', $frontmatter );
 	}
 
 	/**
@@ -147,6 +167,24 @@ class Static_Site_Importer_Source_Page {
 	 */
 	public function document(): Static_Site_Importer_Document {
 		return $this->document;
+	}
+
+	/**
+	 * Body passed to BFB for content conversion.
+	 *
+	 * @return string
+	 */
+	public function body(): string {
+		return $this->body;
+	}
+
+	/**
+	 * Body format passed to BFB for content conversion.
+	 *
+	 * @return string
+	 */
+	public function body_format(): string {
+		return $this->body_format;
 	}
 
 	/**

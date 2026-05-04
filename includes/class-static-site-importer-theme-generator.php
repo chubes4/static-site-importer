@@ -405,8 +405,8 @@ class Static_Site_Importer_Theme_Generator {
 		foreach ( $pages as $filename => $page ) {
 			$slug         = self::page_slug( $filename );
 			$pattern_slug = sanitize_key( $theme_slug ) . '/page-' . $slug;
-			$fragments    = $page->document()->fragments();
-			$content      = self::convert_fragment( self::rewrite_internal_links( $fragments['main'], $permalinks ), 'main:' . $filename );
+			$content_body = self::rewrite_internal_links( $page->body(), $permalinks );
+			$content      = self::convert_fragment( $content_body, 'main:' . $filename, $page->body_format() );
 
 			$patterns[ $filename ] = $pattern_slug;
 			$files[ $filename ]    = self::pattern_file( self::page_title( $filename, $page ), $pattern_slug, $content );
@@ -481,7 +481,7 @@ class Static_Site_Importer_Theme_Generator {
 			return $html;
 		}
 
-		return preg_replace_callback(
+		$rewritten = preg_replace_callback(
 			'/\bhref=("|\')([^"\']+)(\1)/i',
 			static function ( array $matches ) use ( $permalinks ): string {
 				$href               = html_entity_decode( $matches[2], ENT_QUOTES );
@@ -501,6 +501,27 @@ class Static_Site_Importer_Theme_Generator {
 			},
 			$html
 		) ?? $html;
+
+		return preg_replace_callback(
+			'/(!?\[[^\]]*\]\()([^\s)]+)(\))/i',
+			static function ( array $matches ) use ( $permalinks ): string {
+				$href               = html_entity_decode( $matches[2], ENT_QUOTES );
+				$parts              = explode( '#', $href, 2 );
+				$path_without_query = strtok( $parts[0], '?' );
+				$filename           = basename( false === $path_without_query ? $parts[0] : $path_without_query );
+				if ( ! isset( $permalinks[ $filename ] ) ) {
+					return $matches[0];
+				}
+
+				$replacement = $permalinks[ $filename ];
+				if ( isset( $parts[1] ) && '' !== $parts[1] ) {
+					$replacement .= '#' . $parts[1];
+				}
+
+				return $matches[1] . esc_url( $replacement ) . $matches[3];
+			},
+			$rewritten
+		) ?? $rewritten;
 	}
 
 	/**
@@ -2273,17 +2294,21 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Convert HTML to block markup.
+	 * Convert source content to block markup.
 	 *
-	 * @param string $html HTML fragment.
+	 * @param string $html   Source content.
+	 * @param string $source Source label.
+	 * @param string $format Source format.
 	 * @return string
 	 */
-	private static function convert_fragment( string $html, string $source = 'fragment' ): string {
+	private static function convert_fragment( string $html, string $source = 'fragment', string $format = 'html' ): string {
 		if ( '' === trim( $html ) ) {
 			return '';
 		}
 
-		$html = self::materialize_inline_svg_icons( $html, $source );
+		if ( 'html' === $format ) {
+			$html = self::materialize_inline_svg_icons( $html, $source );
+		}
 
 		self::start_conversion_fragment( $source, $html );
 		$fallback_listener     = static function ( string $element_html, array $context, array $block ) use ( $source ): void {
@@ -2305,7 +2330,7 @@ class Static_Site_Importer_Theme_Generator {
 		add_action( 'bfb_conversion_metadata', $commerce_metadata_listener, 10, 1 );
 		add_action( 'bfb_materialization_request', $commerce_request_listener, 10, 1 );
 		// @phpstan-ignore-next-line function.notFound -- Loaded by the bundled Block Format Bridge runtime.
-		$blocks = empty( self::$active_commerce_context ) ? bfb_convert( $html, 'html', 'blocks' ) : bfb_convert( $html, 'html', 'blocks', self::conversion_options( $source ) );
+		$blocks = empty( self::$active_commerce_context ) ? bfb_convert( $html, $format, 'blocks' ) : bfb_convert( $html, $format, 'blocks', self::conversion_options( $source ) );
 		remove_action( 'html_to_blocks_unsupported_html_fallback', $fallback_listener, 10 );
 		remove_action( 'html_to_blocks_conversion_aborted_content_loss', $content_loss_listener, 10 );
 		remove_action( 'bfb_conversion_metadata', $commerce_metadata_listener, 10 );
