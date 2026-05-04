@@ -92,13 +92,15 @@ class Static_Site_Importer_Theme_Generator {
 			return new WP_Error( 'static_site_importer_missing_bfb', 'Block Format Bridge is required to import a static site.' );
 		}
 
-		$document = Static_Site_Importer_Document::from_file( $html_path );
-		if ( is_wp_error( $document ) ) {
-			return $document;
+		$source_page = self::source_page_from_path( $html_path );
+		if ( is_wp_error( $source_page ) ) {
+			return $source_page;
 		}
+		$document = $source_page['document'];
 
-		$theme_name = isset( $args['name'] ) && '' !== trim( (string) $args['name'] ) ? sanitize_text_field( (string) $args['name'] ) : $document->title();
-		$theme_slug = isset( $args['slug'] ) && '' !== trim( (string) $args['slug'] ) ? sanitize_title( (string) $args['slug'] ) : sanitize_title( $theme_name );
+		$source_title = self::page_title( basename( $html_path ), $source_page );
+		$theme_name   = isset( $args['name'] ) && '' !== trim( (string) $args['name'] ) ? sanitize_text_field( (string) $args['name'] ) : $source_title;
+		$theme_slug   = isset( $args['slug'] ) && '' !== trim( (string) $args['slug'] ) ? sanitize_title( (string) $args['slug'] ) : sanitize_title( $theme_name );
 		if ( '' === $theme_slug ) {
 			$theme_slug = 'imported-static-site';
 		}
@@ -116,13 +118,13 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		$site_dir = dirname( $html_path );
-		$pages    = self::collect_pages( $site_dir );
+		$pages    = self::collect_pages( $site_dir, self::source_format_from_path( $html_path ) );
+		if ( is_wp_error( $pages ) ) {
+			return $pages;
+		}
 		if ( empty( $pages ) ) {
 			$pages = array(
-				basename( $html_path ) => array(
-					'path'     => $html_path,
-					'document' => $document,
-				),
+				basename( $html_path ) => $source_page,
 			);
 		}
 
@@ -165,21 +167,21 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		$writes = array(
-			$theme_dir . '/style.css'                    => self::style_css( $theme_name, $site_css, array_keys( self::$button_wrapper_classes ) ),
+			$theme_dir . '/style.css'                   => self::style_css( $theme_name, $site_css, array_keys( self::$button_wrapper_classes ) ),
 			$theme_dir . '/assets/css/editor-style.css' => self::editor_style_css( $site_css, array_keys( self::$button_wrapper_classes ) ),
-			$theme_dir . '/functions.php'                => self::functions_php( $theme_slug ),
-			$theme_dir . '/theme.json'                   => self::theme_json( $theme_name, $site_css ),
-			$theme_dir . '/parts/header.html'            => $header_blocks,
-			$theme_dir . '/templates/front-page.html'    => self::content_template( $background_blocks, $has_footer_part ),
-			$theme_dir . '/templates/page.html'          => self::content_template( $background_blocks, $has_footer_part ),
-			$theme_dir . '/templates/index.html'         => self::content_template( $background_blocks, $has_footer_part ),
+			$theme_dir . '/functions.php'               => self::functions_php( $theme_slug ),
+			$theme_dir . '/theme.json'                  => self::theme_json( $theme_name, $site_css ),
+			$theme_dir . '/parts/header.html'           => $header_blocks,
+			$theme_dir . '/templates/front-page.html'   => self::content_template( $background_blocks, $has_footer_part ),
+			$theme_dir . '/templates/page.html'         => self::content_template( $background_blocks, $has_footer_part ),
+			$theme_dir . '/templates/index.html'        => self::content_template( $background_blocks, $has_footer_part ),
 		);
 		if ( $has_footer_part ) {
 			$writes[ $theme_dir . '/parts/footer.html' ] = $footer_blocks;
 		}
 
 		foreach ( $page_artifacts['patterns'] as $filename => $pattern_slug ) {
-			$slug = self::page_slug( $filename );
+			$slug = self::page_slug( $filename, $pages[ $filename ] ?? array() );
 			if ( '' === $pattern_slug || '' === $slug ) {
 				continue;
 			}
@@ -228,9 +230,10 @@ class Static_Site_Importer_Theme_Generator {
 		if ( ! empty( $args['activate'] ) ) {
 			switch_theme( $theme_slug );
 
-			if ( isset( $page_ids['index.html'] ) ) {
+			$front_page_id = self::front_page_id( $page_ids );
+			if ( $front_page_id > 0 ) {
 				update_option( 'show_on_front', 'page' );
-				update_option( 'page_on_front', $page_ids['index.html'] );
+				update_option( 'page_on_front', $front_page_id );
 			}
 		}
 
@@ -264,33 +267,36 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Collect sibling HTML pages from a static site directory.
+	 * Collect sibling source pages from a static site directory.
 	 *
 	 * @param string $site_dir Site directory.
-	 * @return array<string, array{path:string,document:Static_Site_Importer_Document}>
+	 * @param string $format   Source format.
+	 * @return array<string, array<string,mixed>>|WP_Error
 	 */
-	private static function collect_pages( string $site_dir ): array {
-		$pages = array();
-		$paths = glob( trailingslashit( $site_dir ) . '*.html' );
-		foreach ( false === $paths ? array() : $paths as $path ) {
-			$document = Static_Site_Importer_Document::from_file( $path );
-			if ( is_wp_error( $document ) ) {
-				continue;
+	private static function collect_pages( string $site_dir, string $format ) {
+		$pages    = array();
+		$patterns = 'markdown' === $format ? array( '*.md', '*.markdown' ) : array( '*.html' );
+		$paths    = array();
+		foreach ( $patterns as $pattern ) {
+			$matched = glob( trailingslashit( $site_dir ) . $pattern );
+			$paths   = array_merge( $paths, false === $matched ? array() : $matched );
+		}
+		foreach ( $paths as $path ) {
+			$page = self::source_page_from_path( $path );
+			if ( is_wp_error( $page ) ) {
+				return $page;
 			}
 
-			$pages[ basename( $path ) ] = array(
-				'path'     => $path,
-				'document' => $document,
-			);
+			$pages[ basename( $path ) ] = $page;
 		}
 
 		uksort(
 			$pages,
 			static function ( string $left, string $right ): int {
-				if ( 'index.html' === $left ) {
+				if ( self::is_index_source_filename( $left ) ) {
 					return -1;
 				}
-				if ( 'index.html' === $right ) {
+				if ( self::is_index_source_filename( $right ) ) {
 					return 1;
 				}
 
@@ -302,22 +308,101 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Build a normalized source page from a file path.
+	 *
+	 * @param string $path Source file path.
+	 * @return array{path:string,format:string,document:Static_Site_Importer_Document,body:string,metadata:array<string,string>}|WP_Error
+	 */
+	private static function source_page_from_path( string $path ) {
+		$format = self::source_format_from_path( $path );
+		if ( 'markdown' !== $format ) {
+			$document = Static_Site_Importer_Document::from_file( $path );
+			if ( is_wp_error( $document ) ) {
+				return $document;
+			}
+
+			return array(
+				'path'     => $path,
+				'format'   => 'html',
+				'document' => $document,
+				'body'     => '',
+				'metadata' => array(),
+			);
+		}
+
+		$parsed = Static_Site_Importer_Markdown_Source::from_file( $path );
+		if ( is_wp_error( $parsed ) ) {
+			return $parsed;
+		}
+
+		$title    = self::title_from_markdown_source( $path, $parsed );
+		$document = new Static_Site_Importer_Document( '<main></main><title>' . esc_html( $title ) . '</title>' );
+
+		return array(
+			'path'     => $path,
+			'format'   => 'markdown',
+			'document' => $document,
+			'body'     => $parsed['body'],
+			'metadata' => $parsed['metadata'],
+		);
+	}
+
+	/**
+	 * Infer source format from file extension.
+	 *
+	 * @param string $path Source file path.
+	 * @return string
+	 */
+	private static function source_format_from_path( string $path ): string {
+		$ext = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
+
+		return in_array( $ext, array( 'md', 'markdown' ), true ) ? 'markdown' : 'html';
+	}
+
+	/**
+	 * Check whether a source filename is the site index.
+	 *
+	 * @param string $filename Source filename.
+	 * @return bool
+	 */
+	private static function is_index_source_filename( string $filename ): bool {
+		return in_array( strtolower( $filename ), array( 'index.html', 'index.md', 'index.markdown' ), true );
+	}
+
+	/**
+	 * Get imported front page ID for HTML or Markdown index sources.
+	 *
+	 * @param array<string,int> $page_ids Page IDs keyed by source filename.
+	 * @return int
+	 */
+	private static function front_page_id( array $page_ids ): int {
+		foreach ( $page_ids as $filename => $page_id ) {
+			if ( self::is_index_source_filename( $filename ) ) {
+				return (int) $page_id;
+			}
+		}
+
+		return 0;
+	}
+
+	/**
 	 * Create page shells so links can be rewritten before content conversion.
 	 *
-	 * @param array<string, array{path:string,document:Static_Site_Importer_Document}> $pages Pages.
+	 * @param array<string, array<string,mixed>> $pages Pages.
 	 * @return array<string,int>|WP_Error
 	 */
 	private static function create_page_shells( array $pages ) {
 		$page_ids = array();
 		foreach ( $pages as $filename => $page ) {
-			$title = self::page_title( $filename, $page['document'] );
-			$slug  = self::page_slug( $filename );
+			$title  = self::page_title( $filename, $page );
+			$slug   = self::page_slug( $filename, $page );
+			$status = self::page_status( $page );
 
 			$existing = get_page_by_path( $slug, OBJECT, 'page' );
 			$postarr  = array(
 				'post_title'   => $title,
 				'post_name'    => $slug,
-				'post_status'  => 'publish',
+				'post_status'  => $status,
 				'post_type'    => 'page',
 				'post_content' => '',
 			);
@@ -340,7 +425,7 @@ class Static_Site_Importer_Theme_Generator {
 	/**
 	 * Build page-specific template and pattern artifacts.
 	 *
-	 * @param array<string, array{path:string,document:Static_Site_Importer_Document}> $pages      Pages.
+	 * @param array<string, array<string,mixed>>                                      $pages      Pages.
 	 * @param array<string,string>                                                      $permalinks Permalinks keyed by filename.
 	 * @param string                                                                    $theme_slug Theme slug.
 	 * @return array{patterns:array<string,string>,files:array<string,string>,contents:array<string,string>}
@@ -351,13 +436,17 @@ class Static_Site_Importer_Theme_Generator {
 		$contents = array();
 
 		foreach ( $pages as $filename => $page ) {
-			$slug         = self::page_slug( $filename );
+			$slug         = self::page_slug( $filename, $page );
 			$pattern_slug = sanitize_key( $theme_slug ) . '/page-' . $slug;
-			$fragments    = $page['document']->fragments();
-			$content      = self::convert_fragment( self::rewrite_internal_links( $fragments['main'], $permalinks ), 'main:' . $filename );
+			if ( 'markdown' === ( $page['format'] ?? 'html' ) ) {
+				$content = self::convert_markdown_body( self::rewrite_markdown_internal_links( (string) ( $page['body'] ?? '' ), $permalinks ), 'main:' . $filename );
+			} else {
+				$fragments = $page['document']->fragments();
+				$content   = self::convert_fragment( self::rewrite_internal_links( $fragments['main'], $permalinks ), 'main:' . $filename );
+			}
 
 			$patterns[ $filename ] = $pattern_slug;
-			$files[ $filename ]    = self::pattern_file( self::page_title( $filename, $page['document'] ), $pattern_slug, $content );
+			$files[ $filename ]    = self::pattern_file( self::page_title( $filename, $page ), $pattern_slug, $content );
 			$contents[ $filename ] = $content;
 		}
 
@@ -371,9 +460,9 @@ class Static_Site_Importer_Theme_Generator {
 	/**
 	 * Store imported page bodies on their corresponding WordPress pages.
 	 *
-	 * @param array<string, array{path:string,document:Static_Site_Importer_Document}> $pages    Pages.
-	 * @param array<string,int>                                                         $page_ids Page IDs keyed by filename.
-	 * @param array<string,string>                                                      $contents Converted block markup keyed by filename.
+	 * @param array<string, array<string,mixed>> $pages    Pages.
+	 * @param array<string,int>                 $page_ids Page IDs keyed by filename.
+	 * @param array<string,string>              $contents Converted block markup keyed by filename.
 	 * @return true|WP_Error
 	 */
 	private static function write_page_contents( array $pages, array $page_ids, array $contents ) {
@@ -1480,19 +1569,25 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Build a WordPress page title from a source document.
+	 * Build a WordPress page title from a source page.
 	 *
-	 * @param string                        $filename Source filename.
-	 * @param Static_Site_Importer_Document $document Source document.
+	 * @param string              $filename Source filename.
+	 * @param array<string,mixed> $page     Source page.
 	 * @return string
 	 */
-	private static function page_title( string $filename, Static_Site_Importer_Document $document ): string {
-		if ( 'index.html' === $filename ) {
+	private static function page_title( string $filename, array $page ): string {
+		$metadata = isset( $page['metadata'] ) && is_array( $page['metadata'] ) ? $page['metadata'] : array();
+		if ( isset( $metadata['title'] ) && '' !== trim( (string) $metadata['title'] ) ) {
+			return sanitize_text_field( (string) $metadata['title'] );
+		}
+
+		if ( self::is_index_source_filename( $filename ) ) {
 			return 'Home';
 		}
 
-		$title = preg_replace( '/\s+[—-]\s+.+$/u', '', $document->title() );
-		return '' === trim( (string) $title ) ? ucwords( str_replace( '-', ' ', self::page_slug( $filename ) ) ) : trim( (string) $title );
+		$document = $page['document'];
+		$title    = preg_replace( '/\s+[—-]\s+.+$/u', '', $document->title() );
+		return '' === trim( (string) $title ) ? ucwords( str_replace( '-', ' ', self::page_slug( $filename, $page ) ) ) : trim( (string) $title );
 	}
 
 	/**
@@ -1501,12 +1596,110 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param string $filename Source filename.
 	 * @return string
 	 */
-	private static function page_slug( string $filename ): string {
-		if ( 'index.html' === $filename ) {
+	private static function page_slug( string $filename, array $page = array() ): string {
+		$metadata = isset( $page['metadata'] ) && is_array( $page['metadata'] ) ? $page['metadata'] : array();
+		if ( isset( $metadata['slug'] ) && '' !== trim( (string) $metadata['slug'] ) ) {
+			$slug = sanitize_title( (string) $metadata['slug'] );
+			if ( '' !== $slug ) {
+				return $slug;
+			}
+		}
+
+		if ( self::is_index_source_filename( $filename ) ) {
 			return 'home';
 		}
 
-		return sanitize_title( preg_replace( '/\.html?$/i', '', $filename ) );
+		return sanitize_title( preg_replace( '/\.(?:html?|md|markdown)$/i', '', $filename ) );
+	}
+
+	/**
+	 * Build a safe WordPress page status from source metadata.
+	 *
+	 * @param array<string,mixed> $page Source page.
+	 * @return string
+	 */
+	private static function page_status( array $page ): string {
+		$metadata = isset( $page['metadata'] ) && is_array( $page['metadata'] ) ? $page['metadata'] : array();
+		$status   = isset( $metadata['status'] ) ? sanitize_key( (string) $metadata['status'] ) : '';
+
+		return in_array( $status, array( 'publish', 'draft', 'pending', 'private' ), true ) ? $status : 'publish';
+	}
+
+	/**
+	 * Get a Markdown page title from metadata, first heading, or filename.
+	 *
+	 * @param string                                      $path   Markdown path.
+	 * @param array{body:string,metadata:array<string,string>} $parsed Parsed Markdown.
+	 * @return string
+	 */
+	private static function title_from_markdown_source( string $path, array $parsed ): string {
+		if ( isset( $parsed['metadata']['title'] ) && '' !== trim( $parsed['metadata']['title'] ) ) {
+			return sanitize_text_field( $parsed['metadata']['title'] );
+		}
+
+		if ( preg_match( '/^#\s+(.+)$/m', $parsed['body'], $matches ) ) {
+			return sanitize_text_field( trim( $matches[1] ) );
+		}
+
+		$basename = preg_replace( '/\.(?:md|markdown)$/i', '', basename( $path ) );
+		return ucwords( str_replace( '-', ' ', sanitize_title( (string) $basename ) ) );
+	}
+
+	/**
+	 * Convert Markdown body to block markup.
+	 *
+	 * @param string $markdown Markdown body.
+	 * @param string $source   Source fragment label.
+	 * @return string
+	 */
+	private static function convert_markdown_body( string $markdown, string $source ): string {
+		if ( '' === trim( $markdown ) ) {
+			return '';
+		}
+
+		self::start_conversion_fragment( $source, $markdown );
+		// @phpstan-ignore-next-line function.notFound -- Loaded by the bundled Block Format Bridge runtime.
+		$blocks = empty( self::$active_commerce_context ) ? bfb_convert( $markdown, 'markdown', 'blocks' ) : bfb_convert( $markdown, 'markdown', 'blocks', self::conversion_options( $source ) );
+		if ( '' === $blocks ) {
+			self::record_conversion_empty( $source, $markdown );
+		}
+		self::finish_conversion_fragment( $source, $blocks );
+
+		return $blocks;
+	}
+
+	/**
+	 * Rewrite local Markdown links to imported WordPress page permalinks.
+	 *
+	 * @param string               $markdown   Markdown source.
+	 * @param array<string,string> $permalinks Permalinks keyed by source filename.
+	 * @return string
+	 */
+	private static function rewrite_markdown_internal_links( string $markdown, array $permalinks ): string {
+		if ( '' === trim( $markdown ) || empty( $permalinks ) ) {
+			return $markdown;
+		}
+
+		return preg_replace_callback(
+			'/\]\(([^)]+\.(?:html?|md|markdown)(?:#[^)]+)?)\)/i',
+			static function ( array $matches ) use ( $permalinks ): string {
+				$href               = $matches[1];
+				$parts              = explode( '#', $href, 2 );
+				$path_without_query = strtok( $parts[0], '?' );
+				$filename           = basename( false === $path_without_query ? $parts[0] : $path_without_query );
+				if ( ! isset( $permalinks[ $filename ] ) ) {
+					return $matches[0];
+				}
+
+				$replacement = $permalinks[ $filename ];
+				if ( isset( $parts[1] ) && '' !== $parts[1] ) {
+					$replacement .= '#' . $parts[1];
+				}
+
+				return '](' . esc_url( $replacement ) . ')';
+			},
+			$markdown
+		) ?? $markdown;
 	}
 
 	/**
@@ -1640,7 +1833,7 @@ class Static_Site_Importer_Theme_Generator {
 	 * Discover sprites before converting chrome so header/footer use references can resolve.
 	 *
 	 * @param array{background:string,header:string,main:string,footer:string}              $entry_fragments Entry document fragments.
-	 * @param array<string, array{path:string,document:Static_Site_Importer_Document}> $pages           Imported pages.
+	 * @param array<string, array<string,mixed>>                                       $pages           Imported pages.
 	 * @return void
 	 */
 	private static function pre_register_svg_symbol_sprites( array $entry_fragments, array $pages ): void {
@@ -3009,7 +3202,7 @@ class Static_Site_Importer_Theme_Generator {
 	/**
 	 * Record practical source/generated targets for external visual fidelity gates.
 	 *
-	 * @param array<string, array{path:string,document:Static_Site_Importer_Document}> $pages          Imported pages.
+	 * @param array<string, array<string,mixed>>                                       $pages          Imported pages.
 	 * @param array<string, int>                                                       $page_ids       Page IDs keyed by source filename.
 	 * @param array<string, string>                                                    $permalinks     Page permalinks keyed by source filename.
 	 * @param array<string, string>                                                    $writes         Generated files keyed by absolute path.
@@ -3021,7 +3214,7 @@ class Static_Site_Importer_Theme_Generator {
 
 		foreach ( $pages as $filename => $page ) {
 			$source_html = self::read_visual_probe_file( $page['path'] );
-			$slug        = self::page_slug( $filename );
+			$slug        = self::page_slug( $filename, $page );
 			$template    = '' === $slug ? '' : 'templates/page-' . $slug . '.html';
 			$pattern     = '' === $slug ? '' : 'patterns/page-' . $slug . '.php';
 			$generated   = self::generated_visual_probe_markup( $writes, $theme_prefix, $pattern );
@@ -3073,7 +3266,7 @@ class Static_Site_Importer_Theme_Generator {
 	/**
 	 * Record source/generated targets for external semantic fidelity gates.
 	 *
-	 * @param array<string, array{path:string,document:Static_Site_Importer_Document}> $pages      Imported pages.
+	 * @param array<string, array<string,mixed>>                                       $pages      Imported pages.
 	 * @param array<string, int>                                                       $page_ids   Page IDs keyed by source filename.
 	 * @param array<string, string>                                                    $permalinks Page permalinks keyed by source filename.
 	 * @param array<string, string>                                                    $writes     Generated files keyed by absolute path.
@@ -3086,7 +3279,7 @@ class Static_Site_Importer_Theme_Generator {
 
 		foreach ( $pages as $filename => $page ) {
 			$source_html = self::read_visual_probe_file( $page['path'] );
-			$slug        = self::page_slug( $filename );
+			$slug        = self::page_slug( $filename, $page );
 			$template    = '' === $slug ? '' : 'templates/page-' . $slug . '.html';
 			$pattern     = '' === $slug ? '' : 'patterns/page-' . $slug . '.php';
 			$generated   = self::generated_visual_probe_markup( $writes, $theme_prefix, $pattern );

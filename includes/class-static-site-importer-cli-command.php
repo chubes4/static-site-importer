@@ -15,14 +15,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Static_Site_Importer_CLI_Command {
 
 	/**
-	 * Import an HTML file as a block theme.
+	 * Import an HTML or Markdown file as a block theme.
 	 *
 	 * @subcommand import-theme
 	 *
 	 * ## OPTIONS
 	 *
 	 * [<html-file>]
-	 * : Path to index.html. Optional when --url is provided.
+	 * : Path to index.html or index.md. Optional when --url is provided.
 	 *
 	 * [--url=<url>]
 	 * : Fetch one public http/https HTML URL and import it as index.html. Redirects are validated with SSRF protections before connecting.

@@ -107,7 +107,7 @@ class Static_Site_Importer_Admin {
 				<div class="notice notice-error"><p><?php echo esc_html( $error ); ?></p></div>
 			<?php endif; ?>
 
-			<p><?php echo esc_html__( 'Paste HTML, fetch a public URL, upload a single HTML file, or upload a ZIP for a multi-page static site or bundled HTML export. The importer will convert the HTML into a WordPress block theme using Block Format Bridge.', 'static-site-importer' ); ?></p>
+			<p><?php echo esc_html__( 'Paste HTML, fetch a public URL, upload a single HTML or Markdown file, or upload a ZIP for a multi-page static site or bundled HTML export. The importer will convert the source into a WordPress block theme using Block Format Bridge.', 'static-site-importer' ); ?></p>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
 				<?php wp_nonce_field( 'static_site_importer_import' ); ?>
@@ -129,10 +129,10 @@ class Static_Site_Importer_Admin {
 						</td>
 					</tr>
 					<tr>
-						<th scope="row"><label for="static-site-html"><?php echo esc_html__( 'Single HTML file', 'static-site-importer' ); ?></label></th>
+						<th scope="row"><label for="static-site-html"><?php echo esc_html__( 'Single HTML or Markdown file', 'static-site-importer' ); ?></label></th>
 						<td>
-							<input type="file" id="static-site-html" name="static_site_html" accept=".html,.htm" />
-							<p class="description"><?php echo esc_html__( 'Use this for a standalone .html or .htm file. Pasted HTML takes precedence when both are provided.', 'static-site-importer' ); ?></p>
+							<input type="file" id="static-site-html" name="static_site_html" accept=".html,.htm,.md,.markdown" />
+							<p class="description"><?php echo esc_html__( 'Use this for a standalone .html, .htm, .md, or .markdown file. Pasted HTML takes precedence when both are provided.', 'static-site-importer' ); ?></p>
 						</td>
 					</tr>
 					<tr>
@@ -267,10 +267,10 @@ class Static_Site_Importer_Admin {
 	}
 
 	/**
-	 * Store a direct HTML upload in an importer work directory.
+	 * Store a direct HTML or Markdown upload in an importer work directory.
 	 *
 	 * @param string $work_dir Importer work directory.
-	 * @return string HTML entry path.
+	 * @return string Source entry path.
 	 */
 	private static function prepare_uploaded_html_file( string $work_dir ): string {
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Upload nonce verified in handle_import().
@@ -278,12 +278,12 @@ class Static_Site_Importer_Admin {
 		$name = isset( $file['name'] ) ? (string) $file['name'] : '';
 		$ext  = strtolower( pathinfo( $name, PATHINFO_EXTENSION ) );
 
-		if ( ! in_array( $ext, array( 'html', 'htm' ), true ) ) {
-			self::redirect_error( 'Upload an .html or .htm file.' );
+		if ( ! in_array( $ext, array( 'html', 'htm', 'md', 'markdown' ), true ) ) {
+			self::redirect_error( 'Upload an .html, .htm, .md, or .markdown file.' );
 		}
 
 		if ( empty( $file['size'] ) || empty( $file['tmp_name'] ) || ! is_readable( (string) $file['tmp_name'] ) ) {
-			self::redirect_error( 'The uploaded HTML file is empty or unreadable.' );
+			self::redirect_error( 'The uploaded source file is empty or unreadable.' );
 		}
 
 		$upload = wp_handle_upload(
@@ -291,8 +291,10 @@ class Static_Site_Importer_Admin {
 			array(
 				'test_form' => false,
 				'mimes'     => array(
-					'html' => 'text/html',
-					'htm'  => 'text/html',
+					'html'     => 'text/html',
+					'htm'      => 'text/html',
+					'md'       => 'text/markdown',
+					'markdown' => 'text/markdown',
 				),
 			)
 		);
@@ -300,9 +302,9 @@ class Static_Site_Importer_Admin {
 			self::redirect_error( (string) $upload['error'] );
 		}
 
-		$target = trailingslashit( $work_dir ) . 'index.html';
+		$target = trailingslashit( $work_dir ) . ( in_array( $ext, array( 'md', 'markdown' ), true ) ? 'index.' . $ext : 'index.html' );
 		if ( ! copy( $upload['file'], $target ) ) {
-			self::redirect_error( 'Could not store the uploaded HTML file.' );
+			self::redirect_error( 'Could not store the uploaded source file.' );
 		}
 
 		return $target;
