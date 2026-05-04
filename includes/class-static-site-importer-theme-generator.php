@@ -2482,47 +2482,6 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Convert Markdown to block markup.
-	 *
-	 * @param string $markdown Markdown source.
-	 * @param string $source   Source label for diagnostics.
-	 * @return string
-	 */
-	private static function convert_markdown_document( string $markdown, string $source ): string {
-		if ( '' === trim( $markdown ) ) {
-			return '';
-		}
-
-		self::start_conversion_fragment( $source, $markdown );
-		$diagnostic_listener = static function ( string $code, string $message, array $context ) use ( $source ): void {
-			if ( 'commonmark_conversion_failed' !== $code && 'commonmark_unavailable' !== $code ) {
-				return;
-			}
-
-			++self::$conversion_report['source_documents']['markdown_parse_error_count'];
-			self::$conversion_report['diagnostics'][] = array(
-				'type'    => 'markdown_parse_error',
-				'source'  => $source,
-				'code'    => $code,
-				'message' => $message,
-				'context' => $context,
-			);
-		};
-
-		add_action( 'bfb_diagnostic', $diagnostic_listener, 10, 3 );
-		// @phpstan-ignore-next-line function.notFound -- Loaded by the bundled Block Format Bridge runtime.
-		$blocks = empty( self::$active_commerce_context ) ? bfb_convert( $markdown, 'markdown', 'blocks' ) : bfb_convert( $markdown, 'markdown', 'blocks', self::conversion_options( $source ) );
-		remove_action( 'bfb_diagnostic', $diagnostic_listener, 10 );
-
-		if ( '' === $blocks ) {
-			self::record_conversion_empty( $source, $markdown );
-		}
-		self::finish_conversion_fragment( $source, $blocks );
-
-		return $blocks;
-	}
-
-	/**
 	 * Mark empty absolute-positioned groups so editor CSS can hide only decorative placeholders.
 	 *
 	 * @param string $block_markup Serialized block markup.
@@ -2851,7 +2810,7 @@ class Static_Site_Importer_Theme_Generator {
 				'svg_sprite_reference_failure_count' => 0,
 				'failure_reasons'                    => array(),
 			),
-			'source_documents'    => array(
+			'source_documents'     => array(
 				'total_count'                => 0,
 				'counts_by_format'           => array(
 					'html'     => 0,
@@ -2925,7 +2884,7 @@ class Static_Site_Importer_Theme_Generator {
 			}
 		}
 
-		$mdx_files = self::collect_source_files_by_extension( $site_dir, array( 'mdx' ) );
+		$mdx_files     = self::collect_source_files_by_extension( $site_dir, array( 'mdx' ) );
 		$counts['mdx'] = count( $mdx_files );
 		foreach ( $mdx_files as $mdx_file ) {
 			self::$conversion_report['diagnostics'][] = array(
@@ -2936,7 +2895,7 @@ class Static_Site_Importer_Theme_Generator {
 			);
 		}
 
-		$unresolved = self::collect_unresolved_source_links( $pages, $permalinks );
+		$unresolved                                  = self::collect_unresolved_source_links( $pages, $permalinks );
 		self::$conversion_report['source_documents'] = array_merge(
 			self::$conversion_report['source_documents'],
 			array(
@@ -3020,13 +2979,19 @@ class Static_Site_Importer_Theme_Generator {
 		$links = array();
 		$regex = $is_markdown ? '/\]\(([^)]+)\)/' : '/\bhref=("|\')([^"\']+)(\1)/i';
 		if ( preg_match_all( $regex, $source, $matches ) ) {
-			foreach ( $is_markdown ? $matches[1] : $matches[2] as $href ) {
+			$matched_hrefs = $matches[1];
+			if ( ! $is_markdown ) {
+				$matched_hrefs = isset( $matches[2] ) ? $matches[2] : array();
+			}
+
+			foreach ( $matched_hrefs as $href ) {
 				$href = trim( html_entity_decode( (string) $href, ENT_QUOTES ) );
 				if ( '' === $href || str_starts_with( $href, '#' ) || preg_match( '/^[a-z][a-z0-9+.-]*:/i', $href ) ) {
 					continue;
 				}
 
-				$extension = strtolower( pathinfo( strtok( explode( '#', $href, 2 )[0], '?' ) ?: $href, PATHINFO_EXTENSION ) );
+				$href_path = strtok( explode( '#', $href, 2 )[0], '?' );
+				$extension = strtolower( pathinfo( false !== $href_path ? $href_path : $href, PATHINFO_EXTENSION ) );
 				if ( in_array( $extension, array( 'html', 'htm', 'md', 'markdown', 'mdx' ), true ) ) {
 					$links[] = $href;
 				}
