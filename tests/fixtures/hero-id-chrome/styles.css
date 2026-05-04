@@ -1,0 +1,16 @@
+header#hero {
+	min-height: 80vh;
+	background: linear-gradient(135deg, #14213d, #fca311);
+}
+
+.hero-shell {
+	display: grid;
+	place-items: center;
+}
+
+.hero-inner {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	width: min(1120px, 100% - 48px);
+}

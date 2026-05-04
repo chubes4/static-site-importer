@@ -459,7 +459,7 @@ class Static_Site_Importer_Theme_Generator {
 			$permalink = get_permalink( $page_id );
 			if ( false !== $permalink ) {
 				$permalinks[ $filename ] = $permalink;
-				$basename              = basename( $filename );
+				$basename                = basename( $filename );
 				if ( ! isset( $permalinks[ $basename ] ) ) {
 					$permalinks[ $basename ] = $permalink;
 				}
@@ -606,7 +606,7 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		$inner_blocks = self::theme_part_element_block( $doc, $inner_children[0], $theme_slug, 'header' ) . $navigation_blocks;
-		return self::group_block( self::group_block( $inner_blocks, $inner->getAttribute( 'class' ) ), $header->getAttribute( 'class' ), 'header' );
+		return self::group_block( self::group_block( $inner_blocks, $inner->getAttribute( 'class' ), 'div', $inner->getAttribute( 'id' ) ), $header->getAttribute( 'class' ), 'header', $header->getAttribute( 'id' ) );
 	}
 
 	/**
@@ -647,8 +647,8 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		$row_blocks       = self::theme_part_element_block( $doc, $row_children[0], $theme_slug, 'footer' ) . $list_blocks;
-		$container_blocks = self::group_block( $row_blocks, $row->getAttribute( 'class' ) );
-		return self::group_block( self::group_block( $container_blocks, $container->getAttribute( 'class' ) ), $footer->getAttribute( 'class' ), 'footer' );
+		$container_blocks = self::group_block( $row_blocks, $row->getAttribute( 'class' ), 'div', $row->getAttribute( 'id' ) );
+		return self::group_block( self::group_block( $container_blocks, $container->getAttribute( 'class' ), 'div', $container->getAttribute( 'id' ) ), $footer->getAttribute( 'class' ), 'footer', $footer->getAttribute( 'id' ) );
 	}
 
 	/**
@@ -677,7 +677,7 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		if ( 'a' === $tag ) {
-			return self::link_element_block( $doc, $element);
+			return self::link_element_block( $doc, $element );
 		}
 
 		if ( 'img' === $tag ) {
@@ -689,7 +689,7 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		if ( self::is_link_cluster_container( $element ) ) {
-			return self::group_block( self::theme_part_child_blocks( $doc, $element, $theme_slug, $location ), $element->getAttribute( 'class' ) );
+			return self::group_block( self::theme_part_child_blocks( $doc, $element, $theme_slug, $location ), $element->getAttribute( 'class' ), 'div', $element->getAttribute( 'id' ) );
 		}
 
 		if ( self::element_has_only_phrasing_content( $element ) ) {
@@ -699,7 +699,7 @@ class Static_Site_Importer_Theme_Generator {
 		$children = self::theme_part_child_blocks( $doc, $element, $theme_slug, $location );
 		if ( '' === trim( $children ) ) {
 			if ( self::is_empty_decorative_theme_part_element( $element ) ) {
-				return self::group_block( '', self::append_class_token( $element->getAttribute( 'class' ), 'static-site-importer-decorative-layer' ) );
+				return self::group_block( '', self::append_class_token( $element->getAttribute( 'class' ), 'static-site-importer-decorative-layer' ), 'div', $element->getAttribute( 'id' ) );
 			}
 
 			$text = trim( $element->textContent );
@@ -720,7 +720,7 @@ class Static_Site_Importer_Theme_Generator {
 			$class_name = self::append_class_token( $class_name, 'static-site-importer-source-nav' );
 		}
 
-		return self::group_block( $children, $class_name, $wrapper_tag );
+		return self::group_block( $children, $class_name, $wrapper_tag, $element->getAttribute( 'id' ) );
 	}
 
 	/**
@@ -1398,11 +1398,13 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param string $inner     Inner block markup.
 	 * @param string $class_name Source class attribute.
 	 * @param string $tag_name   Wrapper tag name.
+	 * @param string $anchor     Source ID attribute for native group anchor support.
 	 * @return string
 	 */
-	private static function group_block( string $inner, string $class_name = '', string $tag_name = 'div' ): string {
+	private static function group_block( string $inner, string $class_name = '', string $tag_name = 'div', string $anchor = '' ): string {
 		$class_name = trim( $class_name );
 		$tag_name   = strtolower( $tag_name );
+		$anchor     = trim( $anchor );
 		$attrs      = array();
 		if ( '' !== $class_name ) {
 			$attrs['className'] = $class_name;
@@ -1410,11 +1412,15 @@ class Static_Site_Importer_Theme_Generator {
 		if ( 'div' !== $tag_name ) {
 			$attrs['tagName'] = $tag_name;
 		}
+		if ( '' !== $anchor ) {
+			$attrs['anchor'] = $anchor;
+		}
 
 		$comment_attrs = empty( $attrs ) ? '' : ' ' . wp_json_encode( $attrs, JSON_UNESCAPED_SLASHES );
 		$class_attr    = trim( 'wp-block-group ' . $class_name );
+		$id_attr       = '' === $anchor ? '' : ' id="' . esc_attr( $anchor ) . '"';
 
-		return '<!-- wp:group' . $comment_attrs . ' --><' . $tag_name . ' class="' . esc_attr( $class_attr ) . '">' . $inner . '</' . $tag_name . '><!-- /wp:group -->';
+		return '<!-- wp:group' . $comment_attrs . ' --><' . $tag_name . $id_attr . ' class="' . esc_attr( $class_attr ) . '">' . $inner . '</' . $tag_name . '><!-- /wp:group -->';
 	}
 
 	/**
