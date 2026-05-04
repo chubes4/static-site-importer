@@ -135,10 +135,10 @@ class Static_Site_Importer_Document {
 		$body = $this->first_element( 'body' );
 		$root = $body instanceof DOMElement ? $body : $this->dom->documentElement;
 
-		$header = $this->first_plausible_global_header( $root );
-		$nav    = $this->first_plausible_global_nav( $root, $header );
-		$footer = $this->first_element( 'footer' );
-		$main   = $this->first_element( 'main' );
+		$header       = $this->first_plausible_global_header( $root );
+		$nav          = $this->first_plausible_global_nav( $root, $header );
+		$footer       = $this->first_element( 'footer' );
+		$main         = $this->first_element( 'main' );
 		$body_headers = $this->body_content_headers( $root, $header, $nav );
 
 		if ( $header instanceof DOMElement && $this->contains_same_node( $body_headers, $header ) ) {
