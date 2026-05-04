@@ -165,13 +165,14 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		$writes = array(
-			$theme_dir . '/style.css'                 => self::style_css( $theme_name, $site_css, array_keys( self::$button_wrapper_classes ) ),
-			$theme_dir . '/functions.php'             => self::functions_php( $theme_slug ),
-			$theme_dir . '/theme.json'                => self::theme_json( $theme_name, $site_css ),
-			$theme_dir . '/parts/header.html'         => $header_blocks,
-			$theme_dir . '/templates/front-page.html' => self::content_template( $background_blocks, $has_footer_part ),
-			$theme_dir . '/templates/page.html'       => self::content_template( $background_blocks, $has_footer_part ),
-			$theme_dir . '/templates/index.html'      => self::content_template( $background_blocks, $has_footer_part ),
+			$theme_dir . '/style.css'                    => self::style_css( $theme_name, $site_css, array_keys( self::$button_wrapper_classes ) ),
+			$theme_dir . '/assets/css/editor-style.css' => self::editor_style_css( $site_css, array_keys( self::$button_wrapper_classes ) ),
+			$theme_dir . '/functions.php'                => self::functions_php( $theme_slug ),
+			$theme_dir . '/theme.json'                   => self::theme_json( $theme_name, $site_css ),
+			$theme_dir . '/parts/header.html'            => $header_blocks,
+			$theme_dir . '/templates/front-page.html'    => self::content_template( $background_blocks, $has_footer_part ),
+			$theme_dir . '/templates/page.html'          => self::content_template( $background_blocks, $has_footer_part ),
+			$theme_dir . '/templates/index.html'         => self::content_template( $background_blocks, $has_footer_part ),
 		);
 		if ( $has_footer_part ) {
 			$writes[ $theme_dir . '/parts/footer.html' ] = $footer_blocks;
@@ -3764,7 +3765,7 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return true|WP_Error
 	 */
 	private static function ensure_dirs( string $theme_dir ) {
-		foreach ( array( $theme_dir, $theme_dir . '/templates', $theme_dir . '/parts', $theme_dir . '/patterns', $theme_dir . '/assets', $theme_dir . '/assets/icons' ) as $dir ) {
+		foreach ( array( $theme_dir, $theme_dir . '/templates', $theme_dir . '/parts', $theme_dir . '/patterns', $theme_dir . '/assets', $theme_dir . '/assets/css', $theme_dir . '/assets/icons' ) as $dir ) {
 			if ( ! wp_mkdir_p( $dir ) ) {
 				return new WP_Error( 'static_site_importer_mkdir_failed', sprintf( 'Failed to create directory: %s', $dir ) );
 			}
@@ -3875,12 +3876,26 @@ class Static_Site_Importer_Theme_Generator {
 	 */
 	private static function style_css( string $theme_name, string $css, array $button_classes = array() ): string {
 		$button_bridge              = self::button_style_bridge_css( $css, $button_classes );
-		$editor_bridge              = self::editor_absolute_overlay_css( $css );
 		$admin_bar_bridge           = self::admin_bar_top_chrome_css( $css );
 		$source_nav_selector_bridge = self::source_nav_selector_bridge_css( $css );
 		$css                        = self::scope_source_button_css( $css, $button_classes );
 
-		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Imported from static HTML using Block Format Bridge.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge . $editor_bridge . $admin_bar_bridge . $source_nav_selector_bridge;
+		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Imported from static HTML using Block Format Bridge.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge . $admin_bar_bridge . $source_nav_selector_bridge;
+	}
+
+	/**
+	 * Build editor-style.css.
+	 *
+	 * @param string $css Source CSS.
+	 * @return string
+	 */
+	private static function editor_style_css( string $css, array $button_classes = array() ): string {
+		$button_bridge              = self::button_style_bridge_css( $css, $button_classes );
+		$editor_bridge              = self::editor_absolute_overlay_css( $css );
+		$source_nav_selector_bridge = self::source_nav_selector_bridge_css( $css );
+		$css                        = self::scope_source_button_css( $css, $button_classes );
+
+		return "/*\nStatic Site Importer editor styles.\nGenerated separately from frontend style.css so editor wrapper repairs do not leak to public rendering.\n*/\n\n" . $css . "\n" . $button_bridge . $source_nav_selector_bridge . $editor_bridge;
 	}
 
 	/**
@@ -4492,7 +4507,7 @@ class Static_Site_Importer_Theme_Generator {
 			" */\n\n" .
 			"add_action( 'after_setup_theme', static function (): void {\n" .
 			"\tadd_theme_support( 'editor-styles' );\n" .
-			"\tadd_editor_style( 'style.css' );\n" .
+			"\tadd_editor_style( 'assets/css/editor-style.css' );\n" .
 			"} );\n\n" .
 			"add_action( 'wp_enqueue_scripts', static function (): void {\n" .
 			"\twp_enqueue_style( '" . $style_handle . "', get_stylesheet_uri(), array(), wp_get_theme()->get( 'Version' ) );\n" .
@@ -4501,7 +4516,7 @@ class Static_Site_Importer_Theme_Generator {
 			"\t}\n" .
 			"} );\n\n" .
 			"add_action( 'enqueue_block_editor_assets', static function (): void {\n" .
-			"\twp_enqueue_style( '" . $editor_handle . "', get_stylesheet_uri(), array(), wp_get_theme()->get( 'Version' ) );\n" .
+			"\twp_enqueue_style( '" . $editor_handle . "', get_template_directory_uri() . '/assets/css/editor-style.css', array(), wp_get_theme()->get( 'Version' ) );\n" .
 			"} );\n";
 	}
 

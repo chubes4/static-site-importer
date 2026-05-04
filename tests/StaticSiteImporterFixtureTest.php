@@ -84,8 +84,9 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( '--accent', $style );
 		$this->assertStringContainsString( '.wp-block-button.btn > .wp-block-button__link', $style );
 		$this->assertStringContainsString( "add_theme_support( 'editor-styles' )", $functions );
-		$this->assertStringContainsString( "add_editor_style( 'style.css' )", $functions );
+		$this->assertStringContainsString( "add_editor_style( 'assets/css/editor-style.css' )", $functions );
 		$this->assertStringContainsString( "add_action( 'enqueue_block_editor_assets'", $functions );
+		$this->assertStringContainsString( "get_template_directory_uri() . '/assets/css/editor-style.css'", $functions );
 		$this->assertIsArray( $theme_json );
 
 		$palette = array();
@@ -811,10 +812,11 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertNotWPError( $result );
 		$this->assertIsArray( $result );
 
-		$theme_dir = $result['theme_dir'];
-		$pattern   = $this->pattern_blocks( $this->read_file( $theme_dir . '/patterns/page-absolute-hero-overlay.php' ) );
-		$style     = $this->read_file( $theme_dir . '/style.css' );
-		$report    = json_decode( $this->read_file( $result['report_path'] ), true );
+		$theme_dir    = $result['theme_dir'];
+		$pattern      = $this->pattern_blocks( $this->read_file( $theme_dir . '/patterns/page-absolute-hero-overlay.php' ) );
+		$style        = $this->read_file( $theme_dir . '/style.css' );
+		$editor_style = $this->read_file( $theme_dir . '/assets/css/editor-style.css' );
+		$report       = json_decode( $this->read_file( $result['report_path'] ), true );
 
 		$this->assertStringContainsString( '"className":"hero"', $pattern );
 		$this->assertStringContainsString( '"tagName":"section"', $pattern );
@@ -822,8 +824,10 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( '<!-- wp:group {"className":"container"}', $pattern );
 		$this->assertStringContainsString( '.hero-rip { position: absolute;', $style );
 		$this->assertStringContainsString( '.hero .container { position: relative; z-index: 1;', $style );
-		$this->assertStringContainsString( 'Static Site Importer: let Site Editor wrappers preserve imported absolute overlay stacking.', $style );
-		$this->assertStringContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .hero-rip)', $style );
+		$this->assertStringNotContainsString( '.editor-styles-wrapper', $style );
+		$this->assertStringContainsString( '.hero-rip { position: absolute;', $editor_style );
+		$this->assertStringContainsString( 'Static Site Importer: let Site Editor wrappers preserve imported absolute overlay stacking.', $editor_style );
+		$this->assertStringContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .hero-rip)', $editor_style );
 		$this->assertSame( 0, $report['quality']['fallback_count'] ?? null );
 		$this->assertSame( 0, $report['quality']['core_html_block_count'] ?? null );
 		$this->assertSame( 0, $report['quality']['invalid_block_count'] ?? null );
@@ -858,25 +862,27 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertNotWPError( $result );
 		$this->assertIsArray( $result );
 
-		$theme_dir = $result['theme_dir'];
-		$pattern   = $this->pattern_blocks( $this->read_file( $theme_dir . '/patterns/page-empty-css-background-layers.php' ) );
-		$style     = $this->read_file( $theme_dir . '/style.css' );
-		$report    = json_decode( $this->read_file( $result['report_path'] ), true );
+		$theme_dir    = $result['theme_dir'];
+		$pattern      = $this->pattern_blocks( $this->read_file( $theme_dir . '/patterns/page-empty-css-background-layers.php' ) );
+		$style        = $this->read_file( $theme_dir . '/style.css' );
+		$editor_style = $this->read_file( $theme_dir . '/assets/css/editor-style.css' );
+		$report       = json_decode( $this->read_file( $result['report_path'] ), true );
 
 		foreach ( array( 'hero-bg-grid', 'hero-bg-glow', 'hero-bg-glow2' ) as $class_name ) {
 			$this->assertStringContainsString( $class_name, $pattern );
 			$this->assertStringContainsString( 'wp-block-group ' . $class_name . ' static-site-importer-decorative-layer', $pattern );
-			$this->assertStringContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .' . $class_name . ')', $style );
+			$this->assertStringContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .' . $class_name . ')', $editor_style );
 		}
-		$this->assertStringContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .wp-block-group.static-site-importer-decorative-layer)', $style );
-		$this->assertStringContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block.wp-block-group.static-site-importer-decorative-layer', $style );
-		$this->assertStringNotContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block.wp-block-group { display: contents; }', $style );
+		$this->assertStringNotContainsString( '.editor-styles-wrapper', $style );
+		$this->assertStringContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .wp-block-group.static-site-importer-decorative-layer)', $editor_style );
+		$this->assertStringContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block.wp-block-group.static-site-importer-decorative-layer', $editor_style );
+		$this->assertStringNotContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block.wp-block-group { display: contents; }', $editor_style );
 
-		$this->assertStringContainsString( 'Static Site Importer: hide empty decorative layer group controls in the Site Editor.', $style );
-		$this->assertStringContainsString( '.editor-styles-wrapper .wp-block-group.static-site-importer-decorative-layer .block-editor-block-variation-picker', $style );
-		$this->assertStringContainsString( '.editor-styles-wrapper .wp-block-group.static-site-importer-decorative-layer .components-placeholder', $style );
-		$this->assertStringContainsString( '.editor-styles-wrapper .wp-block-group.static-site-importer-decorative-layer .block-list-appender', $style );
-		$this->assertStringContainsString( '.editor-styles-wrapper .wp-block-group.static-site-importer-decorative-layer .block-editor-button-block-appender', $style );
+		$this->assertStringContainsString( 'Static Site Importer: hide empty decorative layer group controls in the Site Editor.', $editor_style );
+		$this->assertStringContainsString( '.editor-styles-wrapper .wp-block-group.static-site-importer-decorative-layer .block-editor-block-variation-picker', $editor_style );
+		$this->assertStringContainsString( '.editor-styles-wrapper .wp-block-group.static-site-importer-decorative-layer .components-placeholder', $editor_style );
+		$this->assertStringContainsString( '.editor-styles-wrapper .wp-block-group.static-site-importer-decorative-layer .block-list-appender', $editor_style );
+		$this->assertStringContainsString( '.editor-styles-wrapper .wp-block-group.static-site-importer-decorative-layer .block-editor-button-block-appender', $editor_style );
 		$this->assertSame( 0, $report['quality']['fallback_count'] ?? null );
 		$this->assertSame( 0, $report['quality']['core_html_block_count'] ?? null );
 		$this->assertSame( 0, $report['quality']['invalid_block_count'] ?? null );
@@ -911,16 +917,18 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertNotWPError( $result );
 		$this->assertIsArray( $result );
 
-		$theme_dir = $result['theme_dir'];
-		$header    = $this->read_file( $theme_dir . '/parts/header.html' );
-		$style     = $this->read_file( $theme_dir . '/style.css' );
-		$report    = json_decode( $this->read_file( $result['report_path'] ), true );
+		$theme_dir    = $result['theme_dir'];
+		$header       = $this->read_file( $theme_dir . '/parts/header.html' );
+		$style        = $this->read_file( $theme_dir . '/style.css' );
+		$editor_style = $this->read_file( $theme_dir . '/assets/css/editor-style.css' );
+		$report       = json_decode( $this->read_file( $result['report_path'] ), true );
 
 		$this->assertStringContainsString( '<!-- wp:group {"className":"hero-bg static-site-importer-decorative-layer"}', $header );
 		$this->assertStringContainsString( '<div class="wp-block-group hero-bg static-site-importer-decorative-layer"></div>', $header );
 		$this->assertStringNotContainsString( '<!-- wp:html --><div class="hero-bg"></div><!-- /wp:html -->', $header );
 		$this->assertStringNotContainsString( '<!-- wp:html -->', $header );
-		$this->assertStringContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .hero-bg)', $style );
+		$this->assertStringNotContainsString( '.editor-styles-wrapper', $style );
+		$this->assertStringContainsString( '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .hero-bg)', $editor_style );
 		$this->assertSame( 0, $report['quality']['fallback_count'] ?? null );
 		$this->assertSame( 0, $report['quality']['core_html_block_count'] ?? null );
 		$this->assertSame( 0, $report['quality']['invalid_block_count'] ?? null );
@@ -986,7 +994,8 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertNotWPError( $result );
 		$this->assertIsArray( $result );
 
-		$style = $this->read_file( $result['theme_dir'] . '/style.css' );
+		$style        = $this->read_file( $result['theme_dir'] . '/style.css' );
+		$editor_style = $this->read_file( $result['theme_dir'] . '/assets/css/editor-style.css' );
 
 		$this->assertStringContainsString( 'Static Site Importer: offset imported fixed/sticky top chrome below the WordPress admin bar.', $style );
 		$this->assertStringContainsString( 'body.admin-bar header.site-header { top: 32px; }', $style );
@@ -995,6 +1004,9 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( '@media screen and (max-width: 782px) { body.admin-bar .top-nav { top: calc(12px + 46px); } }', $style );
 		$this->assertStringNotContainsString( 'body.admin-bar .modal-header', $style );
 		$this->assertStringNotContainsString( 'body.admin-bar .site-footer', $style );
+		$this->assertStringContainsString( 'header.site-header { position: fixed; top: 0;', $editor_style );
+		$this->assertStringNotContainsString( 'Static Site Importer: offset imported fixed/sticky top chrome below the WordPress admin bar.', $editor_style );
+		$this->assertStringNotContainsString( 'body.admin-bar header.site-header', $editor_style );
 	}
 
 	/**
