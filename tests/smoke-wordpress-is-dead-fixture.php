@@ -368,6 +368,9 @@ if ( false !== $wrote_rsm_nav ) {
 		$assert( str_contains( $rsm_nav_style, '.static-site-importer-source-nav { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; }' ), 'rsm-nav-bridge-preserves-bare-nav-rule' );
 		$assert( str_contains( $rsm_nav_style, '.static-site-importer-source-nav .nav-logo { font-weight: 800; }' ), 'rsm-nav-bridge-preserves-descendant-nav-rule' );
 		$assert( str_contains( $rsm_nav_style, '@media (max-width: 700px) { .static-site-importer-source-nav { position: sticky; } }' ), 'rsm-nav-bridge-preserves-media-nav-rule' );
+		$assert( str_contains( $rsm_nav_style, 'body.admin-bar .static-site-importer-source-nav { top: 32px; }' ), 'rsm-nav-admin-bar-offset-targets-source-nav-wrapper' );
+		$assert( str_contains( $rsm_nav_style, '@media screen and (max-width: 782px) { body.admin-bar .static-site-importer-source-nav { top: 46px; } }' ), 'rsm-nav-admin-bar-mobile-offset-targets-source-nav-wrapper' );
+		$assert( ! str_contains( $rsm_nav_style, 'body.admin-bar nav { top:' ), 'rsm-nav-admin-bar-offset-avoids-original-nav-selector' );
 		$assert( $rsm_nav_post instanceof WP_Post, 'rsm-nav-post-exists' );
 	}
 }

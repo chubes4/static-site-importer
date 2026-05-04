@@ -510,6 +510,9 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( '.static-site-importer-source-nav { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; }', $style );
 		$this->assertStringContainsString( '.static-site-importer-source-nav .nav-logo { font-weight: 800; }', $style );
 		$this->assertStringContainsString( '@media (max-width: 700px) { .static-site-importer-source-nav { position: sticky; } }', $style );
+		$this->assertStringContainsString( 'body.admin-bar .static-site-importer-source-nav { top: 32px; }', $style );
+		$this->assertStringContainsString( '@media screen and (max-width: 782px) { body.admin-bar .static-site-importer-source-nav { top: 46px; } }', $style );
+		$this->assertStringNotContainsString( 'body.admin-bar nav { top:', $style );
 		$this->assertInstanceOf( WP_Post::class, $nav_post );
 	}
 

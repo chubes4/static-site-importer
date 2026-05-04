@@ -4055,7 +4055,8 @@ class Static_Site_Importer_Theme_Generator {
 			foreach ( explode( ',', $prelude ) as $selector ) {
 				$selector = trim( $selector );
 				if ( self::selector_is_plausible_top_chrome( $selector ) ) {
-					$selectors[] = 'body.admin-bar ' . $selector;
+					$source_nav_selector = self::source_nav_selector_bridge_selector( $selector );
+					$selectors[]         = 'body.admin-bar ' . ( $source_nav_selector ?? $selector );
 				}
 			}
 
