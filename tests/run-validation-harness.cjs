@@ -71,6 +71,11 @@ const steps = [
     args: [ ...wpCli.slice( 1 ), 'eval-file', path.join( repoRoot, 'tests/smoke-branded-inline-chrome.php' ) ],
   },
   {
+    name: 'Mixed source link rewrite smoke',
+    command: wpCli[ 0 ],
+    args: [ ...wpCli.slice( 1 ), '--skip-plugins=static-site-importer', 'eval-file', path.join( repoRoot, 'tests/smoke-mixed-source-link-rewrites.php' ) ],
+  },
+  {
     name: 'Generated theme JS block validation',
     command: process.execPath,
     args: [
