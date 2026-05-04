@@ -122,8 +122,8 @@ class Static_Site_Importer_CLI_Command {
 		if ( ! empty( $source_metadata['final_url'] ) ) {
 			WP_CLI::line( sprintf( 'Fetched URL: %s', $source_metadata['final_url'] ) );
 		}
-		$source_documents = $result['source_documents'] ?? array();
-		$counts           = is_array( $source_documents ) && isset( $source_documents['counts_by_format'] ) && is_array( $source_documents['counts_by_format'] ) ? $source_documents['counts_by_format'] : array();
+		$source_documents = $result['source_documents'];
+		$counts           = isset( $source_documents['counts_by_format'] ) && is_array( $source_documents['counts_by_format'] ) ? $source_documents['counts_by_format'] : array();
 		WP_CLI::line( sprintf( 'Source documents: %d HTML, %d Markdown, %d skipped MDX, %d unresolved links.', (int) ( $counts['html'] ?? 0 ), (int) ( $counts['markdown'] ?? 0 ), (int) ( $source_documents['skipped_mdx_count'] ?? 0 ), (int) ( $source_documents['unresolved_link_count'] ?? 0 ) ) );
 		WP_CLI::line( sprintf( 'Conversion quality: %s (%d unsupported HTML fallbacks, %d invalid blocks, %d content-loss aborts).', $result['quality']['pass'] ? 'pass' : 'needs review', $result['quality']['fallback_count'], $result['quality']['invalid_block_count'], $result['quality']['content_loss_count'] ) );
 

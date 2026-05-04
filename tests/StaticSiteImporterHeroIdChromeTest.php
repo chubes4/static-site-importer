@@ -20,10 +20,11 @@ class StaticSiteImporterHeroIdChromeTest extends WP_UnitTestCase {
 		$result = Static_Site_Importer_Theme_Generator::import_theme(
 			$fixture,
 			array(
-				'name'      => 'Hero ID Chrome',
-				'slug'      => 'hero-id-chrome',
-				'overwrite' => true,
-				'activate'  => false,
+				'name'        => 'Hero ID Chrome',
+				'slug'        => 'hero-id-chrome',
+				'overwrite'   => true,
+				'activate'    => false,
+				'keep_source' => true,
 			)
 		);
 

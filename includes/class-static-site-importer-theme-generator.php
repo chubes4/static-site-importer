@@ -92,13 +92,16 @@ class Static_Site_Importer_Theme_Generator {
 			return new WP_Error( 'static_site_importer_missing_bfb', 'Block Format Bridge is required to import a static site.' );
 		}
 
-		$document = Static_Site_Importer_Document::from_file( $html_path );
-		if ( is_wp_error( $document ) ) {
-			return $document;
+		$site_dir    = dirname( $html_path );
+		$source_page = self::source_page_from_path( $site_dir, $html_path );
+		if ( is_wp_error( $source_page ) ) {
+			return $source_page;
 		}
+		$document = $source_page->document();
 
-		$theme_name = isset( $args['name'] ) && '' !== trim( (string) $args['name'] ) ? sanitize_text_field( (string) $args['name'] ) : $document->title();
-		$theme_slug = isset( $args['slug'] ) && '' !== trim( (string) $args['slug'] ) ? sanitize_title( (string) $args['slug'] ) : sanitize_title( $theme_name );
+		$source_title = self::page_title( $source_page->source_key(), $source_page );
+		$theme_name   = isset( $args['name'] ) && '' !== trim( (string) $args['name'] ) ? sanitize_text_field( (string) $args['name'] ) : $source_title;
+		$theme_slug   = isset( $args['slug'] ) && '' !== trim( (string) $args['slug'] ) ? sanitize_title( (string) $args['slug'] ) : sanitize_title( $theme_name );
 		if ( '' === $theme_slug ) {
 			$theme_slug = 'imported-static-site';
 		}
@@ -115,18 +118,12 @@ class Static_Site_Importer_Theme_Generator {
 			return $result;
 		}
 
-		$site_dir = dirname( $html_path );
-		$pages    = self::collect_pages( $site_dir );
+		$pages = self::collect_pages( $site_dir );
 		if ( is_wp_error( $pages ) ) {
 			return $pages;
 		}
 
 		if ( empty( $pages ) ) {
-			$source_page = Static_Site_Importer_Source_Page::from_html_file( $site_dir, $html_path );
-			if ( is_wp_error( $source_page ) ) {
-				return $source_page;
-			}
-
 			$pages = array( $source_page->source_key() => $source_page );
 		}
 
@@ -313,6 +310,17 @@ class Static_Site_Importer_Theme_Generator {
 		);
 
 		return $pages;
+	}
+
+	/**
+	 * Build a source page from the entry path.
+	 *
+	 * @param string $site_dir Site directory.
+	 * @param string $path     Source path.
+	 * @return Static_Site_Importer_Source_Page|WP_Error
+	 */
+	private static function source_page_from_path( string $site_dir, string $path ) {
+		return self::is_markdown_source_path( $path ) ? Static_Site_Importer_Source_Page::from_markdown_file( $site_dir, $path ) : Static_Site_Importer_Source_Page::from_html_file( $site_dir, $path );
 	}
 
 	/**
@@ -2482,47 +2490,6 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Convert Markdown to block markup.
-	 *
-	 * @param string $markdown Markdown source.
-	 * @param string $source   Source label for diagnostics.
-	 * @return string
-	 */
-	private static function convert_markdown_document( string $markdown, string $source ): string {
-		if ( '' === trim( $markdown ) ) {
-			return '';
-		}
-
-		self::start_conversion_fragment( $source, $markdown );
-		$diagnostic_listener = static function ( string $code, string $message, array $context ) use ( $source ): void {
-			if ( 'commonmark_conversion_failed' !== $code && 'commonmark_unavailable' !== $code ) {
-				return;
-			}
-
-			++self::$conversion_report['source_documents']['markdown_parse_error_count'];
-			self::$conversion_report['diagnostics'][] = array(
-				'type'    => 'markdown_parse_error',
-				'source'  => $source,
-				'code'    => $code,
-				'message' => $message,
-				'context' => $context,
-			);
-		};
-
-		add_action( 'bfb_diagnostic', $diagnostic_listener, 10, 3 );
-		// @phpstan-ignore-next-line function.notFound -- Loaded by the bundled Block Format Bridge runtime.
-		$blocks = empty( self::$active_commerce_context ) ? bfb_convert( $markdown, 'markdown', 'blocks' ) : bfb_convert( $markdown, 'markdown', 'blocks', self::conversion_options( $source ) );
-		remove_action( 'bfb_diagnostic', $diagnostic_listener, 10 );
-
-		if ( '' === $blocks ) {
-			self::record_conversion_empty( $source, $markdown );
-		}
-		self::finish_conversion_fragment( $source, $blocks );
-
-		return $blocks;
-	}
-
-	/**
 	 * Mark empty absolute-positioned groups so editor CSS can hide only decorative placeholders.
 	 *
 	 * @param string $block_markup Serialized block markup.
@@ -2851,7 +2818,7 @@ class Static_Site_Importer_Theme_Generator {
 				'svg_sprite_reference_failure_count' => 0,
 				'failure_reasons'                    => array(),
 			),
-			'source_documents'    => array(
+			'source_documents'     => array(
 				'total_count'                => 0,
 				'counts_by_format'           => array(
 					'html'     => 0,
@@ -2925,7 +2892,7 @@ class Static_Site_Importer_Theme_Generator {
 			}
 		}
 
-		$mdx_files = self::collect_source_files_by_extension( $site_dir, array( 'mdx' ) );
+		$mdx_files     = self::collect_source_files_by_extension( $site_dir, array( 'mdx' ) );
 		$counts['mdx'] = count( $mdx_files );
 		foreach ( $mdx_files as $mdx_file ) {
 			self::$conversion_report['diagnostics'][] = array(
@@ -2936,7 +2903,7 @@ class Static_Site_Importer_Theme_Generator {
 			);
 		}
 
-		$unresolved = self::collect_unresolved_source_links( $pages, $permalinks );
+		$unresolved                                  = self::collect_unresolved_source_links( $pages, $permalinks );
 		self::$conversion_report['source_documents'] = array_merge(
 			self::$conversion_report['source_documents'],
 			array(
@@ -3020,13 +2987,20 @@ class Static_Site_Importer_Theme_Generator {
 		$links = array();
 		$regex = $is_markdown ? '/\]\(([^)]+)\)/' : '/\bhref=("|\')([^"\']+)(\1)/i';
 		if ( preg_match_all( $regex, $source, $matches ) ) {
-			foreach ( $is_markdown ? $matches[1] : $matches[2] as $href ) {
+			$matched_hrefs = $is_markdown ? $matches[1] : ( $matches[2] ?? array() );
+			foreach ( $matched_hrefs as $href ) {
 				$href = trim( html_entity_decode( (string) $href, ENT_QUOTES ) );
 				if ( '' === $href || str_starts_with( $href, '#' ) || preg_match( '/^[a-z][a-z0-9+.-]*:/i', $href ) ) {
 					continue;
 				}
 
-				$extension = strtolower( pathinfo( strtok( explode( '#', $href, 2 )[0], '?' ) ?: $href, PATHINFO_EXTENSION ) );
+				$href_without_hash = explode( '#', $href, 2 )[0];
+				$href_path         = strtok( $href_without_hash, '?' );
+				if ( false === $href_path ) {
+					$href_path = $href;
+				}
+
+				$extension = strtolower( pathinfo( $href_path, PATHINFO_EXTENSION ) );
 				if ( in_array( $extension, array( 'html', 'htm', 'md', 'markdown', 'mdx' ), true ) ) {
 					$links[] = $href;
 				}

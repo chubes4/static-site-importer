@@ -95,6 +95,35 @@ class StaticSiteImporterMarkdownFrontmatterTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Unsupported or unsafe metadata fields are ignored by the conservative mapper.
+	 */
+	public function test_unsupported_markdown_frontmatter_metadata_is_ignored(): void {
+		$fixture_dir = $this->write_markdown_fixture(
+			'unsupported-frontmatter',
+			'post.md',
+			"---\ntitle: Supported Title\ntype: post\nstatus: future\ndescription: Ignored summary\n---\n\n# Body"
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$fixture_dir . '/post.md',
+			array(
+				'slug'        => 'markdown-frontmatter-unsupported',
+				'overwrite'   => true,
+				'activate'    => false,
+				'keep_source' => true,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$post = get_post( $result['pages']['post.md'] ?? 0 );
+		$this->assertInstanceOf( WP_Post::class, $post );
+		$this->assertSame( 'page', $post->post_type );
+		$this->assertSame( 'publish', $post->post_status );
+		$this->assertSame( 'Supported Title', $post->post_title );
+		$this->assertStringNotContainsString( 'Ignored summary', $post->post_content );
+	}
+
+	/**
 	 * Writes a temporary Markdown fixture and returns its directory.
 	 */
 	private function write_markdown_fixture( string $slug, string $filename, string $markdown ): string {
