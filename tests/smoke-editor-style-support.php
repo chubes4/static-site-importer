@@ -34,8 +34,7 @@ $assert = static function ( bool $condition, string $label, string $detail = '' 
 };
 
 $read = static function ( string $path ): string {
-	global $wp_filesystem;
-	$contents = $wp_filesystem->get_contents( $path );
+	$contents = file_get_contents( $path );
 	return false === $contents ? '' : $contents;
 };
 
@@ -44,7 +43,7 @@ $copy_fixture = static function ( string $source_dir, string $target_dir ) use (
 		wp_mkdir_p( $target_dir );
 	}
 
-	foreach ( scandir( $source_dir ) ? scandir( $source_dir ) : array() as $entry ) {
+	foreach ( scandir( $source_dir ) ?: array() as $entry ) {
 		if ( '.' === $entry || '..' === $entry ) {
 			continue;
 		}
