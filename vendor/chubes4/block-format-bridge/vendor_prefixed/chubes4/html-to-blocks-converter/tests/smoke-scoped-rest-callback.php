@@ -78,8 +78,8 @@ function html_to_blocks_smoke_registered_callbacks(): array
     return array_column($registered_filters, 1);
 }
 // Load the production hook file as if php-scoper had placed it in this namespace.
-$source = file_get_contents(dirname(__DIR__) . '/includes/hooks.php');
-if (!is_string($source) || $source === '') {
+$source = $wp_filesystem->get_contents(dirname(__DIR__) . '/includes/hooks.php');
+if (!is_string($source) || '' === $source) {
     fwrite(\STDERR, "FAIL: unable to read includes/hooks.php.\n");
     exit(1);
 }
@@ -93,9 +93,9 @@ if (!is_string($source)) {
 // capture the exact callback strings that would be handed to WordPress.
 $source = str_replace(array('\add_filter(', '\has_filter(', '\add_action(', '\has_action(', '\get_post_types(', '\apply_filters('), array('add_filter(', 'has_filter(', 'add_action(', 'has_action(', 'get_post_types(', 'apply_filters('), $source);
 $tmp = tempnam(sys_get_temp_dir(), 'h2bc-scoped-hooks-');
-file_put_contents($tmp, $source);
+$wp_filesystem->put_contents($tmp, $source);
 require $tmp;
-unlink($tmp);
+wp_delete_file($tmp);
 $register_rest_filters = __NAMESPACE__ . '\html_to_blocks_register_rest_filters';
 // @phpstan-ignore-next-line Dynamic require loads this scoped callback at runtime.
 if (!is_callable($register_rest_filters)) {

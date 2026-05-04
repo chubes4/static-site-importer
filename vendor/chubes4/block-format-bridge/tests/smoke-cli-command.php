@@ -14,7 +14,9 @@ function bfb_cli_smoke_assert( bool $condition, string $message ): void {
 	}
 }
 
+// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Static smoke reads local source files.
 $cli_source = file_get_contents( __DIR__ . '/../includes/cli.php' );
+// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Static smoke reads local source files.
 $library    = file_get_contents( __DIR__ . '/../library.php' );
 
 bfb_cli_smoke_assert( is_string( $cli_source ), 'CLI source should be readable.' );

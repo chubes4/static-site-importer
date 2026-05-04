@@ -12,7 +12,7 @@ if (!\defined('ABSPATH')) {
     \define('ABSPATH', __DIR__);
 }
 if (!\class_exists('WP_HTML_Processor', \false)) {
-    $wp_html_api_candidates = \array_filter([\getenv('WP_HTML_API_PATH') ?: '', '/wordpress/wp-includes/html-api', '/Users/chubes/Studio/intelligence-chubes4/wp-includes/html-api']);
+    $wp_html_api_candidates = \array_filter([\getenv('WP_HTML_API_PATH') ? \getenv('WP_HTML_API_PATH') : '', '/wordpress/wp-includes/html-api', '/Users/chubes/Studio/intelligence-chubes4/wp-includes/html-api']);
     $wp_html_api_path = '';
     foreach ($wp_html_api_candidates as $candidate) {
         if (\is_file(\rtrim($candidate, '/') . '/class-wp-html-processor.php')) {
@@ -20,7 +20,7 @@ if (!\class_exists('WP_HTML_Processor', \false)) {
             break;
         }
     }
-    if ($wp_html_api_path === '') {
+    if ('' === $wp_html_api_path) {
         \fwrite(\STDERR, "FAIL: WP_HTML_Processor is unavailable. Set WP_HTML_API_PATH to wp-includes/html-api.\n");
         exit(1);
     }
@@ -54,7 +54,7 @@ foreach (['esc_attr', 'esc_html', 'esc_url'] as $function_name) {
 if (!\function_exists('BlockFormatBridge\Vendor\wp_strip_all_tags')) {
     function wp_strip_all_tags($text)
     {
-        return \strip_tags($text);
+        return wp_strip_all_tags($text);
     }
 }
 if (!\function_exists('BlockFormatBridge\Vendor\get_shortcode_regex')) {
@@ -69,10 +69,10 @@ if (!\function_exists('do_action')) {
     function do_action($hook_name, ...$args)
     {
         global $fallback_events, $safe_svg_events;
-        if ($hook_name === 'html_to_blocks_unsupported_html_fallback') {
+        if ('html_to_blocks_unsupported_html_fallback' === $hook_name) {
             $fallback_events[] = $args;
         }
-        if ($hook_name === 'html_to_blocks_safe_inline_svg_icon') {
+        if ('html_to_blocks_safe_inline_svg_icon' === $hook_name) {
             $safe_svg_events[] = $args;
         }
     }
@@ -82,6 +82,7 @@ require_once $repo_root . '/includes/class-block-factory.php';
 require_once $repo_root . '/includes/class-attribute-parser.php';
 require_once $repo_root . '/includes/class-html-element.php';
 require_once $repo_root . '/includes/class-svg-icon-classifier.php';
+require_once $repo_root . '/includes/svg-icon-functions.php';
 require_once $repo_root . '/includes/class-transform-registry.php';
 require_once $repo_root . '/raw-handler.php';
 $failures = [];
@@ -89,7 +90,7 @@ $assertions = 0;
 $assert = static function ($condition, $label, $detail = '') use (&$failures, &$assertions) {
     $assertions++;
     if (!$condition) {
-        $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
+        $failures[] = 'FAIL [' . $label . ']' . ('' !== $detail ? ': ' . $detail : '');
     }
 };
 $collect_blocks = static function (array $blocks, string $name) use (&$collect_blocks): array {

@@ -12,7 +12,7 @@ if (!\defined('ABSPATH')) {
     \define('ABSPATH', __DIR__);
 }
 if (!\class_exists('WP_HTML_Processor', \false)) {
-    $wp_html_api_candidates = \array_filter([\getenv('WP_HTML_API_PATH') ?: '', '/wordpress/wp-includes/html-api', '/Users/chubes/Studio/intelligence-chubes4/wp-includes/html-api']);
+    $wp_html_api_candidates = \array_filter([\getenv('WP_HTML_API_PATH') ? \getenv('WP_HTML_API_PATH') : '', '/wordpress/wp-includes/html-api', '/Users/chubes/Studio/intelligence-chubes4/wp-includes/html-api']);
     $wp_html_api_path = '';
     foreach ($wp_html_api_candidates as $candidate) {
         if (\is_file(\rtrim($candidate, '/') . '/class-wp-html-processor.php')) {
@@ -20,7 +20,7 @@ if (!\class_exists('WP_HTML_Processor', \false)) {
             break;
         }
     }
-    if ($wp_html_api_path === '') {
+    if ('' === $wp_html_api_path) {
         \fwrite(\STDERR, "FAIL: WP_HTML_Processor is unavailable. Set WP_HTML_API_PATH to wp-includes/html-api.\n");
         exit(1);
     }
@@ -36,7 +36,7 @@ foreach (['esc_attr', 'esc_html', 'esc_url'] as $function_name) {
 if (!\function_exists('BlockFormatBridge\Vendor\wp_strip_all_tags')) {
     function wp_strip_all_tags($text)
     {
-        return \strip_tags($text);
+        return wp_strip_all_tags($text);
     }
 }
 if (!\function_exists('BlockFormatBridge\Vendor\get_shortcode_regex')) {
@@ -92,7 +92,7 @@ $assertions = 0;
 $assert = static function ($condition, $label, $detail = '') use (&$failures, &$assertions) {
     $assertions++;
     if (!$condition) {
-        $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
+        $failures[] = 'FAIL [' . $label . ']' . ('' !== $detail ? ': ' . $detail : '');
     }
 };
 $svg_blocks = html_to_blocks_raw_handler(['HTML' => '<img src="http://localhost:9215/wp-content/themes/relay-atlas/assets/icons/main-index-html-1-a435c8e7fff6536a.svg" width="14" height="14">']);

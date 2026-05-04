@@ -3,9 +3,9 @@
 namespace BlockFormatBridge\Vendor;
 
 /**
- * Smoke test: decorative layout divs convert to native blocks.
+ * Smoke test: raw-handler context reaches top-level and nested transforms.
  *
- * Run: php tests/smoke-decorative-div-fallbacks.php
+ * Run: php tests/smoke-raw-handler-context.php
  */
 // phpcs:disable
 if (!\defined('ABSPATH')) {
@@ -63,14 +63,9 @@ if (!\function_exists('BlockFormatBridge\Vendor\get_shortcode_regex')) {
         return '(?!)';
     }
 }
-$fallback_events = [];
 if (!\function_exists('do_action')) {
     function do_action($hook_name, ...$args)
     {
-        global $fallback_events;
-        if ('html_to_blocks_unsupported_html_fallback' === $hook_name) {
-            $fallback_events[] = $args;
-        }
     }
 }
 $repo_root = \dirname(__DIR__);
@@ -79,55 +74,30 @@ require_once $repo_root . '/includes/class-attribute-parser.php';
 require_once $repo_root . '/includes/class-html-element.php';
 require_once $repo_root . '/includes/class-transform-registry.php';
 require_once $repo_root . '/raw-handler.php';
+$transforms_property = new \ReflectionProperty(HTML_To_Blocks_Transform_Registry::class, 'transforms');
+$transforms_property->setValue(null, [['blockName' => 'core/group', 'priority' => 1, 'isMatch' => static function ($element) {
+    return $element->get_tag_name() === 'DIV';
+}, 'transform' => static function ($element, $handler) {
+    return HTML_To_Blocks_Block_Factory::create_block('core/group', [], $handler(['HTML' => $element->get_inner_html()]));
+}], ['blockName' => 'core/paragraph', 'priority' => 1, 'isMatch' => static function ($element) {
+    return $element->get_tag_name() === 'P';
+}, 'transform' => static function ($element, $handler = null, $args = []) {
+    $source = $args['context']['source'] ?? 'missing';
+    $mode = $args['mode'] ?? 'missing';
+    $label = \trim(wp_strip_all_tags($element->get_inner_html()));
+    return HTML_To_Blocks_Block_Factory::create_block('core/paragraph', ['content' => $label . ':' . $source . ':' . $mode]);
+}]]);
+$blocks = html_to_blocks_raw_handler(['HTML' => '<p>Top</p><div><p>Nested</p></div>', 'context' => ['source' => 'smoke'], 'mode' => 'import']);
+$top_content = $blocks[0]['attrs']['content'] ?? '';
+$nested_content = $blocks[1]['innerBlocks'][0]['attrs']['content'] ?? '';
+$assertions = 2;
 $failures = [];
-$assertions = 0;
-$assert = static function ($condition, $label, $detail = '') use (&$failures, &$assertions) {
-    $assertions++;
-    if (!$condition) {
-        $failures[] = 'FAIL [' . $label . ']' . ('' !== $detail ? ': ' . $detail : '');
-    }
-};
-$flatten_blocks = static function (array $blocks) use (&$flatten_blocks): array {
-    $flat = [];
-    foreach ($blocks as $block) {
-        $flat[] = $block;
-        $flat = \array_merge($flat, $flatten_blocks($block['innerBlocks'] ?? []));
-    }
-    return $flat;
-};
-$html = <<<HTML
-<div class="ss-hero-scroll">
-  <div class="ss-hero-scroll-line"></div>
-  <span>Scroll</span>
-</div>
-<div class="hero-bg"></div>
-<div class="hero-pattern"></div>
-<div class="ss-hero-grain"></div>
-<div class="ss-product-divider"></div>
-HTML;
-$blocks = html_to_blocks_raw_handler(['HTML' => $html]);
-$flat = $flatten_blocks($blocks);
-$names = \array_map(static function ($block) {
-    return $block['blockName'] ?? '';
-}, $flat);
-$class_names = \array_filter(\array_map(static function ($block) {
-    return $block['attrs']['className'] ?? '';
-}, $flat));
-$contents = \implode('\n', \array_map(static function ($block) {
-    return (string) ($block['attrs']['content'] ?? $block['innerHTML'] ?? '');
-}, $flat));
-$assert(!\in_array('core/html', $names, \true), 'decorative-divs-do-not-use-core-html', \implode(', ', $names));
-$assert(\count($fallback_events) === 0, 'decorative-divs-emit-no-fallback-events', (string) \count($fallback_events));
-$assert(\in_array('core/group', $names, \true), 'decorative-divs-use-group-blocks', \implode(', ', $names));
-$assert(\in_array('core/paragraph', $names, \true), 'scroll-label-uses-paragraph-block', \implode(', ', $names));
-$assert(\str_contains($contents, 'Scroll'), 'scroll-label-text-survives', $contents);
-$assert(\in_array('ss-hero-scroll', $class_names, \true), 'hero-scroll-class-survives', \implode(', ', $class_names));
-$assert(\in_array('ss-hero-scroll-line', $class_names, \true), 'hero-scroll-line-class-survives', \implode(', ', $class_names));
-$assert(\in_array('hero-bg', $class_names, \true), 'empty-background-class-survives', \implode(', ', $class_names));
-$assert(\in_array('hero-pattern', $class_names, \true), 'empty-pattern-class-survives', \implode(', ', $class_names));
-$assert(\in_array('ss-hero-grain', $class_names, \true), 'empty-grain-class-survives', \implode(', ', $class_names));
-$assert(\in_array('ss-product-divider', $class_names, \true), 'empty-divider-class-survives', \implode(', ', $class_names));
-$assert(\count($blocks) === 5, 'empty-decorative-divs-are-not-dropped', (string) \count($blocks));
+if ('Top:smoke:import' !== $top_content) {
+    $failures[] = 'FAIL [top-level-transform-context]: ' . $top_content;
+}
+if ('Nested:smoke:import' !== $nested_content) {
+    $failures[] = 'FAIL [nested-transform-context]: ' . $nested_content;
+}
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

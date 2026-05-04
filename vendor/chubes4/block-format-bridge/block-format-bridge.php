@@ -3,7 +3,7 @@
  * Plugin Name: Block Format Bridge
  * Plugin URI: https://github.com/chubes4/block-format-bridge
  * Description: Orchestrates bidirectional content format conversion (HTML, Blocks, Markdown) via a unified adapter API. Composes existing plugins/libraries — owns no parsing logic of its own.
- * Version: 0.7.4
+ * Version: 0.7.5
  * Author: Chris Huber
  * Author URI: https://chubes.net
  * License: GPL-2.0-or-later
@@ -45,7 +45,9 @@ if ( version_compare( get_bloginfo( 'version' ), BFB_MIN_WP, '<' ) ) {
 	return;
 }
 
-if ( version_compare( PHP_VERSION, BFB_MIN_PHP, '<' ) ) {
+$bfb_min_php = (string) constant( 'BFB_MIN_PHP' );
+// @phpstan-ignore-next-line if.alwaysFalse -- Runtime guard is required for installs below the analysis PHP target.
+if ( version_compare( PHP_VERSION, $bfb_min_php, '<' ) ) {
 	add_action(
 		'admin_notices',
 		function () {
@@ -53,7 +55,7 @@ if ( version_compare( PHP_VERSION, BFB_MIN_PHP, '<' ) ) {
 			printf(
 				/* translators: %s: minimum PHP version */
 				esc_html__( 'Block Format Bridge requires PHP %s or higher.', 'block-format-bridge' ),
-				esc_html( BFB_MIN_PHP )
+				esc_html( (string) constant( 'BFB_MIN_PHP' ) )
 			);
 			echo '</p></div>';
 		}

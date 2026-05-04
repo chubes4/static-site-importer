@@ -181,7 +181,7 @@ if ( ! function_exists( 'bfb_to_blocks' ) ) {
 	 * @param string               $content Source content.
 	 * @param string               $from    Source format slug.
 	 * @param array<string, mixed> $options Per-call conversion options.
-	 * @return array<int, array<string, mixed>> Block array. Empty array on unsupported source.
+	 * @return array<int|string, array{blockName: string|null, attrs: array, innerBlocks: array<array>, innerHTML: string, innerContent: array}> Block array. Empty array on unsupported source.
 	 */
 	function bfb_to_blocks( string $content, string $from, array $options = array() ): array {
 		if ( 'blocks' === $from ) {
@@ -279,7 +279,7 @@ if ( ! function_exists( 'bfb_analyze_blocks' ) ) {
 	/**
 	 * Analyze a parsed block tree for conversion quality signals.
 	 *
-	 * @param array<int, array<string, mixed>> $blocks Parsed block list.
+	 * @param array<int|string, array<string, mixed>> $blocks Parsed block list.
 	 * @return array<string, mixed> Quality report.
 	 */
 	function bfb_analyze_blocks( array $blocks ): array {
@@ -553,9 +553,9 @@ if ( ! function_exists( 'bfb_analyze_block_list' ) ) {
 	/**
 	 * Walk parsed blocks and populate a quality report.
 	 *
-	 * @param array<int, array<string, mixed>> $blocks Parsed block list.
-	 * @param array<string, mixed>             $report Report being populated.
-	 * @param array<int, int>                  $path   Current block path.
+	 * @param array<int|string, array<string, mixed>> $blocks Parsed block list.
+	 * @param array<string, mixed>                    $report Report being populated.
+	 * @param array<int, int|string>                  $path   Current block path.
 	 * @return void
 	 */
 	function bfb_analyze_block_list( array $blocks, array &$report, array $path = array() ): void {
@@ -622,6 +622,10 @@ if ( ! function_exists( 'bfb_render_post' ) ) {
 	function bfb_render_post( $post, string $format, array $options = array() ): string {
 		$post_obj = get_post( $post );
 		if ( ! $post_obj ) {
+			return '';
+		}
+
+		if ( ! $post_obj instanceof WP_Post ) {
 			return '';
 		}
 

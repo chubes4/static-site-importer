@@ -20,7 +20,7 @@ if (!\class_exists('WP_Block_Type_Registry', \false)) {
         }
         public function is_registered($name)
         {
-            return $name === 'core/html';
+            return 'core/html' === $name;
         }
         public function get_registered($name)
         {
@@ -59,22 +59,23 @@ $assertions = 0;
 $assert = static function ($condition, $label, $detail = '') use (&$failures, &$assertions) {
     $assertions++;
     if (!$condition) {
-        $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
+        $failures[] = 'FAIL [' . $label . ']' . ('' !== $detail ? ': ' . $detail : '');
     }
 };
 $read_required_file = static function (string $path) use ($assert): string {
-    $contents = \file_get_contents($path);
-    $assert(\is_string($contents) && $contents !== '', \basename($path) . '-readable', 'Unable to read ' . $path);
+    global $wp_filesystem;
+    $contents = $wp_filesystem->get_contents($path);
+    $assert(\is_string($contents) && '' !== $contents, \basename($path) . '-readable', 'Unable to read ' . $path);
     return \is_string($contents) ? $contents : '';
 };
 $fallback_html = '<iframe src="https://example.com/widget"></iframe>';
 $context = ['reason' => 'no_transform', 'tag_name' => 'IFRAME', 'occurrence' => 0];
 $block = html_to_blocks_create_unsupported_html_fallback_block($fallback_html, $context);
-$assert($block['blockName'] === 'core/html', 'fallback-block-name');
+$assert('core/html' === $block['blockName'], 'fallback-block-name');
 $assert(($block['attrs']['content'] ?? '') === $fallback_html, 'fallback-preserves-html');
 $assert(html_to_blocks_smoke_action_count() === 1, 'fallback-emits-one-action');
 $action = html_to_blocks_smoke_first_action();
-$assert($action && $action[0] === 'html_to_blocks_unsupported_html_fallback', 'fallback-action-name');
+$assert($action && 'html_to_blocks_unsupported_html_fallback' === $action[0], 'fallback-action-name');
 $assert(($action[1][0] ?? '') === $fallback_html, 'fallback-action-html-arg');
 $assert(($action[1][1]['reason'] ?? '') === 'no_transform', 'fallback-action-reason');
 $assert(($action[1][1]['tag_name'] ?? '') === 'IFRAME', 'fallback-action-tag-name');

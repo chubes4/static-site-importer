@@ -20,7 +20,7 @@ if (!\function_exists('BlockFormatBridge\Vendor\esc_attr')) {
 if (!\function_exists('BlockFormatBridge\Vendor\wp_strip_all_tags')) {
     function wp_strip_all_tags($text)
     {
-        return \strip_tags((string) $text);
+        return wp_strip_all_tags((string) $text);
     }
 }
 if (!\class_exists('WP_Block_Type_Registry', \false)) {
@@ -36,7 +36,7 @@ if (!\class_exists('WP_Block_Type_Registry', \false)) {
         }
         public function get_registered($name)
         {
-            if ($name === 'core/group') {
+            if ('core/group' === $name) {
                 return (object) ['attributes' => ['tagName' => ['type' => 'string'], 'className' => ['type' => 'string']]];
             }
             return (object) ['attributes' => []];
@@ -75,7 +75,7 @@ class Group_Section_Anchor_Element
     }
     public function get_text_content()
     {
-        return \trim(\strip_tags($this->inner_html));
+        return \trim(wp_strip_all_tags($this->inner_html));
     }
     public function get_child_elements()
     {
@@ -91,7 +91,7 @@ $assertions = 0;
 $assert = static function ($condition, $label, $detail = '') use (&$failures, &$assertions) {
     $assertions++;
     if (!$condition) {
-        $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
+        $failures[] = 'FAIL [' . $label . ']' . ('' !== $detail ? ': ' . $detail : '');
     }
 };
 $source = new Group_Section_Anchor_Element('section', ['id' => 'hero', 'class' => 'hero'], '<h1>Build faster</h1>');
@@ -102,7 +102,7 @@ foreach (HTML_To_Blocks_Transform_Registry::get_raw_transforms() as $transform) 
         break;
     }
 }
-$assert($group_transform !== null, 'group-transform-registered');
+$assert(null !== $group_transform, 'group-transform-registered');
 $handler = static function () {
     return [];
 };

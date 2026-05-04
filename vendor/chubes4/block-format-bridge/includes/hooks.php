@@ -122,9 +122,6 @@ function bfb_convert_on_insert( array $data, array $postarr ): array {
 	}
 
 	$content = wp_unslash( $data['post_content'] );
-	if ( ! is_string( $content ) ) {
-		return $data;
-	}
 
 	$post_type = isset( $data['post_type'] ) ? (string) $data['post_type'] : '';
 

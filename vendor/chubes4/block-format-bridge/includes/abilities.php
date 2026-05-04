@@ -181,7 +181,7 @@ if ( ! function_exists( 'bfb_ability_normalize' ) ) {
 		$result = bfb_normalize( $content, $format, $options );
 		if ( is_wp_error( $result ) ) {
 			/** @var WP_Error $result */
-			return bfb_ability_error( $result->get_error_code(), $result->get_error_message(), $result->get_error_data() );
+			return bfb_ability_error( (string) $result->get_error_code(), $result->get_error_message(), $result->get_error_data() );
 		}
 
 		return array(

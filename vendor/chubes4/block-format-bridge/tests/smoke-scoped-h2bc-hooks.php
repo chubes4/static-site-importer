@@ -57,6 +57,7 @@ function has_action( string $hook_name, $callback = false ) {
 
 $hooks_file    = __DIR__ . '/../vendor_prefixed/chubes4/html-to-blocks-converter/includes/hooks.php';
 $versions_file = __DIR__ . '/../vendor_prefixed/chubes4/html-to-blocks-converter/includes/class-html-to-blocks-versions.php';
+// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Static smoke reads local bundled source.
 $hooks_source_raw = file_get_contents( $hooks_file );
 
 if ( ! is_string( $hooks_source_raw ) ) {
@@ -70,6 +71,13 @@ foreach ( array( 'add_filter', 'has_filter', 'add_action', 'has_action' ) as $fu
 		"Scoped h2bc hooks.php should not prefix WordPress {$function_name} guards."
 	);
 }
+
+$raw_handler_source = file_get_contents( __DIR__ . '/../vendor_prefixed/chubes4/html-to-blocks-converter/raw-handler.php' );
+bfb_smoke_assert( is_string( $raw_handler_source ), 'Scoped h2bc raw-handler.php should be readable.' );
+bfb_smoke_assert(
+	str_contains( (string) $raw_handler_source, "'BlockFormatBridge\\Vendor\\html_to_blocks_raw_handler'" ),
+	'Scoped h2bc recursive raw-handler callback should target the prefixed function.'
+);
 
 require_once $versions_file;
 \BlockFormatBridge\Vendor\HTML_To_Blocks_Versions::register_hooks();

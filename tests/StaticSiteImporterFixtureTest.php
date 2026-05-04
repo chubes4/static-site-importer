@@ -296,6 +296,63 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Product/catalog decorative placeholders import without HTML fallbacks.
+	 */
+	public function test_product_catalog_decorative_placeholders_import_as_native_blocks(): void {
+		$plugin_root = dirname( __DIR__ );
+		$fixture_dir = $plugin_root . '/tests/fixtures/product-catalog-decorative-placeholders';
+		$fixture     = $fixture_dir . '/index.html';
+
+		foreach ( array( 'index.html', 'styles.css' ) as $file ) {
+			$this->assertFileExists( $fixture_dir . '/' . $file, 'Fixture file missing: ' . $file );
+		}
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$fixture,
+			array(
+				'name'        => 'Product Catalog Decorative Placeholders',
+				'slug'        => 'product-catalog-decorative-placeholders',
+				'overwrite'   => true,
+				'activate'    => false,
+				'keep_source' => true,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$pattern   = $this->pattern_blocks( $this->read_file( $theme_dir . '/patterns/page-home.php' ) );
+		$style     = $this->read_file( $theme_dir . '/style.css' );
+		$report    = json_decode( $this->read_file( $result['report_path'] ), true );
+
+		$this->assertIsArray( $report );
+		$this->assertSame( 0, $report['quality']['fallback_count'] ?? null );
+		$this->assertSame( 0, $report['quality']['core_html_block_count'] ?? null );
+		$this->assertSame( 0, $report['quality']['invalid_block_count'] ?? null );
+		$this->assertSame( true, $report['quality']['pass'] ?? false );
+		$this->assertEmpty( $report['quality']['failure_reasons'] ?? array() );
+
+		$this->assertStringContainsString( 'category-image placeholder placeholder-ceramics', $pattern );
+		$this->assertStringContainsString( 'gallery-gradient gradient-sunrise', $pattern );
+		$this->assertStringContainsString( 'Warm serviceware stacked for brunch.', $pattern );
+		$this->assertStringNotContainsString( '<!-- wp:html', $pattern );
+		$this->assertStringContainsString( '.placeholder-ceramics', $style );
+		$this->assertStringContainsString( '.gallery-gradient', $style );
+
+		$home_document = null;
+		foreach ( $report['generated_theme']['block_documents'] ?? array() as $document ) {
+			if ( 'patterns/page-home.php' === ( $document['path'] ?? '' ) ) {
+				$home_document = $document;
+				break;
+			}
+		}
+
+		$this->assertIsArray( $home_document );
+		$this->assertSame( 0, $home_document['core_html_block_count'] ?? null );
+	}
+
+	/**
 	 * Relay Atlas-style logo anchors convert without core/html islands.
 	 */
 	public function test_relay_atlas_logo_anchor_fixture_imports_without_html_islands(): void {

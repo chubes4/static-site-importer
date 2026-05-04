@@ -1,0 +1,113 @@
+:root {
+	--paper: #f7efe3;
+	--ink: #1c1611;
+	--muted: #7a695c;
+	--line: rgba(28, 22, 17, 0.16);
+	--clay: #b96b4a;
+	--gold: #d99a3c;
+	--sage: #89956d;
+}
+
+body {
+	margin: 0;
+	background: var(--paper);
+	color: var(--ink);
+	font-family: Georgia, serif;
+	line-height: 1.5;
+}
+
+.site-header,
+.site-footer {
+	display: flex;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 1.25rem clamp(1rem, 4vw, 4rem);
+	border-bottom: 1px solid var(--line);
+}
+
+.site-footer {
+	border-top: 1px solid var(--line);
+	border-bottom: 0;
+}
+
+.brand,
+.nav-links a {
+	color: inherit;
+	text-decoration: none;
+}
+
+.nav-links {
+	display: flex;
+	gap: 1rem;
+}
+
+.hero {
+	padding: clamp(4rem, 12vw, 9rem) clamp(1rem, 4vw, 4rem);
+}
+
+.eyebrow {
+	color: var(--muted);
+	letter-spacing: 0.18em;
+	text-transform: uppercase;
+}
+
+.hero h1 {
+	max-width: 11ch;
+	font-size: clamp(3rem, 10vw, 7rem);
+	line-height: 0.92;
+}
+
+.lede {
+	max-width: 42rem;
+	font-size: 1.25rem;
+}
+
+.catalog-grid,
+.product-gallery {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+	gap: 1.25rem;
+	padding: 0 clamp(1rem, 4vw, 4rem) clamp(4rem, 8vw, 6rem);
+}
+
+.category-card,
+.gallery-card {
+	margin: 0;
+	padding: 1rem;
+	border: 1px solid var(--line);
+	border-radius: 1.25rem;
+	background: rgba(255, 255, 255, 0.32);
+}
+
+.category-image,
+.gallery-gradient {
+	min-height: 14rem;
+	border-radius: 1rem;
+	position: relative;
+	overflow: hidden;
+}
+
+.placeholder-ceramics {
+	background: radial-gradient(circle at 30% 35%, var(--gold), transparent 32%), linear-gradient(135deg, #f8d9a7, #7c3f2e);
+}
+
+.placeholder-linens {
+	background: radial-gradient(circle at 70% 30%, #f4efe3, transparent 30%), linear-gradient(135deg, #30495f, #9d8f75);
+}
+
+.placeholder-tools {
+	background: radial-gradient(circle at 50% 45%, #f8e7bf, transparent 34%), linear-gradient(135deg, var(--sage), #45382b);
+}
+
+.gradient-sunrise {
+	background: radial-gradient(circle at 40% 30%, #ffe0a3, transparent 38%), linear-gradient(135deg, var(--clay), #2e1d18);
+}
+
+.gradient-indigo {
+	background: radial-gradient(circle at 55% 25%, #d7d1ff, transparent 34%), linear-gradient(135deg, #1e2a4f, #8b6a5a);
+}
+
+figcaption {
+	padding-top: 0.85rem;
+	color: var(--muted);
+}

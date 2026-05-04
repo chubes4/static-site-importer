@@ -74,7 +74,7 @@ $assertions = 0;
 $assert = static function ($condition, $label, $detail = '') use (&$failures, &$assertions) {
     $assertions++;
     if (!$condition) {
-        $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
+        $failures[] = 'FAIL [' . $label . ']' . ('' !== $detail ? ': ' . $detail : '');
     }
 };
 $source = new Preformatted_Class_Fidelity_Element('pre', ['class' => 'prompt wp-block-preformatted alignwide has-small-font-size unsafe@class', 'id' => 'demo-prompt'], '<span class="label">— The Prompt —</span>Generate a site.');
@@ -85,7 +85,7 @@ foreach (HTML_To_Blocks_Transform_Registry::get_raw_transforms() as $transform) 
         break;
     }
 }
-$assert($preformatted_transform !== null, 'preformatted-transform-registered');
+$assert(null !== $preformatted_transform, 'preformatted-transform-registered');
 $assert($preformatted_transform['isMatch']($source) === \true, 'preformatted-transform-matches-pre-without-code');
 $block = $preformatted_transform['transform']($source);
 $assert(($block['blockName'] ?? '') === 'core/preformatted', 'block-name');

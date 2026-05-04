@@ -12,7 +12,7 @@ if (!\defined('ABSPATH')) {
     \define('ABSPATH', __DIR__);
 }
 if (!\class_exists('WP_HTML_Processor', \false)) {
-    $wp_html_api_candidates = \array_filter([\getenv('WP_HTML_API_PATH') ?: '', '/wordpress/wp-includes/html-api', '/Users/chubes/Studio/intelligence-chubes4/wp-includes/html-api']);
+    $wp_html_api_candidates = \array_filter([\getenv('WP_HTML_API_PATH') ? \getenv('WP_HTML_API_PATH') : '', '/wordpress/wp-includes/html-api', '/Users/chubes/Studio/intelligence-chubes4/wp-includes/html-api']);
     $wp_html_api_path = '';
     foreach ($wp_html_api_candidates as $candidate) {
         if (\is_file(\rtrim($candidate, '/') . '/class-wp-html-processor.php')) {
@@ -20,7 +20,7 @@ if (!\class_exists('WP_HTML_Processor', \false)) {
             break;
         }
     }
-    if ($wp_html_api_path === '') {
+    if ('' === $wp_html_api_path) {
         \fwrite(\STDERR, "FAIL: WP_HTML_Processor is unavailable. Set WP_HTML_API_PATH to wp-includes/html-api.\n");
         exit(1);
     }
@@ -54,7 +54,7 @@ foreach (['esc_attr', 'esc_html', 'esc_url'] as $function_name) {
 if (!\function_exists('BlockFormatBridge\Vendor\wp_strip_all_tags')) {
     function wp_strip_all_tags($text)
     {
-        return \strip_tags($text);
+        return wp_strip_all_tags($text);
     }
 }
 if (!\function_exists('BlockFormatBridge\Vendor\get_shortcode_regex')) {
@@ -68,7 +68,7 @@ if (!\function_exists('do_action')) {
     function do_action($hook_name, ...$args)
     {
         global $fallback_events;
-        if ($hook_name === 'html_to_blocks_unsupported_html_fallback') {
+        if ('html_to_blocks_unsupported_html_fallback' === $hook_name) {
             $fallback_events[] = $args;
         }
     }
@@ -84,7 +84,7 @@ $assertions = 0;
 $assert = static function ($condition, $label, $detail = '') use (&$failures, &$assertions) {
     $assertions++;
     if (!$condition) {
-        $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
+        $failures[] = 'FAIL [' . $label . ']' . ('' !== $detail ? ': ' . $detail : '');
     }
 };
 $flatten_blocks = static function (array $blocks) use (&$flatten_blocks): array {
@@ -120,9 +120,9 @@ $assert(\in_array('core/buttons', $names, \true), 'centered-cta-wrapper-becomes-
 $assert(\count($button_blocks) === 1, 'cta-renders-one-button-block', (string) \count($button_blocks));
 $assert(\in_array('divider', $class_names, \true), 'divider-class-survives', \implode(', ', $class_names));
 $assert(\in_array('center', $class_names, \true), 'center-wrapper-class-survives', \implode(', ', $class_names));
-$assert(isset($button_blocks[0]['attrs']['className']) && $button_blocks[0]['attrs']['className'] === 'btn primary', 'cta-button-classes-survive', $button_blocks[0]['attrs']['className'] ?? '');
-$assert(isset($button_blocks[0]['attrs']['url']) && $button_blocks[0]['attrs']['url'] === 'http://localhost:8881/comparison/', 'cta-url-preserved', $button_blocks[0]['attrs']['url'] ?? '');
-$assert(isset($button_blocks[0]['attrs']['text']) && $button_blocks[0]['attrs']['text'] === 'Compare it to the old way →', 'cta-text-preserved', $button_blocks[0]['attrs']['text'] ?? '');
+$assert(isset($button_blocks[0]['attrs']['className']) && 'btn primary' === $button_blocks[0]['attrs']['className'], 'cta-button-classes-survive', $button_blocks[0]['attrs']['className'] ?? '');
+$assert(isset($button_blocks[0]['attrs']['url']) && 'http://localhost:8881/comparison/' === $button_blocks[0]['attrs']['url'], 'cta-url-preserved', $button_blocks[0]['attrs']['url'] ?? '');
+$assert(isset($button_blocks[0]['attrs']['text']) && 'Compare it to the old way →' === $button_blocks[0]['attrs']['text'], 'cta-text-preserved', $button_blocks[0]['attrs']['text'] ?? '');
 $assert(\substr_count($serialized, 'Compare it to the old way →') === 1, 'cta-text-serialized-once', $serialized);
 $assert(\substr_count($serialized, 'http://localhost:8881/comparison/') === 1, 'cta-url-serialized-once', $serialized);
 echo 'Assertions: ' . $assertions . \PHP_EOL;

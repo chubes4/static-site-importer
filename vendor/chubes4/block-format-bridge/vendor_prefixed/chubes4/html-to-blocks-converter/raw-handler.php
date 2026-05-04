@@ -14,31 +14,31 @@ if (!\defined('ABSPATH')) {
 /**
  * Main raw handler function - converts HTML to blocks
  *
- * @param array $args Arguments array with 'HTML' key
+ * @param array $args Arguments array with 'HTML' key and optional conversion context.
  * @return array Array of block arrays
  */
 function html_to_blocks_raw_handler($args)
 {
     $html = $args['HTML'] ?? '';
     if (empty($html)) {
-        return [];
+        return array();
     }
     if (\strpos($html, '<!-- wp:') !== \false) {
         $blocks = parse_blocks($html);
-        $is_single_freeform = \count($blocks) === 1 && isset($blocks[0]['blockName']) && $blocks[0]['blockName'] === 'core/freeform';
+        $is_single_freeform = \count($blocks) === 1 && isset($blocks[0]['blockName']) && 'core/freeform' === $blocks[0]['blockName'];
         if (!$is_single_freeform) {
             return html_to_blocks_normalize_parsed_image_html_blocks($blocks);
         }
     }
     $pieces = html_to_blocks_shortcode_converter($html);
-    $result = [];
+    $result = array();
     foreach ($pieces as $piece) {
         if (!\is_string($piece)) {
             $result[] = $piece;
             continue;
         }
         $piece = html_to_blocks_normalise_blocks($piece);
-        $blocks = html_to_blocks_convert($piece);
+        $blocks = html_to_blocks_convert($piece, \array_merge($args, array('HTML' => $piece)));
         $result = \array_merge($result, $blocks);
     }
     return \array_filter($result);
@@ -47,25 +47,29 @@ function html_to_blocks_raw_handler($args)
  * Converts HTML directly to blocks using registered transforms
  *
  * @param string $html HTML to convert
+ * @param array  $args Raw handler arguments for transform context.
  * @return array Array of blocks
  */
-function html_to_blocks_convert($html)
+function html_to_blocks_convert($html, $args = array())
 {
     if (empty(\trim($html))) {
-        return [];
+        return array();
     }
     $processor = \WP_HTML_Processor::create_fragment($html);
     if (!$processor) {
-        \error_log(\sprintf('[HTML to Blocks] create_fragment() failed | HTML length: %d | Preview: %s', \strlen($html), \substr($html, 0, 300)));
-        return [];
+        if (\defined('WP_DEBUG') && \WP_DEBUG) {
+            // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Gated diagnostic logging for WP_DEBUG.
+            \error_log(\sprintf('[HTML to Blocks] create_fragment() failed | HTML length: %d | Preview: %s', \strlen($html), \substr($html, 0, 300)));
+        }
+        return array();
     }
     $original_html_length = \strlen($html);
-    $blocks = [];
+    $blocks = array();
     $transforms = HTML_To_Blocks_Transform_Registry::get_raw_transforms();
     $body_depth = 2;
     $top_level_depth = $body_depth + 1;
-    $tag_occurrences = [];
-    $tag_positions = [];
+    $tag_occurrences = array();
+    $tag_positions = array();
     $ignored_decorative_html_length = 0;
     while ($processor->next_token()) {
         $token_type = $processor->get_token_type();
@@ -73,7 +77,7 @@ function html_to_blocks_convert($html)
         if ('#text' === $token_type && $depth === $top_level_depth) {
             $text = \trim($processor->get_modifiable_text());
             if (!empty($text)) {
-                $blocks[] = HTML_To_Blocks_Block_Factory::create_block('core/paragraph', ['content' => \htmlspecialchars($text, \ENT_QUOTES, 'UTF-8')]);
+                $blocks[] = HTML_To_Blocks_Block_Factory::create_block('core/paragraph', array('content' => \htmlspecialchars($text, \ENT_QUOTES, 'UTF-8')));
             }
             continue;
         }
@@ -94,12 +98,15 @@ function html_to_blocks_convert($html)
         }
         $element_html = html_to_blocks_extract_element_at_occurrence($html, $tag_name, $tag_positions[$tag_name], $occurrence);
         if (!$element_html) {
-            \error_log(\sprintf('[HTML to Blocks] Element extraction failed | Tag: %s | Occurrence: %d | HTML preview: %s', $tag_name, $occurrence, \substr($html, 0, 300)));
+            if (\defined('WP_DEBUG') && \WP_DEBUG) {
+                // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Gated diagnostic logging for WP_DEBUG.
+                \error_log(\sprintf('[HTML to Blocks] Element extraction failed | Tag: %s | Occurrence: %d | HTML preview: %s', $tag_name, $occurrence, \substr($html, 0, 300)));
+            }
             continue;
         }
         $element = HTML_To_Blocks_HTML_Element::from_html($element_html);
         if (!$element) {
-            $blocks[] = html_to_blocks_create_unsupported_html_fallback_block($element_html, ['reason' => 'element_parse_failed', 'tag_name' => $tag_name, 'occurrence' => $occurrence]);
+            $blocks[] = html_to_blocks_create_unsupported_html_fallback_block($element_html, array('reason' => 'element_parse_failed', 'tag_name' => $tag_name, 'occurrence' => $occurrence));
             continue;
         }
         if ('BR' === $element->get_tag_name()) {
@@ -112,12 +119,16 @@ function html_to_blocks_convert($html)
         }
         $raw_transform = html_to_blocks_find_transform($element, $transforms);
         if (!$raw_transform) {
-            $blocks[] = html_to_blocks_create_unsupported_html_fallback_block($element_html, ['reason' => 'no_transform', 'tag_name' => $element->get_tag_name(), 'occurrence' => $occurrence]);
+            $blocks[] = html_to_blocks_create_unsupported_html_fallback_block($element_html, array('reason' => 'no_transform', 'tag_name' => $element->get_tag_name(), 'occurrence' => $occurrence));
         } else {
             $transform_fn = $raw_transform['transform'] ?? null;
             if ($transform_fn && \is_callable($transform_fn)) {
-                $raw_handler_callback = __NAMESPACE__ ? __NAMESPACE__ . '\html_to_blocks_raw_handler' : 'html_to_blocks_raw_handler';
-                $block = \call_user_func($transform_fn, $element, $raw_handler_callback);
+                $raw_handler_fn = 'BlockFormatBridge\Vendor\html_to_blocks_raw_handler';
+                $raw_handler_callback = function ($nested_args) use ($args, $raw_handler_fn) {
+                    $nested_args = \is_array($nested_args) ? $nested_args : array();
+                    return \call_user_func($raw_handler_fn, \array_merge($args, $nested_args));
+                };
+                $block = \call_user_func($transform_fn, $element, $raw_handler_callback, $args);
                 if ($element->has_attribute('class')) {
                     $existing_class = $block['attrs']['className'] ?? '';
                     $node_class = $element->get_attribute('class');
@@ -136,17 +147,23 @@ function html_to_blocks_convert($html)
     }
     // Check if processor bailed due to unsupported HTML
     $last_error = $processor->get_last_error();
-    if ($last_error !== null) {
-        \error_log(\sprintf('[HTML to Blocks] WP_HTML_Processor bailed | Error: %s | Blocks created: %d | HTML length: %d | Preview: %s', $last_error, \count($blocks), $original_html_length, \substr($html, 0, 500)));
+    if (null !== $last_error) {
+        if (\defined('WP_DEBUG') && \WP_DEBUG) {
+            // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Gated diagnostic logging for WP_DEBUG.
+            \error_log(\sprintf('[HTML to Blocks] WP_HTML_Processor bailed | Error: %s | Blocks created: %d | HTML length: %d | Preview: %s', $last_error, \count($blocks), $original_html_length, \substr($html, 0, 500)));
+        }
     }
     if (empty($blocks) && \trim(wp_strip_all_tags($html)) !== '' && \trim($html) === \trim(wp_strip_all_tags($html))) {
-        $blocks[] = HTML_To_Blocks_Block_Factory::create_block('core/paragraph', ['content' => \trim($html)]);
+        $blocks[] = HTML_To_Blocks_Block_Factory::create_block('core/paragraph', array('content' => \trim($html)));
     }
     // Check for significant content loss (input had content but output is empty/minimal)
     $output_content_length = html_to_blocks_measure_block_content_length($blocks);
     $diagnostic_html_length = \max(0, $original_html_length - $ignored_decorative_html_length);
     if ($diagnostic_html_length > 100 && $output_content_length < $diagnostic_html_length * 0.1) {
-        \error_log(\sprintf('[HTML to Blocks] Significant content loss detected | Input: %d chars | Output: %d chars | Blocks: %d | Processor error: %s | Preview: %s', $diagnostic_html_length, $output_content_length, \count($blocks), $last_error ?? 'none', \substr($html, 0, 500)));
+        if (\defined('WP_DEBUG') && \WP_DEBUG) {
+            // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Gated diagnostic logging for WP_DEBUG.
+            \error_log(\sprintf('[HTML to Blocks] Significant content loss detected | Input: %d chars | Output: %d chars | Blocks: %d | Processor error: %s | Preview: %s', $diagnostic_html_length, $output_content_length, \count($blocks), $last_error ?? 'none', \substr($html, 0, 500)));
+        }
     }
     return $blocks;
 }
@@ -158,7 +175,7 @@ function html_to_blocks_convert($html)
  */
 function html_to_blocks_should_ignore_empty_decorative_placeholder($element): bool
 {
-    if (!\in_array($element->get_tag_name(), ['DIV', 'SPAN'], \true)) {
+    if (!\in_array($element->get_tag_name(), array('DIV', 'SPAN'), \true)) {
         return \false;
     }
     if (\trim(wp_strip_all_tags($element->get_inner_html())) !== '' || array() !== $element->get_child_elements()) {
@@ -177,11 +194,11 @@ function html_to_blocks_should_ignore_empty_decorative_placeholder($element): bo
         if (\preg_match('/^on/i', $name)) {
             return \false;
         }
-        if (!\in_array($name, ['class', 'style', 'id', 'aria-hidden', 'role'], \true)) {
+        if (!\in_array($name, array('class', 'style', 'id', 'aria-hidden', 'role'), \true)) {
             return \false;
         }
     }
-    if ($role !== '' && !\in_array($role, ['none', 'presentation'], \true)) {
+    if ('' !== $role && !\in_array($role, array('none', 'presentation'), \true)) {
         return \false;
     }
     if (\preg_match('/url\s*\(/i', $style)) {
@@ -260,9 +277,9 @@ function html_to_blocks_measure_block_content_length(array $blocks): int
  * @param array  $context      Fallback context such as reason, tag_name, and occurrence.
  * @return array Block array.
  */
-function html_to_blocks_create_unsupported_html_fallback_block(string $element_html, array $context = []): array
+function html_to_blocks_create_unsupported_html_fallback_block(string $element_html, array $context = array()): array
 {
-    $block = HTML_To_Blocks_Block_Factory::create_block('core/html', ['content' => $element_html]);
+    $block = HTML_To_Blocks_Block_Factory::create_block('core/html', array('content' => $element_html));
     if (\function_exists('do_action')) {
         /**
          * Fires when h2bc falls back to core/html because no supported transform exists.
@@ -395,11 +412,11 @@ function html_to_blocks_is_decorative_inline_span_fragment(string $html): bool
         if (\preg_match('/^on/i', $name)) {
             return \false;
         }
-        if (!\in_array($name, ['class', 'style', 'id', 'aria-hidden', 'role'], \true)) {
+        if (!\in_array($name, array('class', 'style', 'id', 'aria-hidden', 'role'), \true)) {
             return \false;
         }
     }
-    if ($role !== '' && !\in_array($role, ['none', 'presentation'], \true)) {
+    if ('' !== $role && !\in_array($role, array('none', 'presentation'), \true)) {
         return \false;
     }
     if (\preg_match('/(?:url\s*\(|expression\s*\(|javascript\s*:|behavior\s*:)/i', $style)) {
@@ -409,7 +426,7 @@ function html_to_blocks_is_decorative_inline_span_fragment(string $html): bool
     if (\preg_match($decorative_class_pattern, $class_name) === 1) {
         return \true;
     }
-    return $style !== '' && \preg_match('/(?:^|;)\s*display\s*:\s*inline-block\b/i', $style) === 1 && \preg_match('/(?:^|;)\s*width\s*:\s*[^;]+/i', $style) === 1 && \preg_match('/(?:^|;)\s*height\s*:\s*[^;]+/i', $style) === 1 && \preg_match('/(?:^|;)\s*(?:background|background-color)\s*:\s*[^;]+/i', $style) === 1;
+    return '' !== $style && \preg_match('/(?:^|;)\s*display\s*:\s*inline-block\b/i', $style) === 1 && \preg_match('/(?:^|;)\s*width\s*:\s*[^;]+/i', $style) === 1 && \preg_match('/(?:^|;)\s*height\s*:\s*[^;]+/i', $style) === 1 && \preg_match('/(?:^|;)\s*(?:background|background-color)\s*:\s*[^;]+/i', $style) === 1;
 }
 /**
  * Checks whether an HTML fragment is only an image, optionally inside one wrapper.
@@ -466,7 +483,7 @@ function html_to_blocks_contains_block_name(array $blocks, string $name): bool
  */
 function html_to_blocks_find_all_tag_positions($html, $tag_name)
 {
-    $positions = [];
+    $positions = array();
     $pattern = '/<' . \preg_quote($tag_name, '/') . '(?:\s[^>]*)?>/i';
     if (\preg_match_all($pattern, $html, $matches, \PREG_OFFSET_CAPTURE)) {
         foreach ($matches[0] as $match) {
@@ -491,7 +508,7 @@ function html_to_blocks_extract_element_at_occurrence($html, $tag_name, $positio
     }
     $start_pos = $positions[$occurrence];
     $html_from_start = \substr($html, $start_pos);
-    $void_elements = ['AREA', 'BASE', 'BR', 'COL', 'EMBED', 'HR', 'IMG', 'INPUT', 'LINK', 'META', 'PARAM', 'SOURCE', 'TRACK', 'WBR'];
+    $void_elements = array('AREA', 'BASE', 'BR', 'COL', 'EMBED', 'HR', 'IMG', 'INPUT', 'LINK', 'META', 'PARAM', 'SOURCE', 'TRACK', 'WBR');
     if (\in_array(\strtoupper($tag_name), $void_elements, \true)) {
         $pattern = '/<' . \preg_quote($tag_name, '/') . '(?:\s[^>]*)?\/?>/i';
         if (\preg_match($pattern, $html_from_start, $matches)) {
@@ -518,14 +535,14 @@ function html_to_blocks_extract_balanced_element($html, $tag_name)
     while ($i < $len) {
         $remaining = \substr($html, $i);
         if (\preg_match($open_pattern, $remaining)) {
-            $depth++;
+            ++$depth;
         } elseif (\preg_match($close_pattern, $remaining, $close_match)) {
-            $depth--;
-            if ($depth === 0) {
+            --$depth;
+            if (0 === $depth) {
                 return \substr($html, 0, $i + \strlen($close_match[0]));
             }
         }
-        $i++;
+        ++$i;
     }
     return null;
 }
@@ -554,11 +571,11 @@ function html_to_blocks_find_transform($element, $transforms)
  */
 function html_to_blocks_shortcode_converter($html)
 {
-    $pieces = [];
+    $pieces = array();
     $last_index = 0;
     \preg_match_all('/' . get_shortcode_regex() . '/', $html, $matches, \PREG_OFFSET_CAPTURE);
     if (empty($matches[0])) {
-        return [$html];
+        return array($html);
     }
     foreach ($matches[0] as $match) {
         $shortcode = $match[0];
@@ -567,7 +584,7 @@ function html_to_blocks_shortcode_converter($html)
             $pieces[] = \substr($html, $last_index, $index - $last_index);
         }
         $parsed = html_to_blocks_parse_shortcode($shortcode);
-        $pieces[] = $parsed !== null ? $parsed : $shortcode;
+        $pieces[] = null !== $parsed ? $parsed : $shortcode;
         $last_index = $index + \strlen($shortcode);
     }
     if ($last_index < \strlen($html)) {
@@ -587,7 +604,7 @@ function html_to_blocks_parse_shortcode($shortcode)
     if (!\preg_match("/{$pattern}/", $shortcode, $match)) {
         return null;
     }
-    return HTML_To_Blocks_Block_Factory::create_block('core/shortcode', ['text' => $shortcode]);
+    return HTML_To_Blocks_Block_Factory::create_block('core/shortcode', array('text' => $shortcode));
 }
 /**
  * Normalises blocks in HTML - wraps inline content in paragraphs
@@ -601,22 +618,22 @@ function html_to_blocks_normalise_blocks($html)
     if (!$processor) {
         return $html;
     }
-    $phrasing_tags = ['A', 'ABBR', 'B', 'BDI', 'BDO', 'BR', 'CITE', 'CODE', 'DATA', 'DFN', 'EM', 'I', 'KBD', 'MARK', 'Q', 'RP', 'RT', 'RUBY', 'S', 'SAMP', 'SMALL', 'SPAN', 'STRONG', 'SUB', 'SUP', 'TIME', 'U', 'VAR', 'WBR'];
+    $phrasing_tags = array('A', 'ABBR', 'B', 'BDI', 'BDO', 'BR', 'CITE', 'CODE', 'DATA', 'DFN', 'EM', 'I', 'KBD', 'MARK', 'Q', 'RP', 'RT', 'RUBY', 'S', 'SAMP', 'SMALL', 'SPAN', 'STRONG', 'SUB', 'SUP', 'TIME', 'U', 'VAR', 'WBR');
     $body_depth = 2;
     $top_level_depth = $body_depth + 1;
     $output = '';
     $paragraph_buffer = '';
     $in_paragraph = \false;
     $last_was_br = \false;
-    $tag_occurrences = [];
-    $tag_positions = [];
+    $tag_occurrences = array();
+    $tag_positions = array();
     while ($processor->next_token()) {
         $token_type = $processor->get_token_type();
         $depth = $processor->get_current_depth();
         if ('#text' === $token_type && $depth === $top_level_depth) {
             $text = $processor->get_modifiable_text();
             if (\trim($text) === '') {
-                if ($in_paragraph && $paragraph_buffer !== '') {
+                if ($in_paragraph && '' !== $paragraph_buffer) {
                     $paragraph_buffer .= \htmlspecialchars($text, \ENT_QUOTES, 'UTF-8');
                 }
                 continue;

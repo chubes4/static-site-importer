@@ -14,12 +14,13 @@ $assertions = 0;
 $assert = static function ($condition, $label, $detail = '') use (&$failures, &$assertions) {
     $assertions++;
     if (!$condition) {
-        $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
+        $failures[] = 'FAIL [' . $label . ']' . ('' !== $detail ? ': ' . $detail : '');
     }
 };
 $read_file = static function (string $path) use ($assert): string {
-    $contents = \file_get_contents($path);
-    $assert(\is_string($contents) && $contents !== '', \basename($path) . '-readable', 'Unable to read ' . $path);
+    global $wp_filesystem;
+    $contents = $wp_filesystem->get_contents($path);
+    $assert(\is_string($contents) && '' !== $contents, \basename($path) . '-readable', 'Unable to read ' . $path);
     return \is_string($contents) ? $contents : '';
 };
 $read_json = static function (string $path) use ($read_file, $assert): array {
@@ -36,7 +37,7 @@ if ($has_blocks_dir) {
     $output = [];
     $exit = 0;
     \exec($command, $output, $exit);
-    $assert($exit === 0, 'core-block-inventory-generator-runs', \implode("\n", $output));
+    $assert(0 === $exit, 'core-block-inventory-generator-runs', \implode("\n", $output));
     $generated_inventory = \json_decode(\implode("\n", $output), \true);
     $assert(\is_array($generated_inventory), 'core-block-inventory-generator-json');
     $inventory = \is_array($generated_inventory) ? $generated_inventory : [];
@@ -48,7 +49,7 @@ $raw_source = $read_file($repo_root . '/raw-handler.php');
 $inventory_blocks = [];
 foreach ((array) ($inventory['blocks'] ?? []) as $block) {
     $name = $block['name'] ?? '';
-    if (\is_string($name) && $name !== '') {
+    if (\is_string($name) && '' !== $name) {
         $inventory_blocks[$name] = \true;
     }
 }
@@ -58,7 +59,7 @@ if ($has_blocks_dir) {
 $classifications = (array) ($classification['classifications'] ?? []);
 $doc_rows = [];
 $doc_patterns = [];
-foreach (\preg_split("/\r?\n/", $coverage_doc) ?: [] as $line) {
+foreach (\preg_split("/\r?\n/", $coverage_doc) ? \preg_split("/\r?\n/", $coverage_doc) : [] as $line) {
     $trimmed = \trim($line);
     if (\strpos($trimmed, '|') !== 0 || \strpos($trimmed, '---') !== \false) {
         continue;
@@ -114,7 +115,7 @@ foreach ($classifications as $block_name => $entry) {
     if (\in_array($bucket, ['compiler-only', 'dynamic-unsupported'], \true)) {
         $has_rationale = \false;
         foreach ($rows as $row) {
-            $text = \strtolower(\strip_tags($row['signal'] . ' ' . $row['notes']));
+            $text = \strtolower(wp_strip_all_tags($row['signal'] . ' ' . $row['notes']));
             if (\preg_match('/\b(require|requires|depend|depends|intent|context|state|runtime|metadata|query|taxonomy|route|identity|permission)\b/', $text)) {
                 $has_rationale = \true;
                 break;
@@ -122,10 +123,10 @@ foreach ($classifications as $block_name => $entry) {
         }
         $assert($has_rationale, 'coverage-rationale-for-' . $block_name, $bucket);
     }
-    if ($bucket === 'future-candidate') {
+    if ('future-candidate' === $bucket) {
         $has_source_signal_note = \false;
         foreach ($rows as $row) {
-            $text = \strtolower(\strip_tags($row['signal'] . ' ' . $row['notes']));
+            $text = \strtolower(wp_strip_all_tags($row['signal'] . ' ' . $row['notes']));
             if (\strpos($text, 'source-signal') !== \false || \strpos($text, 'source signal') !== \false || \strpos($text, 'explicit') !== \false || \strpos($text, 'stable') !== \false) {
                 $has_source_signal_note = \true;
                 break;

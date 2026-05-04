@@ -48,8 +48,8 @@ interface BFB_Format_Adapter {
 	/**
 	 * Convert a block array back into this adapter's format.
 	 *
-	 * @param array<int, array<string, mixed>> $blocks  Block array (parse_blocks() shape).
-	 * @param array<string, mixed>             $options Per-call conversion options.
+	 * @param array<int|string, array{blockName: string|null, attrs: array, innerBlocks: array<array>, innerHTML: string, innerContent: array}> $blocks  Block array (parse_blocks() shape).
+	 * @param array<string, mixed>                                                                                                      $options Per-call conversion options.
 	 * @return string Content in this adapter's format.
 	 */
 	public function from_blocks( array $blocks, array $options = array() ): string;
