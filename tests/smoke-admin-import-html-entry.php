@@ -1,6 +1,6 @@
 <?php
 /**
- * Smoke test: admin UI exposes Import HTML from Appearance -> Themes.
+ * Smoke test: admin UI exposes Import Static Site from Appearance -> Themes.
  *
  * Run from the repository root:
  * php tests/smoke-admin-import-html-entry.php
@@ -32,9 +32,9 @@ $assert( ! str_contains( $source, 'add_theme_page(' ), 'appearance-submenu-not-r
 $assert( str_contains( $source, "admin_url( 'admin.php?page=static-site-importer' )" ), 'button-targets-hidden-import-page' );
 $assert( str_contains( $source, '.page-title-action[href*="theme-install.php"]' ), 'button-anchors-to-add-theme-action' );
 $assert( str_contains( $source, 'static-site-importer-import-html-action' ), 'button-has-plugin-specific-class' );
-$assert( ! str_contains( $source, 'Import Static Site' ), 'old-import-static-site-label-removed' );
-$assert( str_contains( $source, 'Import HTML' ), 'import-html-label-present' );
-$assert( str_contains( $source, 'HTML ZIP' ), 'zip-field-label-renamed' );
+$assert( str_contains( $source, 'Import Static Site' ), 'import-static-site-label-present' );
+$assert( str_contains( $source, 'Paste HTML' ), 'paste-html-label-present' );
+$assert( str_contains( $source, 'Source-site ZIP' ), 'zip-field-label-renamed' );
 $assert( str_contains( $source, 'name="static_site_pasted_html"' ), 'paste-html-textarea-present' );
 $assert( str_contains( $source, 'name="static_site_url"' ), 'url-input-present' );
 $assert( str_contains( $source, 'Static_Site_Importer_URL_Fetcher::fetch_to_work_dir' ), 'admin-url-fetcher-used' );
@@ -52,7 +52,8 @@ $assert( str_contains( $source, "'index.html'" ), 'admin-intake-stores-index-htm
 $assert( str_contains( $source, 'prepare_uploaded_zip_file' ), 'zip-import-helper-present' );
 $assert( str_contains( $source, 'find_index_html' ), 'zip-index-discovery-preserved' );
 $assert( str_contains( $source, 'Paste HTML content, enter a public URL, upload a single HTML file, or upload a ZIP containing index.html.' ), 'empty-intake-validation-message-present' );
-$assert( str_contains( $source, 'multi-page static site or bundled HTML export' ), 'zip-copy-explains-bundle-contract' );
+$assert( str_contains( $source, 'optional nested .md/.markdown content documents' ), 'zip-copy-explains-mixed-source-contract' );
+$assert( str_contains( $source, '.mdx files are skipped with import-report diagnostics' ), 'zip-copy-explains-mdx-diagnostic' );
 $assert( str_contains( $source, 'validate_zip_archive' ), 'zip-archive-validation-method-exists' );
 $assert( str_contains( $source, "class_exists( 'ZipArchive' )" ), 'ziparchive-inspection-is-conditional' );
 $assert( str_contains( $source, 'is_unsafe_archive_path' ), 'unsafe-archive-path-check-exists' );
@@ -72,4 +73,4 @@ if ( $failures ) {
 	exit( 1 );
 }
 
-echo 'OK: admin Import HTML entry smoke passed (' . $assertions . " assertions)\n";
+echo 'OK: admin Import Static Site entry smoke passed (' . $assertions . " assertions)\n";

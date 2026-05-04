@@ -1,0 +1,8 @@
+:root {
+	--accent: #2d6cdf;
+}
+
+.site-header {
+	display: flex;
+	gap: 1rem;
+}

@@ -56,6 +56,11 @@ const steps = [
     args: [ ...wpCli.slice( 1 ), 'eval-file', path.join( repoRoot, 'tests/smoke-wordpress-is-dead-fixture.php' ) ],
   },
   {
+    name: 'Mixed source fixture smoke',
+    command: wpCli[ 0 ],
+    args: [ ...wpCli.slice( 1 ), 'eval-file', path.join( repoRoot, 'tests/smoke-mixed-source-fixture.php' ) ],
+  },
+  {
     name: 'Extracted chrome fragments smoke',
     command: wpCli[ 0 ],
     args: [ ...wpCli.slice( 1 ), 'eval-file', path.join( repoRoot, 'tests/smoke-extracted-chrome-fragments.php' ) ],

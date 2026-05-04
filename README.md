@@ -1,16 +1,17 @@
 # Static Site Importer
 
-Import a static HTML site into WordPress pages and a companion block theme using the bundled [Block Format Bridge](https://github.com/chubes4/block-format-bridge) converter.
+Import a static site into WordPress pages and a companion block theme using the bundled [Block Format Bridge](https://github.com/chubes4/block-format-bridge) converter.
 
 Static Site Importer is a WordPress plugin. It installs [Block Format Bridge](https://github.com/chubes4/block-format-bridge) through Composer and loads its bundled converter directly from `vendor/`.
 
 ## What It Does
 
-- Adds an **Import HTML** button on the **Appearance -> Themes** screen.
-- Accepts pasted HTML, one public HTML URL, a direct `.html` / `.htm` upload, or a ZIP containing a static-site folder with an `index.html` entry point.
+- Adds an **Import Static Site** button on the **Appearance -> Themes** screen.
+- Accepts pasted HTML, one public HTML URL, a direct `.html` / `.htm` upload, or a ZIP containing a static-site folder with an `index.html` shell/chrome entry point.
+- Allows ZIP/CLI source-site imports to include nested `.md` / `.markdown` content documents; `.mdx` is skipped with explicit diagnostics because MDX runtime components are not supported.
 - Provides a WP-CLI importer for a local HTML entry file or one public HTML URL; the local source file does not need to be named `index.html` unless you want automatic front-page assignment.
-- Discovers readable sibling `*.html` files beside the selected entry file and imports them as WordPress pages.
-- Converts static HTML fragments through `bfb_convert( $html, 'html', 'blocks' )`.
+- Discovers readable sibling `*.html` files beside the selected entry file and recursive Markdown content documents under the source tree, then imports them as WordPress pages.
+- Converts static HTML fragments through `bfb_convert( $html, 'html', 'blocks' )` and Markdown content through `bfb_convert( $markdown, 'markdown', 'blocks' )`.
 - Stores converted page bodies on the imported WordPress pages as `post_content`.
 - Generates a block theme with shared header/footer template parts, `core/post-content` templates, page patterns for reusable/reference artifacts, `theme.json`, `style.css`, and optional `assets/site.js`.
 - Rewrites local `.html` links to the imported WordPress page permalinks.
@@ -29,12 +30,12 @@ The current Composer dependency is [`chubes4/block-format-bridge:^0.7.1`](https:
 
 ## Admin Usage
 
-1. Open **Appearance -> Themes** and click **Import HTML** beside the standard **Add Theme** button.
-2. Paste a single HTML document, enter a public `http` / `https` URL, upload a single `.html` / `.htm` file, or upload a ZIP containing a static-site folder with an `index.html` entry point.
+1. Open **Appearance -> Themes** and click **Import Static Site** beside the standard **Add Theme** button.
+2. Paste a single HTML document, enter a public `http` / `https` URL, upload a single `.html` / `.htm` file, or upload a ZIP containing a static-site folder with an `index.html` entry point and optional `.md` / `.markdown` content documents.
 3. Optionally provide a theme name and slug.
 4. Leave **Activate imported theme** checked if the generated theme should become active immediately.
 
-The admin path always overwrites an existing generated theme with the same slug. Pasted HTML, fetched URL HTML, and direct HTML uploads are copied into a generated upload work directory as `index.html` and imported as a single-page site. ZIP uploads are for multi-page static sites or bundled HTML exports; they are extracted to an upload work directory, the selected `index.html` is used as the entry file, and sibling HTML files from that extracted site directory are imported. The importer does not require the original source model to be a single `index.html`; it needs one selected HTML entry file and imports the sibling HTML pages it can read.
+The admin path always overwrites an existing generated theme with the same slug. Pasted HTML, fetched URL HTML, and direct HTML uploads are copied into a generated upload work directory as `index.html` and imported as a single-page site. ZIP uploads are for multi-page static sites or bundled source-site exports; they are extracted to an upload work directory, the selected `index.html` is used as the entry file, sibling HTML files from that extracted site directory are imported, and nested `.md` / `.markdown` files are imported as content pages. The importer does not require the original source model to be a single `index.html`; it needs one selected HTML entry file for shared shell/chrome and imports the source content documents it can read.
 
 URL intake rules:
 
@@ -51,6 +52,7 @@ ZIP intake rules:
 - If there is no root-level `index.html`, the ZIP may contain exactly one nested `index.html`, such as `site-export/index.html`.
 - If there are multiple nested `index.html` files and no root `index.html`, the import fails so the entry point is not guessed.
 - Archive entries with absolute paths, `../` traversal segments, or server-side executable extensions are rejected before extraction when PHP's `ZipArchive` inspection is available.
+- `.md` and `.markdown` files under the selected source tree are imported as pages. `.mdx` files are not executed or parsed as Markdown; they are skipped and listed in `import-report.json` diagnostics.
 
 ## CLI Usage
 
@@ -73,11 +75,11 @@ wp static-site-importer import-url https://example.com/ \
   --report=report.json
 ```
 
-The CLI path imports all readable sibling `*.html` files in the same directory as the provided entry file. The entry file supplies the theme title, shared source chrome, background decoration, styles, and inline scripts; each sibling HTML file supplies a WordPress page body.
+The CLI path imports all readable sibling `*.html` files in the same directory as the provided entry file plus recursive `.md` / `.markdown` content documents under the source tree. The entry file supplies the theme title, shared source chrome, background decoration, styles, and inline scripts; each source content file supplies a WordPress page body. `.mdx` files are unsupported and reported as skipped diagnostics.
 
 `index.html` has special front-page behavior: it becomes the `home` page slug and, when `--activate` is used, is assigned as the site's static front page. If the imported directory has no `index.html`, the pages are still imported, but the importer does not assign `page_on_front` automatically.
 
-By default, source directories are deleted after a successful clean import so generated upload work directories do not accumulate. Sources are preserved when conversion quality checks report issues. Use `--keep-source` with CLI imports when you want to keep the original local source directory or fetched URL fixture after a successful clean import for debugging or development.
+By default, source directories are deleted after a successful clean import so generated upload work directories do not accumulate. Sources are preserved when conversion quality checks report issues. Use `--keep-source` with CLI imports when you want to keep the original local source directory or fetched URL fixture after a successful clean import for debugging or development. Import reports include a `source_documents` summary with counts by format, skipped MDX count, unresolved local links, and Markdown parse-error diagnostics.
 
 ## Generated Theme Shape
 
@@ -147,9 +149,10 @@ wp eval-file tests/smoke-admin-import-html-entry.php
 wp eval-file tests/smoke-url-import-entry.php
 wp eval-file tests/smoke-editor-style-support.php
 wp eval-file tests/smoke-wordpress-is-dead-fixture.php
+wp eval-file tests/smoke-mixed-source-fixture.php
 ```
 
-The `wordpress-is-dead` smoke verifies the multi-page fixture, generated block-theme artifacts, internal-link rewrites, persistent navigation entities, source CSS preservation, editor style support, conservative `theme.json` palette extraction, and selector fidelity across stored/rendered paths.
+The `wordpress-is-dead` smoke verifies the multi-page fixture, generated block-theme artifacts, internal-link rewrites, persistent navigation entities, source CSS preservation, editor style support, conservative `theme.json` palette extraction, and selector fidelity across stored/rendered paths. The `mixed-source-site` smoke verifies an Astro-like source tree with `index.html`, nested Markdown content documents, explicit skipped-MDX diagnostics, report source counts, and generated page block markup.
 
 ### PHPUnit Fixture Test
 
@@ -187,11 +190,12 @@ This repo is Homeboy-managed:
 ## Current Boundaries And Limitations
 
 - The importer is intentionally static-site-to-block-theme glue. Block Format Bridge owns format conversion; HTML-to-block transform fidelity belongs upstream in BFB/h2bc.
-- The importer currently discovers flat sibling `*.html` files beside the selected entry file; it does not crawl arbitrary nested routes.
-- Admin imports accept pasted HTML, one public URL, a direct `.html` / `.htm` file, or a ZIP with a root `index.html` or exactly one nested `index.html`; CLI imports take a direct HTML file path or one public URL.
+- The importer currently discovers flat sibling `*.html` files beside the selected entry file and recursive Markdown content documents; it does not crawl arbitrary nested HTML routes.
+- Admin imports accept pasted HTML, one public URL, a direct `.html` / `.htm` file, or a ZIP with a root `index.html` or exactly one nested `index.html`; CLI imports take a direct HTML entry path or one public URL.
+- MDX, Astro, Eleventy, Hugo, and other runtime/build orchestration is out of scope. Build those projects to static HTML first, or provide plain `.md` / `.markdown` source content alongside the HTML shell.
 - Linked local stylesheets and inline styles are copied into `style.css`; inline scripts are copied into `assets/site.js`. Other asset copying is not a general-purpose crawler yet.
 - Navigation persistence is limited to supported header/footer shapes that can be converted into deterministic `wp_navigation` entities without guessing.
-- External live triage has exercised additional static sites, but the committed first-party fixture is `tests/fixtures/wordpress-is-dead/`.
+- External live triage has exercised additional static sites; committed first-party fixtures include `tests/fixtures/wordpress-is-dead/` and `tests/fixtures/mixed-source-site/`.
 
 ## Boundary
 

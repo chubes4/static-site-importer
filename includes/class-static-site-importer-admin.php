@@ -10,7 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Adds the Import HTML admin entry point.
+ * Adds the source-site import admin entry point.
  */
 class Static_Site_Importer_Admin {
 
@@ -33,8 +33,8 @@ class Static_Site_Importer_Admin {
 	public static function register_import_page(): void {
 		add_submenu_page(
 			null, // @phpstan-ignore argument.type
-			'Import HTML',
-			'Import HTML',
+			'Import Static Site',
+			'Import Static Site',
 			'switch_themes',
 			'static-site-importer',
 			array( __CLASS__, 'render_page' )
@@ -42,7 +42,7 @@ class Static_Site_Importer_Admin {
 	}
 
 	/**
-	 * Add an Import HTML button beside Add Theme on Appearance -> Themes.
+	 * Add an Import Static Site button beside Add Theme on Appearance -> Themes.
 	 *
 	 * @return void
 	 */
@@ -52,7 +52,7 @@ class Static_Site_Importer_Admin {
 		}
 
 		$url   = admin_url( 'admin.php?page=static-site-importer' );
-		$label = __( 'Import HTML', 'static-site-importer' );
+		$label = __( 'Import Static Site', 'static-site-importer' );
 		?>
 		<script>
 			document.addEventListener( 'DOMContentLoaded', function () {
@@ -84,14 +84,14 @@ class Static_Site_Importer_Admin {
 	 */
 	public static function render_page(): void {
 		if ( ! current_user_can( 'switch_themes' ) ) {
-			wp_die( esc_html__( 'You are not allowed to import HTML.', 'static-site-importer' ) );
+			wp_die( esc_html__( 'You are not allowed to import static sites.', 'static-site-importer' ) );
 		}
 
 		$result = isset( $_GET['static_site_imported'] ) ? sanitize_text_field( wp_unslash( $_GET['static_site_imported'] ) ) : '';
 		$error  = isset( $_GET['static_site_error'] ) ? sanitize_text_field( wp_unslash( $_GET['static_site_error'] ) ) : '';
 		?>
 		<div class="wrap">
-			<h1><?php echo esc_html__( 'Import HTML', 'static-site-importer' ); ?></h1>
+			<h1><?php echo esc_html__( 'Import Static Site', 'static-site-importer' ); ?></h1>
 
 			<?php if ( '' !== $result ) : ?>
 				<div class="notice notice-success"><p>
@@ -107,7 +107,7 @@ class Static_Site_Importer_Admin {
 				<div class="notice notice-error"><p><?php echo esc_html( $error ); ?></p></div>
 			<?php endif; ?>
 
-			<p><?php echo esc_html__( 'Paste HTML, fetch a public URL, upload a single HTML file, or upload a ZIP for a multi-page static site or bundled HTML export. The importer will convert the HTML into a WordPress block theme using Block Format Bridge.', 'static-site-importer' ); ?></p>
+			<p><?php echo esc_html__( 'Paste HTML, fetch a public URL, upload a single HTML file, or upload a ZIP for a source-site export. ZIP imports use index.html as the shell/chrome entry and can include .md or .markdown content documents. MDX is reported as unsupported; build MDX to static HTML before importing.', 'static-site-importer' ); ?></p>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
 				<?php wp_nonce_field( 'static_site_importer_import' ); ?>
@@ -118,7 +118,7 @@ class Static_Site_Importer_Admin {
 						<th scope="row"><label for="static-site-pasted-html"><?php echo esc_html__( 'Paste HTML', 'static-site-importer' ); ?></label></th>
 						<td>
 							<textarea id="static-site-pasted-html" name="static_site_pasted_html" class="large-text code" rows="14" placeholder="<!doctype html>"></textarea>
-							<p class="description"><?php echo esc_html__( 'Use this for one-page HTML copied from an AI builder or template source. Leave empty to fetch a URL, import an HTML file, or import a ZIP instead.', 'static-site-importer' ); ?></p>
+							<p class="description"><?php echo esc_html__( 'Use this for one-page HTML copied from an AI builder or template source. Leave empty to fetch a URL, import an HTML file, or import a ZIP source site instead.', 'static-site-importer' ); ?></p>
 						</td>
 					</tr>
 					<tr>
@@ -136,10 +136,10 @@ class Static_Site_Importer_Admin {
 						</td>
 					</tr>
 					<tr>
-						<th scope="row"><label for="static-site-zip"><?php echo esc_html__( 'HTML ZIP', 'static-site-importer' ); ?></label></th>
+						<th scope="row"><label for="static-site-zip"><?php echo esc_html__( 'Source-site ZIP', 'static-site-importer' ); ?></label></th>
 						<td>
 							<input type="file" id="static-site-zip" name="static_site_zip" accept=".zip" />
-							<p class="description"><?php echo esc_html__( 'Use this for a site folder packaged as a ZIP with an index.html file and sibling HTML pages. Pasted HTML and single HTML uploads take precedence when provided.', 'static-site-importer' ); ?></p>
+							<p class="description"><?php echo esc_html__( 'Use this for a site folder packaged as a ZIP with an index.html entry, sibling HTML pages, and optional nested .md/.markdown content documents. .mdx files are skipped with import-report diagnostics. Pasted HTML and single HTML uploads take precedence when provided.', 'static-site-importer' ); ?></p>
 						</td>
 					</tr>
 					<tr>
@@ -156,7 +156,7 @@ class Static_Site_Importer_Admin {
 					</tr>
 				</table>
 
-				<?php submit_button( __( 'Import HTML', 'static-site-importer' ) ); ?>
+				<?php submit_button( __( 'Import Static Site', 'static-site-importer' ) ); ?>
 			</form>
 		</div>
 		<?php
@@ -169,7 +169,7 @@ class Static_Site_Importer_Admin {
 	 */
 	public static function handle_import(): void {
 		if ( ! current_user_can( 'switch_themes' ) ) {
-			wp_die( esc_html__( 'You are not allowed to import HTML.', 'static-site-importer' ) );
+			wp_die( esc_html__( 'You are not allowed to import static sites.', 'static-site-importer' ) );
 		}
 
 		check_admin_referer( 'static_site_importer_import' );
@@ -225,7 +225,7 @@ class Static_Site_Importer_Admin {
 	}
 
 	/**
-	 * Prepare an HTML entry file from URL, upload, or ZIP intake.
+	 * Prepare an HTML entry file from URL, upload, or source-site ZIP intake.
 	 *
 	 * @return array{html_path:string,metadata:array<string,mixed>}|WP_Error
 	 */
@@ -309,7 +309,7 @@ class Static_Site_Importer_Admin {
 	}
 
 	/**
-	 * Extract an uploaded ZIP and return its index.html path.
+	 * Extract an uploaded source-site ZIP and return its index.html path.
 	 *
 	 * @param string $work_dir Importer work directory.
 	 * @return string HTML entry path.
@@ -412,7 +412,7 @@ class Static_Site_Importer_Admin {
 
 			if ( self::is_server_side_file( $name ) ) {
 				$zip->close();
-				return new WP_Error( 'static_site_importer_server_side_file', 'The uploaded ZIP contains server-side code. Static Site Importer only accepts static HTML, CSS, JavaScript, images, fonts, and related assets.' );
+				return new WP_Error( 'static_site_importer_server_side_file', 'The uploaded ZIP contains server-side code. Static Site Importer only accepts static HTML, Markdown content, CSS, JavaScript, images, fonts, and related assets.' );
 			}
 		}
 
