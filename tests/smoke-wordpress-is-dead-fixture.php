@@ -43,7 +43,8 @@ $expect_failure = static function ( bool $condition, string $label, string $deta
 };
 
 $read = static function ( string $path ): string {
-	$contents = file_get_contents( $path );
+	global $wp_filesystem;
+	$contents = $wp_filesystem->get_contents( $path );
 	return false === $contents ? '' : $contents;
 };
 
@@ -53,8 +54,8 @@ $selector_count = static function ( string $content, string $selector ): int {
 
 	$count = 0;
 	foreach ( $matches as $match ) {
-		$attribute = $match[1] ?: $match[2];
-		$tokens    = preg_split( '/\s+/', trim( $attribute ) ) ?: array();
+		$attribute = $match[1] ? $match[1] : $match[2];
+		$tokens    = preg_split( '/\s+/', trim( $attribute ) ) ? preg_split( '/\s+/', trim( $attribute ) ) : array();
 		if ( empty( array_diff( $classes, $tokens ) ) ) {
 			$count++;
 		}

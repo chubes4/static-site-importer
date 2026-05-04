@@ -35,7 +35,8 @@ $assert = static function ( bool $condition, string $label, string $detail = '' 
 };
 
 $read = static function ( string $path ): string {
-	$contents = file_get_contents( $path );
+	global $wp_filesystem;
+	$contents = $wp_filesystem->get_contents( $path );
 	return false === $contents ? '' : $contents;
 };
 

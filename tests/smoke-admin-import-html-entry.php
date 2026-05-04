@@ -8,7 +8,7 @@
  * @package StaticSiteImporter
  */
 
-$source = file_get_contents( dirname( __DIR__ ) . '/includes/class-static-site-importer-admin.php' );
+$source = $wp_filesystem->get_contents( dirname( __DIR__ ) . '/includes/class-static-site-importer-admin.php' );
 if ( false === $source ) {
 	fwrite( STDERR, "FAIL [admin-source-readable]\n" );
 	exit( 1 );

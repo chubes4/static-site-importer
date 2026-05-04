@@ -50,11 +50,12 @@ class Static_Site_Importer_Document {
 	 * @return self|WP_Error
 	 */
 	public static function from_file( string $path ) {
+		global $wp_filesystem;
 		if ( ! is_file( $path ) ) {
 			return new WP_Error( 'static_site_importer_unreadable_file', sprintf( 'HTML file is not readable: %s', $path ) );
 		}
 
-		$html = file_get_contents( $path );
+		$html = $wp_filesystem->get_contents( $path );
 		if ( false === $html || '' === trim( $html ) ) {
 			return new WP_Error( 'static_site_importer_empty_file', sprintf( 'HTML file is empty: %s', $path ) );
 		}

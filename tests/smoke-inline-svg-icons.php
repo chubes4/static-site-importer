@@ -35,7 +35,8 @@ $assert = static function ( bool $condition, string $label, string $detail = '' 
 };
 
 $read = static function ( string $path ): string {
-	$contents = file_get_contents( $path );
+	global $wp_filesystem;
+	$contents = $wp_filesystem->get_contents( $path );
 	return false === $contents ? '' : $contents;
 };
 
@@ -45,10 +46,11 @@ $pattern_blocks = static function ( string $pattern_file ): string {
 };
 
 $write_fixture = static function ( string $filename, string $html ): string {
+	global $wp_filesystem;
 	$dir = trailingslashit( get_temp_dir() ) . 'static-site-importer-svg-' . wp_generate_uuid4();
 	wp_mkdir_p( $dir );
 	$path = trailingslashit( $dir ) . $filename;
-	file_put_contents( $path, $html );
+	$wp_filesystem->put_contents( $path, $html );
 	return $path;
 };
 

@@ -165,14 +165,14 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		$writes = array(
-			$theme_dir . '/style.css'                    => self::style_css( $theme_name, $site_css, array_keys( self::$button_wrapper_classes ) ),
+			$theme_dir . '/style.css'                   => self::style_css( $theme_name, $site_css, array_keys( self::$button_wrapper_classes ) ),
 			$theme_dir . '/assets/css/editor-style.css' => self::editor_style_css( $site_css, array_keys( self::$button_wrapper_classes ) ),
-			$theme_dir . '/functions.php'                => self::functions_php( $theme_slug ),
-			$theme_dir . '/theme.json'                   => self::theme_json( $theme_name, $site_css ),
-			$theme_dir . '/parts/header.html'            => $header_blocks,
-			$theme_dir . '/templates/front-page.html'    => self::content_template( $background_blocks, $has_footer_part ),
-			$theme_dir . '/templates/page.html'          => self::content_template( $background_blocks, $has_footer_part ),
-			$theme_dir . '/templates/index.html'         => self::content_template( $background_blocks, $has_footer_part ),
+			$theme_dir . '/functions.php'               => self::functions_php( $theme_slug ),
+			$theme_dir . '/theme.json'                  => self::theme_json( $theme_name, $site_css ),
+			$theme_dir . '/parts/header.html'           => $header_blocks,
+			$theme_dir . '/templates/front-page.html'   => self::content_template( $background_blocks, $has_footer_part ),
+			$theme_dir . '/templates/page.html'         => self::content_template( $background_blocks, $has_footer_part ),
+			$theme_dir . '/templates/index.html'        => self::content_template( $background_blocks, $has_footer_part ),
 		);
 		if ( $has_footer_part ) {
 			$writes[ $theme_dir . '/parts/footer.html' ] = $footer_blocks;
@@ -600,7 +600,7 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		if ( 'a' === $tag ) {
-			return self::link_element_block( $doc, $element, $location );
+			return self::link_element_block( $doc, $element);
 		}
 
 		if ( 'img' === $tag ) {
@@ -902,7 +902,7 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param DOMElement  $element Anchor element.
 	 * @return string
 	 */
-	private static function link_element_block( DOMDocument $doc, DOMElement $element, string $location = '' ): string {
+	private static function link_element_block( DOMDocument $doc, DOMElement $element): string {
 		$href  = trim( $element->getAttribute( 'href' ) );
 		$label = trim( $element->textContent );
 		if ( '' === $href || '' === $label ) {

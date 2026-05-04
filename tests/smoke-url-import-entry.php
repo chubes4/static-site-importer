@@ -45,9 +45,9 @@ if ( ! function_exists( 'wp_parse_url' ) ) {
 }
 
 $root    = dirname( __DIR__ );
-$fetcher = file_get_contents( $root . '/includes/class-static-site-importer-url-fetcher.php' );
-$cli     = file_get_contents( $root . '/includes/class-static-site-importer-cli-command.php' );
-$admin   = file_get_contents( $root . '/includes/class-static-site-importer-admin.php' );
+$fetcher = $wp_filesystem->get_contents( $root . '/includes/class-static-site-importer-url-fetcher.php' );
+$cli     = $wp_filesystem->get_contents( $root . '/includes/class-static-site-importer-cli-command.php' );
+$admin   = $wp_filesystem->get_contents( $root . '/includes/class-static-site-importer-admin.php' );
 
 if ( false === $fetcher || false === $cli || false === $admin ) {
 	fwrite( STDERR, "FAIL [source-readable]\n" );
