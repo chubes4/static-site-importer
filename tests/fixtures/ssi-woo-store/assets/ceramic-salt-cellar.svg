@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" role="img" aria-labelledby="title desc">
+  <title id="title">Ceramic Salt Cellar</title>
+  <desc id="desc">A cream ceramic salt cellar with a brass spoon.</desc>
+  <rect width="640" height="480" fill="#fbf4e8" />
+  <ellipse cx="320" cy="185" rx="150" ry="58" fill="#fffaf0" stroke="#22170f" stroke-width="12" />
+  <path d="M170 185l42 150c20 42 196 42 216 0l42-150" fill="#fffaf0" stroke="#22170f" stroke-width="12" />
+  <path d="M380 205l115-60" stroke="#b98228" stroke-width="16" stroke-linecap="round" />
+  <circle cx="510" cy="138" r="24" fill="#b98228" />
+</svg>

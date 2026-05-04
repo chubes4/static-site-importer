@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" role="img" aria-labelledby="title desc">
+  <title id="title">Walnut Bench Scraper</title>
+  <desc id="desc">A stainless steel bench scraper with a walnut handle.</desc>
+  <rect width="640" height="480" fill="#fbf4e8" />
+  <rect x="150" y="170" width="340" height="190" rx="18" fill="#d8d8d8" stroke="#22170f" stroke-width="12" />
+  <rect x="170" y="120" width="300" height="70" rx="26" fill="#6f4425" stroke="#22170f" stroke-width="12" />
+  <path d="M215 150h210" stroke="#9b6a3a" stroke-width="10" stroke-linecap="round" />
+</svg>

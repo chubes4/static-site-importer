@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" role="img" aria-labelledby="title desc">
+  <title id="title">Canvas Prep Apron</title>
+  <desc id="desc">A tan canvas apron with dark straps.</desc>
+  <rect width="640" height="480" fill="#fbf4e8" />
+  <path d="M235 105h170l55 285H180z" fill="#c69b65" stroke="#22170f" stroke-width="12" />
+  <path d="M250 105c20 55 120 55 140 0" fill="none" stroke="#22170f" stroke-width="12" />
+  <path d="M190 395h260" stroke="#22170f" stroke-width="12" />
+  <path d="M225 185h190" stroke="#765f49" stroke-width="10" />
+</svg>

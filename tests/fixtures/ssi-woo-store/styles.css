@@ -1,0 +1,109 @@
+:root {
+  --ink: #22170f;
+  --paper: #fbf4e8;
+  --muted: #765f49;
+  --brass: #b98228;
+  --cream: #fffaf0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: Georgia, serif;
+  line-height: 1.6;
+}
+
+a {
+  color: inherit;
+}
+
+.site-header,
+footer {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  padding: 1.25rem clamp(1rem, 5vw, 4rem);
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+nav {
+  display: flex;
+  gap: 1rem;
+}
+
+.hero,
+.page-heading,
+.featured-products,
+.values {
+  margin: 0 auto;
+  max-width: 72rem;
+  padding: clamp(2rem, 8vw, 6rem) clamp(1rem, 5vw, 4rem);
+}
+
+.hero {
+  min-height: 54vh;
+}
+
+.hero h1,
+.page-heading h1 {
+  font-size: clamp(2.75rem, 8vw, 6.5rem);
+  line-height: 0.95;
+  margin: 0 0 1rem;
+  max-width: 11ch;
+}
+
+.eyebrow,
+.product-category {
+  color: var(--muted);
+  font-family: Arial, sans-serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.button {
+  background: var(--ink);
+  border-radius: 999px;
+  color: var(--cream);
+  display: inline-block;
+  font-family: Arial, sans-serif;
+  font-weight: 700;
+  padding: 0.9rem 1.2rem;
+  text-decoration: none;
+}
+
+.product-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+}
+
+.product-card {
+  background: var(--cream);
+  border: 1px solid color-mix(in srgb, var(--brass), transparent 55%);
+  border-radius: 1.5rem;
+  padding: 1.25rem;
+}
+
+.product-card h2,
+.product-card h3 {
+  margin: 0 0 0.75rem;
+}
+
+.price {
+  color: var(--brass);
+  font-family: Arial, sans-serif;
+  font-weight: 700;
+}

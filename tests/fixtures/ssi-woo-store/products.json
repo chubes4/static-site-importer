@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "currency": "USD",
+  "products": [
+    {
+      "handle": "canvas-prep-apron",
+      "name": "Canvas Prep Apron",
+      "description": "Cross-back apron with reinforced towel loop and deep prep pockets.",
+      "sku": "BCS-APRON-CANVAS",
+      "price": "64.00",
+      "regular_price": "64.00",
+      "categories": ["Linen"],
+      "images": ["assets/canvas-prep-apron.svg"],
+      "featured": true
+    },
+    {
+      "handle": "walnut-bench-scraper",
+      "name": "Walnut Bench Scraper",
+      "description": "Stainless scraper with a walnut grip for dough, herbs, and cleanup.",
+      "sku": "BCS-SCRAPER-WALNUT",
+      "price": "28.00",
+      "regular_price": "28.00",
+      "categories": ["Tools"],
+      "images": ["assets/walnut-bench-scraper.svg"],
+      "featured": true
+    },
+    {
+      "handle": "ceramic-salt-cellar",
+      "name": "Ceramic Salt Cellar",
+      "description": "Hand-thrown stoneware cellar with a wide pinch opening and cork base.",
+      "sku": "BCS-SALT-CELLAR",
+      "price": "36.00",
+      "regular_price": "36.00",
+      "categories": ["Pantry"],
+      "images": ["assets/ceramic-salt-cellar.svg"],
+      "featured": false
+    }
+  ]
+}
