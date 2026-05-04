@@ -44,6 +44,7 @@ if ( ! class_exists( 'BFB_CLI_Command' ) ) {
 				$output = wp_json_encode( $report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 				if ( false === $output ) {
 					WP_CLI::error( 'Failed to encode capabilities as JSON.' );
+					return;
 				}
 				WP_CLI::line( $output );
 				return;
@@ -120,13 +121,15 @@ if ( ! class_exists( 'BFB_CLI_Command' ) ) {
 				$output = wp_json_encode( bfb_to_blocks( $content, $from ), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 				if ( false === $output ) {
 					WP_CLI::error( 'Failed to encode block output as JSON.' );
+					return;
 				}
 			} else {
 				$output = bfb_convert( $content, $from, $to );
 			}
 
-			if ( false === $output || '' === $output ) {
+			if ( '' === $output ) {
 				WP_CLI::error( sprintf( 'BFB conversion failed for %s -> %s.', $from, $to ) );
+				return;
 			}
 
 			$this->write_output( $output, isset( $assoc_args['output'] ) ? (string) $assoc_args['output'] : '' );
@@ -178,6 +181,7 @@ if ( ! class_exists( 'BFB_CLI_Command' ) ) {
 				$output = wp_json_encode( $report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 				if ( false === $output ) {
 					WP_CLI::error( 'Failed to encode analysis report as JSON.' );
+					return;
 				}
 				WP_CLI::line( $output );
 				return;

@@ -57,7 +57,7 @@ if (!\function_exists('BlockFormatBridge\Vendor\serialize_block')) {
         $content = '';
         $index = 0;
         foreach ($inner_content as $chunk) {
-            if ($chunk === null) {
+            if (null === $chunk) {
                 $content .= serialize_block($inner_blocks[$index] ?? []);
                 $index++;
                 continue;
@@ -79,7 +79,7 @@ $assertions = 0;
 $assert = static function ($condition, $label, $detail = '') use (&$failures, &$assertions) {
     $assertions++;
     if (!$condition) {
-        $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
+        $failures[] = 'FAIL [' . $label . ']' . ('' !== $detail ? ': ' . $detail : '');
     }
 };
 $paragraph = HTML_To_Blocks_Block_Factory::create_block('core/paragraph', ['content' => 'A generated static website.', 'className' => 'lede']);
@@ -93,7 +93,7 @@ $preformatted = HTML_To_Blocks_Block_Factory::create_block('core/preformatted', 
 $serialized = serialize_blocks([$group, $css_var_background_group, $empty_decorative_group, $list, $preformatted]);
 $assert(\strpos($serialized, '<section class="wp-block-group hero">') !== \false, 'group-static-html-uses-tag-and-class', $serialized);
 $assert(\strpos($serialized, '<section class="wp-block-group has-background" style="background-color:var(--surface)">') !== \false, 'group-css-var-background-serializes-inline-style', $serialized);
-$assert($empty_decorative_group['innerHTML'] === '<div class="wp-block-group hero-glow-1"></div>', 'empty-group-inner-html-matches-gutenberg-save', $empty_decorative_group['innerHTML']);
+$assert('<div class="wp-block-group hero-glow-1"></div>' === $empty_decorative_group['innerHTML'], 'empty-group-inner-html-matches-gutenberg-save', $empty_decorative_group['innerHTML']);
 $assert($empty_decorative_group['innerContent'] === ['<div class="wp-block-group hero-glow-1"></div>'], 'empty-group-inner-content-is-complete-wrapper', \var_export($empty_decorative_group['innerContent'], \true));
 $assert(\strpos($serialized, '<!-- wp:group {"className":"hero-glow-1"} --><div class="wp-block-group hero-glow-1"></div><!-- /wp:group -->') !== \false, 'empty-group-serializes-valid-original-content', $serialized);
 $assert(\strpos($serialized, '<h1 class="wp-block-heading hero-title">WordPress is officially dead.</h1>') !== \false, 'heading-static-html-preserves-class', $serialized);

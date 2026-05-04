@@ -15,19 +15,21 @@ require_once $repo_root . '/tools/generate-core-block-inventory.php';
 $assert = static function ($condition, $label, $detail = '') use (&$failures, &$assertions) {
     $assertions++;
     if (!$condition) {
-        $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
+        $failures[] = 'FAIL [' . $label . ']' . ('' !== $detail ? ': ' . $detail : '');
     }
 };
 $read_json = static function (string $path) use ($assert): array {
-    $raw = \file_get_contents($path);
-    $assert(\is_string($raw) && $raw !== '', \basename($path) . '-readable', 'Unable to read ' . $path);
+    global $wp_filesystem;
+    $raw = $wp_filesystem->get_contents($path);
+    $assert(\is_string($raw) && '' !== $raw, \basename($path) . '-readable', 'Unable to read ' . $path);
     $data = \is_string($raw) ? \json_decode($raw, \true) : null;
     $assert(\is_array($data), \basename($path) . '-valid-json', 'Invalid JSON in ' . $path);
     return \is_array($data) ? $data : [];
 };
 $read_required_file = static function (string $path) use ($assert): string {
-    $contents = \file_get_contents($path);
-    $assert(\is_string($contents) && $contents !== '', \basename($path) . '-readable', 'Unable to read ' . $path);
+    global $wp_filesystem;
+    $contents = $wp_filesystem->get_contents($path);
+    $assert(\is_string($contents) && '' !== $contents, \basename($path) . '-readable', 'Unable to read ' . $path);
     return \is_string($contents) ? $contents : '';
 };
 $blocks_dir = \getenv('H2BC_CORE_BLOCKS_DIR');
@@ -41,7 +43,7 @@ $inventory_blocks = [];
 foreach ((array) ($inventory['blocks'] ?? []) as $block) {
     $name = $block['name'] ?? '';
     $assert(\is_string($name) && \strpos($name, 'core/') === 0, 'inventory-block-name-' . (string) $name);
-    if (\is_string($name) && $name !== '') {
+    if (\is_string($name) && '' !== $name) {
         $inventory_blocks[$name] = $block;
     }
     foreach (['category', 'attributes', 'supports', 'allowedBlocks', 'usesContext', 'providesContext', 'selectors'] as $field) {
@@ -79,10 +81,10 @@ foreach ($matches[1] as $block_name) {
 }
 foreach ($classifications as $block_name => $entry) {
     $bucket = $entry['bucket'] ?? '';
-    if ($bucket === 'raw-transformable') {
+    if ('raw-transformable' === $bucket) {
         $assert(isset($raw_transform_blocks[$block_name]) || isset($generated_blocks[$block_name]), 'raw-transformable-has-source-' . $block_name);
     }
-    if ($bucket === 'explicit-marker') {
+    if ('explicit-marker' === $bucket) {
         $assert(isset($raw_transform_blocks[$block_name]) || isset($generated_blocks[$block_name]), 'explicit-marker-has-source-' . $block_name);
     }
     if (\in_array($bucket, ['compiler-only', 'dynamic-unsupported'], \true)) {

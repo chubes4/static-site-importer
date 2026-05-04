@@ -3,9 +3,9 @@
 namespace BlockFormatBridge\Vendor;
 
 /**
- * Smoke test: labeled detail wrappers with br-separated contact text convert natively.
+ * Smoke test: product-grid fixtures stay static until commerce context exists.
  *
- * Run: php tests/smoke-detail-br-wrapper-fallback.php
+ * Run: php tests/smoke-product-grid-context-gate.php
  */
 // phpcs:disable
 if (!\defined('ABSPATH')) {
@@ -44,7 +44,7 @@ if (!\class_exists('WP_Block_Type_Registry', \false)) {
         }
         public function is_registered($name)
         {
-            return \in_array($name, ['core/group', 'core/heading', 'core/html', 'core/paragraph'], \true);
+            return \in_array($name, ['core/button', 'core/buttons', 'core/group', 'core/heading', 'core/html', 'core/image', 'core/paragraph'], \true);
         }
         public function get_registered($name)
         {
@@ -70,9 +70,14 @@ if (!\function_exists('BlockFormatBridge\Vendor\get_shortcode_regex')) {
         return '(?!)';
     }
 }
+$unsupported_fallback_events = [];
 if (!\function_exists('do_action')) {
     function do_action($hook_name, ...$args)
     {
+        global $unsupported_fallback_events;
+        if ('html_to_blocks_unsupported_html_fallback' === $hook_name) {
+            $unsupported_fallback_events[] = $args;
+        }
     }
 }
 if (!\function_exists('BlockFormatBridge\Vendor\serialize_blocks')) {
@@ -81,7 +86,7 @@ if (!\function_exists('BlockFormatBridge\Vendor\serialize_blocks')) {
         $output = '';
         foreach ($blocks as $block) {
             $name = $block['blockName'] ?? '';
-            $attrs = \array_diff_key($block['attrs'] ?? [], ['content' => \true]);
+            $attrs = \array_diff_key($block['attrs'] ?? [], ['content' => \true, 'text' => \true]);
             $attrs_json = empty($attrs) ? '' : ' ' . \json_encode($attrs, \JSON_UNESCAPED_SLASHES);
             if ('core/html' === $name) {
                 $output .= '<!-- wp:html -->' . ($block['attrs']['content'] ?? $block['innerHTML'] ?? '') . '<!-- /wp:html -->';
@@ -117,35 +122,55 @@ $flatten_block_names = static function (array $blocks) use (&$flatten_block_name
     }
     return $names;
 };
-$html = <<<'HTML'
-<div class="ss-location-text ss-reveal">
-  <span class="ss-section-label">Find Us</span>
-  <h2>Come <em>find us</em> on King Street</h2>
-  <div class="ss-location-detail">
-    <span class="ss-location-detail-label">Hours</span>
-    <p>Tuesday &ndash; Friday &nbsp; 7am &ndash; 3pm<br>Saturday &ndash; Sunday &nbsp; 7am &ndash; 2pm<br>Closed Monday</p>
+$product_grid_html = <<<'HTML'
+<section class="shop-featured" aria-labelledby="shop-featured-title">
+  <h2 id="shop-featured-title">Farm Stand Favorites</h2>
+  <div class="product-grid" data-commerce-region="product-grid">
+    <article class="product-card" data-product-slug="country-sourdough">
+      <img class="product-card__image" src="https://cdn.example.com/products/country-sourdough.jpg" width="900" height="900" alt="Country sourdough loaf on a linen towel" />
+      <span class="product-card__category">Bread</span>
+      <span class="product-card__badge">Best Seller</span>
+      <h3 class="product-card__name">Country Sourdough</h3>
+      <p class="product-card__description">A 48-hour cold-fermented loaf milled from South Carolina red fife wheat.</p>
+      <span class="product-card__price">$14 per loaf</span>
+      <a class="product-card__cta" href="/shop/country-sourdough/">View loaf</a>
+    </article>
+    <article class="product-card" data-product-slug="sea-salt-butter">
+      <img class="product-card__image" src="https://cdn.example.com/products/sea-salt-butter.jpg" width="900" height="900" alt="Cultured butter with flaky sea salt" />
+      <span class="product-card__category">Dairy</span>
+      <span class="product-card__badge">New Batch</span>
+      <h3 class="product-card__name">Sea Salt Cultured Butter</h3>
+      <p class="product-card__description">Slow-cultured cream churned small-batch and finished with flaky Atlantic salt.</p>
+      <span class="product-card__price">$9 per roll</span>
+      <a class="product-card__cta" href="/shop/sea-salt-butter/">View butter</a>
+    </article>
   </div>
-  <div class="ss-location-detail">
-    <span class="ss-location-detail-label">Address</span>
-    <p>482 King Street<br>Charleston, SC 29403</p>
-  </div>
-  <div class="ss-location-detail">
-    <span class="ss-location-detail-label">Order Ahead</span>
-    <p>hello@saltandstar.com<br>(843) 555-0182</p>
-  </div>
-</div>
+</section>
 HTML;
-$blocks = html_to_blocks_raw_handler(['HTML' => $html]);
+// Future context-enabled expectations, after issue #228 threads conversion context.
+// First primitive should stay editor-valid and materializable without creating Woo products.
+$expected_context_enabled_shape = ['gate' => 'explicit commerce/product context only', 'block_names' => ['core/group', 'core/heading', 'core/group', 'core/group', 'core/image', 'core/paragraph', 'core/paragraph', 'core/heading', 'core/paragraph', 'core/paragraph', 'core/buttons', 'core/button'], 'notes' => 'Preserve static editable placeholders until SSI or another importer materializes product state.'];
+$blocks = html_to_blocks_raw_handler(['HTML' => $product_grid_html]);
 $serialized = serialize_blocks($blocks);
 $names = $flatten_block_names($blocks);
-$assert(\count($blocks) === 1, 'single-top-level-wrapper');
-$assert(!\in_array('core/html', $names, \true), 'does-not-fallback-to-core-html', $serialized);
-$assert(\substr_count(\implode(',', $names), 'core/group') >= 4, 'outer-and-detail-wrappers-become-groups', \implode(',', $names));
-$assert(\in_array('core/heading', $names, \true), 'heading-block-created');
-$assert(\substr_count(\implode(',', $names), 'core/paragraph') >= 7, 'labels-and-details-become-paragraphs', \implode(',', $names));
-foreach (['Find Us', 'Come <em>find us</em> on King Street', 'Hours', 'Tuesday &ndash; Friday', '7am &ndash; 3pm<br>Saturday', 'Closed Monday', 'Address', '482 King Street<br>Charleston, SC 29403', 'Order Ahead', 'hello@saltandstar.com<br>(843) 555-0182'] as $expected) {
-    $assert(\strpos($serialized, $expected) !== \false, 'preserves-' . \substr(\md5($expected), 0, 8), 'Missing: ' . $expected . "\n" . $serialized);
+$name_list = \implode(', ', $names);
+$assert(\is_array($expected_context_enabled_shape) && !empty($expected_context_enabled_shape['block_names']), 'documents-context-enabled-shape');
+$assert(\count($blocks) === 1, 'product-grid-single-wrapper');
+$assert(($blocks[0]['blockName'] ?? '') === 'core/group', 'product-grid-wrapper-is-static-group');
+$assert(!\in_array('core/html', $names, \true), 'product-grid-does-not-fallback-to-core-html', $name_list);
+$assert(\count($unsupported_fallback_events) === 0, 'product-grid-emits-no-unsupported-fallback-events', (string) \count($unsupported_fallback_events));
+$assert(!\preg_match('/(?:^|, )woocommerce\//', $name_list), 'product-grid-does-not-create-commerce-blocks', $name_list);
+$assert(\strpos($serialized, '<!-- wp:woocommerce/') === \false, 'product-grid-serialization-has-no-woocommerce-blocks', $serialized);
+foreach (['product-grid', 'product-card', 'product-card__category', 'product-card__badge', 'product-card__price', 'product-card__cta'] as $class_name) {
+    $assert(\strpos($serialized, $class_name) !== \false, 'product-grid-preserves-' . $class_name, $serialized);
 }
+foreach (['Country Sourdough', '$14 per loaf', 'Bread', 'Best Seller', '/shop/country-sourdough/', 'Sea Salt Cultured Butter', '$9 per roll', 'Dairy', 'New Batch', '/shop/sea-salt-butter/'] as $snippet) {
+    $assert(\strpos($serialized, $snippet) !== \false, 'product-grid-preserves-' . \preg_replace('/[^a-z0-9]+/i', '-', \strtolower($snippet)), $serialized);
+}
+$assert(\substr_count($serialized, 'product-card__image') === 2, 'product-grid-preserves-two-images', $serialized);
+$assert(\substr_count($serialized, '<h3 class="wp-block-heading product-card__name">') === 2, 'product-grid-preserves-two-product-name-headings', $serialized);
+$assert(\substr_count($serialized, 'product-card__price') === 2, 'product-grid-preserves-two-prices', $serialized);
+$assert(\substr_count($serialized, 'product-card__cta') === 2, 'product-grid-preserves-two-ctas', $serialized);
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

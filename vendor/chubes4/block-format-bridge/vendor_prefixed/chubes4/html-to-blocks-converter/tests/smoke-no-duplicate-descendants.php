@@ -12,7 +12,7 @@ if (!\defined('ABSPATH')) {
     \define('ABSPATH', __DIR__);
 }
 if (!\class_exists('WP_HTML_Processor', \false)) {
-    $wp_html_api_candidates = \array_filter([\getenv('WP_HTML_API_PATH') ?: '', '/wordpress/wp-includes/html-api', '/Users/chubes/Studio/intelligence-chubes4/wp-includes/html-api']);
+    $wp_html_api_candidates = \array_filter([\getenv('WP_HTML_API_PATH') ? \getenv('WP_HTML_API_PATH') : '', '/wordpress/wp-includes/html-api', '/Users/chubes/Studio/intelligence-chubes4/wp-includes/html-api']);
     $wp_html_api_path = '';
     foreach ($wp_html_api_candidates as $candidate) {
         if (\is_file(\rtrim($candidate, '/') . '/class-wp-html-processor.php')) {
@@ -20,7 +20,7 @@ if (!\class_exists('WP_HTML_Processor', \false)) {
             break;
         }
     }
-    if ($wp_html_api_path === '') {
+    if ('' === $wp_html_api_path) {
         \fwrite(\STDERR, "FAIL: WP_HTML_Processor is unavailable. Set WP_HTML_API_PATH to wp-includes/html-api.\n");
         exit(1);
     }
@@ -54,7 +54,7 @@ foreach (['esc_attr', 'esc_html', 'esc_url'] as $function_name) {
 if (!\function_exists('BlockFormatBridge\Vendor\wp_strip_all_tags')) {
     function wp_strip_all_tags($text)
     {
-        return \strip_tags($text);
+        return wp_strip_all_tags($text);
     }
 }
 if (!\function_exists('BlockFormatBridge\Vendor\get_shortcode_regex')) {
@@ -76,7 +76,7 @@ if (!\function_exists('BlockFormatBridge\Vendor\serialize_blocks')) {
             $name = $block['blockName'] ?? '';
             $attrs = \array_diff_key($block['attrs'] ?? [], ['content' => \true]);
             $attrs_json = empty($attrs) ? '' : ' ' . \json_encode($attrs, \JSON_UNESCAPED_SLASHES);
-            if ($name === 'core/html') {
+            if ('core/html' === $name) {
                 $output .= '<!-- wp:html -->' . ($block['attrs']['content'] ?? $block['innerHTML'] ?? '') . '<!-- /wp:html -->';
                 continue;
             }
@@ -99,12 +99,12 @@ $assertions = 0;
 $assert = static function ($condition, $label, $detail = '') use (&$failures, &$assertions) {
     $assertions++;
     if (!$condition) {
-        $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
+        $failures[] = 'FAIL [' . $label . ']' . ('' !== $detail ? ': ' . $detail : '');
     }
 };
 $assert_occurs_once = static function (string $haystack, string $needle, string $label) use ($assert) {
     $count = \substr_count($haystack, $needle);
-    $assert($count === 1, $label, 'Expected one occurrence of ' . $needle . ', found ' . $count);
+    $assert(1 === $count, $label, 'Expected one occurrence of ' . $needle . ', found ' . $count);
 };
 $assert_contains = static function (string $haystack, string $needle, string $label) use ($assert) {
     $assert(\strpos($haystack, $needle) !== \false, $label, 'Missing ' . $needle);

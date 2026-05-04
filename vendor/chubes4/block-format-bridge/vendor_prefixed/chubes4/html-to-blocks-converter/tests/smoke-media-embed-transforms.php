@@ -105,7 +105,7 @@ class H2BC_Fake_Element
     }
     public function get_text_content(): string
     {
-        return \trim(\strip_tags($this->inner));
+        return \trim(wp_strip_all_tags($this->inner));
     }
     public function get_outer_html(): string
     {
@@ -133,7 +133,7 @@ class H2BC_Fake_Element
     }
     private function matches(string $selector): bool
     {
-        if ($selector[0] === '.') {
+        if ('.' === $selector[0]) {
             $class = $this->attrs['class'] ?? '';
             return \preg_match('/(?:^|\s)' . \preg_quote(\substr($selector, 1), '/') . '(?:$|\s)/', $class) === 1;
         }
@@ -145,7 +145,7 @@ $assertions = 0;
 $assert = function ($condition, $label, $detail = '') use (&$failures, &$assertions) {
     $assertions++;
     if (!$condition) {
-        $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
+        $failures[] = 'FAIL [' . $label . ']' . ('' !== $detail ? ': ' . $detail : '');
     }
 };
 $find_transform = function ($element) {
@@ -167,34 +167,34 @@ $convert = function ($element) use ($find_transform) {
     return \call_user_func($transform['transform'], $element, $handler);
 };
 $video = $convert(new H2BC_Fake_Element('video', ['src' => 'movie.mp4', 'poster' => 'poster.jpg', 'controls' => '']));
-$assert($video['blockName'] === 'core/video', 'video-direct-block');
+$assert('core/video' === $video['blockName'], 'video-direct-block');
 $assert(\strpos($video['innerHTML'], 'movie.mp4') !== \false && \strpos($video['innerHTML'], 'poster.jpg') !== \false, 'video-direct-html');
 $video_source = $convert(new H2BC_Fake_Element('video', [], '', [new H2BC_Fake_Element('source', ['src' => 'nested.mp4'])]));
-$assert($video_source['blockName'] === 'core/video', 'video-source-block');
+$assert('core/video' === $video_source['blockName'], 'video-source-block');
 $assert(\strpos($video_source['innerHTML'], 'nested.mp4') !== \false, 'video-source-html');
 $audio = $convert(new H2BC_Fake_Element('audio', [], '', [new H2BC_Fake_Element('source', ['src' => 'clip.mp3'])]));
-$assert($audio['blockName'] === 'core/audio', 'audio-source-block');
+$assert('core/audio' === $audio['blockName'], 'audio-source-block');
 $assert(\strpos($audio['innerHTML'], 'clip.mp3') !== \false, 'audio-source-html');
 $gallery = $convert(new H2BC_Fake_Element('div', ['class' => 'gallery columns-2'], '', [new H2BC_Fake_Element('figure', [], '', [new H2BC_Fake_Element('img', ['src' => 'a.jpg', 'alt' => 'A', 'class' => 'wp-image-10']), new H2BC_Fake_Element('figcaption', [], 'Caption A')]), new H2BC_Fake_Element('figure', [], '', [new H2BC_Fake_Element('img', ['src' => 'b.jpg', 'alt' => 'B']), new H2BC_Fake_Element('figcaption', [], 'Caption B')])]));
-$assert($gallery['blockName'] === 'core/gallery', 'gallery-block');
+$assert('core/gallery' === $gallery['blockName'], 'gallery-block');
 $assert(\count($gallery['innerBlocks']) === 2, 'gallery-inner-image-count');
 $assert(\strpos($gallery['innerHTML'], 'wp-block-gallery') !== \false, 'gallery-wrapper-html');
 $assert(\strpos($gallery['innerBlocks'][0]['innerHTML'], 'Caption A') !== \false, 'gallery-caption-preserved');
 $media_text = $convert(new H2BC_Fake_Element('div', ['class' => 'wp-block-media-text'], '', [new H2BC_Fake_Element('figure', [], '', [new H2BC_Fake_Element('img', ['src' => 'hero.jpg', 'alt' => 'Hero'])]), new H2BC_Fake_Element('div', ['class' => 'wp-block-media-text__content'], '<p>Copy</p>')]));
-$assert($media_text['blockName'] === 'core/media-text', 'media-text-block');
+$assert('core/media-text' === $media_text['blockName'], 'media-text-block');
 $assert(($media_text['attrs']['mediaUrl'] ?? '') === 'hero.jpg', 'media-text-media-url');
 $assert(\count($media_text['innerBlocks']) === 1, 'media-text-inner-blocks');
 $file = $convert(new H2BC_Fake_Element('a', ['href' => 'https://example.com/report.pdf'], 'Download report'));
-$assert($file['blockName'] === 'core/file', 'file-link-block');
+$assert('core/file' === $file['blockName'], 'file-link-block');
 $assert(($file['attrs']['href'] ?? '') === 'https://example.com/report.pdf', 'file-link-href');
 $cta = $find_transform(new H2BC_Fake_Element('a', ['href' => 'https://example.com/signup'], 'Sign up'));
 $assert(!$cta || ($cta['blockName'] ?? '') !== 'core/file', 'normal-cta-link-not-file');
 $embed = $convert(new H2BC_Fake_Element('iframe', ['src' => 'https://www.youtube.com/embed/abc123']));
-$assert($embed['blockName'] === 'core/embed', 'youtube-iframe-block');
+$assert('core/embed' === $embed['blockName'], 'youtube-iframe-block');
 $assert(($embed['attrs']['providerNameSlug'] ?? '') === 'youtube', 'youtube-provider');
 $assert(($embed['attrs']['url'] ?? '') === 'https://www.youtube.com/watch?v=abc123', 'youtube-url-normalised');
 $unknown_iframe = $find_transform(new H2BC_Fake_Element('iframe', ['src' => 'https://example.com/widget']));
-$assert($unknown_iframe === null, 'unknown-iframe-safe-fallback');
+$assert(null === $unknown_iframe, 'unknown-iframe-safe-fallback');
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

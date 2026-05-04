@@ -17,7 +17,7 @@ class HTML_To_Blocks_Attribute_Parser
      *
      * @var array
      */
-    private static $selector_chain_cache = [];
+    private static $selector_chain_cache = array();
     /**
      * Gets block attributes from HTML based on block schema
      *
@@ -26,7 +26,7 @@ class HTML_To_Blocks_Attribute_Parser
      * @param array  $overrides  Attribute overrides
      * @return array Parsed attributes
      */
-    public static function get_block_attributes($block_name, $html, $overrides = [])
+    public static function get_block_attributes($block_name, $html, $overrides = array())
     {
         $registry = \WP_Block_Type_Registry::get_instance();
         $block_type = $registry->get_registered($block_name);
@@ -37,10 +37,10 @@ class HTML_To_Blocks_Attribute_Parser
         if (!$doc) {
             return $overrides;
         }
-        $attributes = [];
+        $attributes = array();
         foreach ($block_type->attributes as $key => $schema) {
             $value = self::parse_attribute($doc, $schema, $html);
-            if ($value !== null) {
+            if (null !== $value) {
                 $attributes[$key] = $value;
             }
         }
@@ -73,7 +73,7 @@ class HTML_To_Blocks_Attribute_Parser
         $selector = $schema['selector'] ?? null;
         switch ($source) {
             case 'html':
-                return self::get_inner_html($element, $selector, $schema['multiline'] ?? null);
+                return self::get_inner_html($element, $selector);
             case 'text':
                 return self::get_text_content($element, $selector);
             case 'attribute':
@@ -81,7 +81,7 @@ class HTML_To_Blocks_Attribute_Parser
             case 'raw':
                 return $html;
             case 'query':
-                return self::query_elements($element, $selector, $schema['query'] ?? []);
+                return self::query_elements($element, $selector, $schema['query'] ?? array());
             case 'tag':
                 return self::get_tag_name($element, $selector);
             default:
@@ -93,10 +93,9 @@ class HTML_To_Blocks_Attribute_Parser
      *
      * @param HTML_To_Blocks_HTML_Element $element   HTML element wrapper
      * @param string|null                 $selector  CSS-like selector
-     * @param string|null                 $multiline Multiline tag type
      * @return string|null
      */
-    private static function get_inner_html($element, $selector, $multiline = null)
+    private static function get_inner_html($element, $selector)
     {
         $node = self::query_selector($element, $selector);
         if (!$node) {
@@ -164,9 +163,9 @@ class HTML_To_Blocks_Attribute_Parser
     private static function query_elements($element, $selector, $query)
     {
         $nodes = self::query_selector_all($element, $selector);
-        $results = [];
+        $results = array();
         foreach ($nodes as $node) {
-            $item = [];
+            $item = array();
             foreach ($query as $key => $sub_schema) {
                 $item[$key] = self::parse_attribute($node, $sub_schema, $node->get_outer_html());
             }
@@ -183,6 +182,7 @@ class HTML_To_Blocks_Attribute_Parser
      */
     public static function query_selector($element, $selector)
     {
+        // @phpstan-ignore-next-line booleanNot.alwaysFalse -- Defensive public API guard for untyped external callers.
         if (!$element) {
             return null;
         }
@@ -201,8 +201,9 @@ class HTML_To_Blocks_Attribute_Parser
      */
     public static function query_selector_all($element, $selector)
     {
+        // @phpstan-ignore-next-line booleanNot.alwaysFalse -- Defensive public API guard for untyped external callers.
         if (!$element || empty($selector)) {
-            return [];
+            return array();
         }
         $cache_key = \md5($element->get_outer_html() . '|' . $selector);
         if (isset(self::$selector_chain_cache[$cache_key])) {
@@ -210,11 +211,11 @@ class HTML_To_Blocks_Attribute_Parser
         }
         $selector_groups = \preg_split('/\s*,\s*/', \trim($selector));
         if (\false === $selector_groups) {
-            return [];
+            return array();
         }
-        $all_matches = [];
+        $all_matches = array();
         foreach ($selector_groups as $group) {
-            if ($group === '') {
+            if ('' === $group) {
                 continue;
             }
             $group_matches = self::query_selector_chain($element, $group);
@@ -239,30 +240,30 @@ class HTML_To_Blocks_Attribute_Parser
     {
         $tokens = \preg_split('/\s+/', \trim(\str_replace('>', ' > ', $selector)));
         if (\false === $tokens) {
-            return [];
+            return array();
         }
         $tokens = \array_values(\array_filter($tokens, static function ($token) {
-            return $token !== '';
+            return '' !== $token;
         }));
         if (empty($tokens)) {
-            return [];
+            return array();
         }
-        $steps = [];
+        $steps = array();
         $next_combinator = 'descendant';
         foreach ($tokens as $token) {
-            if ($token === '>') {
+            if ('>' === $token) {
                 $next_combinator = 'child';
                 continue;
             }
-            $steps[] = ['combinator' => $next_combinator, 'selector' => $token];
+            $steps[] = array('combinator' => $next_combinator, 'selector' => $token);
             $next_combinator = 'descendant';
         }
-        $current = [$root];
+        $current = array($root);
         foreach ($steps as $step) {
-            $next = [];
+            $next = array();
             foreach ($current as $context) {
                 $base_selector = self::extract_base_selector($step['selector']);
-                if ($base_selector === null) {
+                if (null === $base_selector) {
                     continue;
                 }
                 // WP HTML API adapter currently supports descendant matching only,
@@ -275,7 +276,7 @@ class HTML_To_Blocks_Attribute_Parser
                 }
             }
             if (empty($next)) {
-                return [];
+                return array();
             }
             $current = $next;
         }
@@ -297,7 +298,7 @@ class HTML_To_Blocks_Attribute_Parser
         $tag = $matches[1] ?? '';
         $class = $matches[2] ?? '';
         $id = $matches[3] ?? '';
-        if ($tag === '*' || $tag === '') {
+        if ('*' === $tag || '' === $tag) {
             if ($class) {
                 return '.' . $class;
             }
@@ -320,7 +321,7 @@ class HTML_To_Blocks_Attribute_Parser
     private static function matches_simple_selector($element, $selector)
     {
         $selector = \trim($selector);
-        if ($selector === '*') {
+        if ('*' === $selector) {
             return \true;
         }
         $pattern = '/^([a-z0-9*]+)?(?:\.([a-z0-9_-]+))?(?:#([a-z0-9_-]+))?(?:\[([a-z0-9_-]+)(?:=["\']?([^"\'\]]+)["\']?)?\])?(?::not\(\[([a-z0-9_-]+)(?:=["\']?([^"\'\]]+)["\']?)?\]\))?$/i';
@@ -334,7 +335,7 @@ class HTML_To_Blocks_Attribute_Parser
         $attr_value = $matches[5] ?? null;
         $not_attr_name = $matches[6] ?? null;
         $not_attr_value = $matches[7] ?? null;
-        if ($tag && $tag !== '*' && \strtoupper($tag) !== $element->get_tag_name()) {
+        if ($tag && '*' !== $tag && \strtoupper($tag) !== $element->get_tag_name()) {
             return \false;
         }
         if ($class) {
@@ -352,7 +353,7 @@ class HTML_To_Blocks_Attribute_Parser
             if (!$element->has_attribute($attr_name)) {
                 return \false;
             }
-            if ($attr_value !== null && (string) $element->get_attribute($attr_name) !== $attr_value) {
+            if (null !== $attr_value && (string) $element->get_attribute($attr_name) !== $attr_value) {
                 return \false;
             }
         }
@@ -360,7 +361,7 @@ class HTML_To_Blocks_Attribute_Parser
             if (!$element->has_attribute($not_attr_name)) {
                 return \true;
             }
-            if ($not_attr_value === null) {
+            if (null === $not_attr_value) {
                 return \false;
             }
             if ((string) $element->get_attribute($not_attr_name) === $not_attr_value) {

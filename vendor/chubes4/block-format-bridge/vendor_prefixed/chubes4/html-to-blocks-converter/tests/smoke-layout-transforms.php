@@ -41,7 +41,7 @@ foreach (['esc_attr', 'esc_html', 'esc_url'] as $function_name) {
 if (!\function_exists('BlockFormatBridge\Vendor\wp_strip_all_tags')) {
     function wp_strip_all_tags($text)
     {
-        return \strip_tags($text);
+        return wp_strip_all_tags($text);
     }
 }
 $repo_root = \dirname(__DIR__);
@@ -90,7 +90,7 @@ class Layout_Smoke_Element
     }
     public function get_text_content(): string
     {
-        return \trim(\strip_tags($this->inner_html));
+        return \trim(wp_strip_all_tags($this->inner_html));
     }
 }
 $failures = [];
@@ -98,7 +98,7 @@ $assertions = 0;
 $smoke_assert = static function ($condition, $label, $detail = '') use (&$failures, &$assertions) {
     $assertions++;
     if (!$condition) {
-        $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
+        $failures[] = 'FAIL [' . $label . ']' . ('' !== $detail ? ': ' . $detail : '');
     }
 };
 $find_transform = static function ($element, string $block_name) {
@@ -126,7 +126,7 @@ $handler = static function ($args) {
 $section = new Layout_Smoke_Element('section', ['id' => 'intro', 'class' => 'intro-section alignwide', 'aria-label' => 'Introduction'], '<h2>Intro</h2><p>Hello</p>');
 $group_transform = $find_transform($section, 'core/group');
 $group = $group_transform ? \call_user_func($group_transform['transform'], $section, $handler) : null;
-$smoke_assert($group && $group['blockName'] === 'core/group', 'section-to-group');
+$smoke_assert($group && 'core/group' === $group['blockName'], 'section-to-group');
 $smoke_assert(($group['attrs']['anchor'] ?? '') === 'intro', 'group-preserves-anchor');
 $smoke_assert(\strpos($group['attrs']['className'] ?? '', 'intro-section') !== \false, 'group-preserves-class');
 $smoke_assert(($group['attrs']['align'] ?? '') === 'wide', 'group-preserves-align');
@@ -137,7 +137,7 @@ $smoke_assert(($group['innerBlocks'][0]['blockName'] ?? '') === 'core/heading', 
 $inline_flex_hero = new Layout_Smoke_Element('section', ['class' => 'hero', 'style' => 'min-height: 100svh; display: flex; flex-direction: column; justify-content: center; padding: 9rem 2rem 5rem;'], '<div class="container"><h1>Launch</h1></div><div class="hero-code-window"></div><div class="hero-scroll-hint"><span class="scroll-line"></span><p>scroll</p></div>');
 $inline_flex_transform = $find_transform($inline_flex_hero, 'core/group');
 $inline_flex_hero_group = $inline_flex_transform ? \call_user_func($inline_flex_transform['transform'], $inline_flex_hero, $handler) : null;
-$smoke_assert($inline_flex_hero_group && $inline_flex_hero_group['blockName'] === 'core/group', 'inline-flex-hero-to-group');
+$smoke_assert($inline_flex_hero_group && 'core/group' === $inline_flex_hero_group['blockName'], 'inline-flex-hero-to-group');
 $smoke_assert(($inline_flex_hero_group['attrs']['layout']['type'] ?? '') === 'flex', 'inline-flex-hero-preserves-layout-type');
 $smoke_assert(($inline_flex_hero_group['attrs']['layout']['orientation'] ?? '') === 'vertical', 'inline-flex-hero-preserves-layout-orientation');
 $smoke_assert(($inline_flex_hero_group['attrs']['layout']['justifyContent'] ?? '') === 'center', 'inline-flex-hero-preserves-justify-content');
@@ -146,14 +146,14 @@ $smoke_assert(($inline_flex_hero_group['attrs']['style']['spacing']['padding'] ?
 $class_driven_hero = new Layout_Smoke_Element('section', ['class' => 'hero'], '<div class="container"><h1>Launch</h1></div><div class="hero-code-window"></div><div class="hero-scroll-hint"><span class="scroll-line"></span><p>scroll</p></div>');
 $class_driven_transform = $find_transform($class_driven_hero, 'core/group');
 $class_driven_hero_group = $class_driven_transform ? \call_user_func($class_driven_transform['transform'], $class_driven_hero, $handler) : null;
-$smoke_assert($class_driven_hero_group && $class_driven_hero_group['blockName'] === 'core/group', 'class-driven-hero-to-group');
+$smoke_assert($class_driven_hero_group && 'core/group' === $class_driven_hero_group['blockName'], 'class-driven-hero-to-group');
 $smoke_assert(($class_driven_hero_group['attrs']['layout']['type'] ?? '') === 'flex', 'class-driven-hero-uses-flex-layout');
 $smoke_assert(($class_driven_hero_group['attrs']['layout']['orientation'] ?? '') === 'vertical', 'class-driven-hero-uses-vertical-layout');
 $smoke_assert(($class_driven_hero_group['attrs']['layout']['justifyContent'] ?? '') === 'center', 'class-driven-hero-centers-content');
 $stack_group_element = new Layout_Smoke_Element('div', ['class' => 'wp-block-group is-layout-flex is-vertical is-nowrap is-content-justification-space-between custom-stack'], '<p>Stacked copy</p>');
 $stack_group_transform = $find_transform($stack_group_element, 'core/group');
 $stack_group = $stack_group_transform ? \call_user_func($stack_group_transform['transform'], $stack_group_element, $handler) : null;
-$smoke_assert($stack_group && $stack_group['blockName'] === 'core/group', 'explicit-wp-layout-group-to-group');
+$smoke_assert($stack_group && 'core/group' === $stack_group['blockName'], 'explicit-wp-layout-group-to-group');
 $smoke_assert(($stack_group['attrs']['layout']['type'] ?? '') === 'flex', 'group-preserves-layout-type');
 $smoke_assert(($stack_group['attrs']['layout']['orientation'] ?? '') === 'vertical', 'group-preserves-layout-orientation');
 $smoke_assert(($stack_group['attrs']['layout']['flexWrap'] ?? '') === 'nowrap', 'group-preserves-layout-nowrap');
@@ -163,26 +163,26 @@ $main = new Layout_Smoke_Element('main', ['class' => 'site-shell'], '<section cl
 $main_transform = $find_transform($main, 'core/group');
 $main_group = $main_transform ? \call_user_func($main_transform['transform'], $main, $handler) : null;
 $landmark_tags = ['header', 'footer', 'article', 'aside'];
-$smoke_assert($main_group && $main_group['blockName'] === 'core/group', 'main-landmark-to-group');
+$smoke_assert($main_group && 'core/group' === $main_group['blockName'], 'main-landmark-to-group');
 $smoke_assert(\strpos($main_group['attrs']['className'] ?? '', 'site-shell') !== \false, 'main-landmark-preserves-class');
 $smoke_assert(($main_group['innerBlocks'][0]['blockName'] ?? '') === 'core/heading', 'main-landmark-recurses-children');
 $wrap_group_element = new Layout_Smoke_Element('div', ['class' => 'wrap'], '<h2>Wrapped static-site copy</h2>');
 $wrap_group_transform = $find_transform($wrap_group_element, 'core/group');
 $wrap_group = $wrap_group_transform ? \call_user_func($wrap_group_transform['transform'], $wrap_group_element, $handler) : null;
-$smoke_assert($wrap_group && $wrap_group['blockName'] === 'core/group', 'wrap-wrapper-to-group');
+$smoke_assert($wrap_group && 'core/group' === $wrap_group['blockName'], 'wrap-wrapper-to-group');
 $smoke_assert(($wrap_group['attrs']['className'] ?? '') === 'wrap', 'wrap-wrapper-preserves-class');
 $smoke_assert(($wrap_group['innerBlocks'][0]['blockName'] ?? '') === 'core/heading', 'wrap-wrapper-recurses-children');
 $grid_group_element = new Layout_Smoke_Element('div', ['class' => 'grid cols-3'], '<article class="card"><h3>Card</h3><p>Copy</p></article>');
 $grid_group_transform = $find_transform($grid_group_element, 'core/group');
 $grid_group = $grid_group_transform ? \call_user_func($grid_group_transform['transform'], $grid_group_element, $handler) : null;
-$smoke_assert($grid_group && $grid_group['blockName'] === 'core/group', 'grid-wrapper-to-group');
+$smoke_assert($grid_group && 'core/group' === $grid_group['blockName'], 'grid-wrapper-to-group');
 $smoke_assert(($grid_group['attrs']['className'] ?? '') === 'grid cols-3', 'grid-wrapper-preserves-class');
 $smoke_assert(($grid_group['innerBlocks'][0]['blockName'] ?? '') === 'core/paragraph', 'grid-wrapper-recurses-children');
 foreach ($landmark_tags as $tag) {
     $landmark = new Layout_Smoke_Element($tag, [], '<p>Landmark copy</p>');
     $landmark_transform = $find_transform($landmark, 'core/group');
     $landmark_group = $landmark_transform ? \call_user_func($landmark_transform['transform'], $landmark, $handler) : null;
-    $smoke_assert($landmark_group && $landmark_group['blockName'] === 'core/group', $tag . '-landmark-to-group');
+    $smoke_assert($landmark_group && 'core/group' === $landmark_group['blockName'], $tag . '-landmark-to-group');
     $smoke_assert(($landmark_group['innerBlocks'][0]['blockName'] ?? '') === 'core/paragraph', $tag . '-landmark-recurses-children');
 }
 // --------------------------------------------------------------------------
@@ -193,7 +193,7 @@ $right = new Layout_Smoke_Element('div', ['class' => 'col-md-6'], '<p>Right</p>'
 $row = new Layout_Smoke_Element('div', ['class' => 'row'], '', [$left, $right]);
 $columns_transform = $find_transform($row, 'core/columns');
 $columns = $columns_transform ? \call_user_func($columns_transform['transform'], $row, $handler) : null;
-$smoke_assert($columns && $columns['blockName'] === 'core/columns', 'row-to-columns');
+$smoke_assert($columns && 'core/columns' === $columns['blockName'], 'row-to-columns');
 $smoke_assert(\count($columns['innerBlocks'] ?? []) === 2, 'columns-has-two-columns');
 $smoke_assert(($columns['innerBlocks'][0]['blockName'] ?? '') === 'core/column', 'first-child-column');
 $smoke_assert(($columns['innerBlocks'][1]['blockName'] ?? '') === 'core/column', 'second-child-column');
@@ -205,7 +205,7 @@ $smoke_assert(($columns['innerBlocks'][0]['innerBlocks'][0]['blockName'] ?? '') 
 $hero = new Layout_Smoke_Element('section', ['id' => 'hero', 'class' => 'hero', 'style' => 'background-image: url(/hero.jpg); background-color: #123456;'], '<h1>Launch</h1>');
 $cover_transform = $find_transform($hero, 'core/cover');
 $cover = $cover_transform ? \call_user_func($cover_transform['transform'], $hero, $handler) : null;
-$smoke_assert($cover && $cover['blockName'] === 'core/cover', 'hero-to-cover');
+$smoke_assert($cover && 'core/cover' === $cover['blockName'], 'hero-to-cover');
 $smoke_assert(($cover['attrs']['anchor'] ?? '') === 'hero', 'cover-preserves-anchor');
 $smoke_assert(($cover['attrs']['tagName'] ?? '') === 'section', 'cover-preserves-tag-name');
 $smoke_assert(($cover['attrs']['url'] ?? '') === '/hero.jpg', 'cover-preserves-background-image');
@@ -217,7 +217,7 @@ $smoke_assert(($cover['innerBlocks'][0]['blockName'] ?? '') === 'core/heading', 
 $spacer_element = new Layout_Smoke_Element('div', ['class' => 'spacer', 'style' => 'height: 48px'], '');
 $spacer_transform = $find_transform($spacer_element, 'core/spacer');
 $spacer = $spacer_transform ? \call_user_func($spacer_transform['transform'], $spacer_element, $handler) : null;
-$smoke_assert($spacer && $spacer['blockName'] === 'core/spacer', 'explicit-spacer-to-spacer');
+$smoke_assert($spacer && 'core/spacer' === $spacer['blockName'], 'explicit-spacer-to-spacer');
 $smoke_assert(($spacer['attrs']['height'] ?? '') === '48px', 'spacer-preserves-height');
 // --------------------------------------------------------------------------
 // Fallback safety: arbitrary divs must not become layout blocks.

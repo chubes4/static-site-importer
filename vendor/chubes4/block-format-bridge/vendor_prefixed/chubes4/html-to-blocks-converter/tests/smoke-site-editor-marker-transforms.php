@@ -104,9 +104,9 @@ $find_transform = static function ($element, string $block_name) {
 $pattern_element = new Site_Editor_Marker_Smoke_Element('section', ['data-bfb-pattern' => 'theme/pricing-table'], '<h2>Pricing</h2>');
 $pattern_transform = $find_transform($pattern_element, 'core/pattern');
 $pattern_block = $pattern_transform ? \call_user_func($pattern_transform['transform'], $pattern_element) : null;
-$assert($pattern_transform !== null, 'pattern-marker-transform-selected');
-$assert($pattern_block['blockName'] === 'core/pattern', 'pattern-marker-block-name');
-$assert($pattern_block['attrs']['slug'] === 'theme/pricing-table', 'pattern-marker-slug');
+$assert(null !== $pattern_transform, 'pattern-marker-transform-selected');
+$assert('core/pattern' === $pattern_block['blockName'], 'pattern-marker-block-name');
+$assert('theme/pricing-table' === $pattern_block['attrs']['slug'], 'pattern-marker-slug');
 $invalid_pattern = new Site_Editor_Marker_Smoke_Element('section', ['data-bfb-pattern' => 'pricing-table'], '<h2>Pricing</h2>');
 $assert($find_transform($invalid_pattern, 'core/pattern') === null, 'pattern-marker-requires-namespace');
 $blank_pattern = new Site_Editor_Marker_Smoke_Element('section', ['data-bfb-pattern' => '   '], '<h2>Pricing</h2>');
@@ -114,21 +114,21 @@ $assert($find_transform($blank_pattern, 'core/pattern') === null, 'blank-pattern
 $header_element = new Site_Editor_Marker_Smoke_Element('header', ['data-bfb-template-part' => 'header'], '<h1>Site</h1>');
 $header_transform = $find_transform($header_element, 'core/template-part');
 $header_block = $header_transform ? \call_user_func($header_transform['transform'], $header_element) : null;
-$assert($header_transform !== null, 'template-part-marker-transform-selected');
-$assert($header_block['blockName'] === 'core/template-part', 'template-part-marker-block-name');
-$assert($header_block['attrs']['slug'] === 'header', 'template-part-marker-slug');
-$assert($header_block['attrs']['area'] === 'header', 'template-part-marker-area');
+$assert(null !== $header_transform, 'template-part-marker-transform-selected');
+$assert('core/template-part' === $header_block['blockName'], 'template-part-marker-block-name');
+$assert('header' === $header_block['attrs']['slug'], 'template-part-marker-slug');
+$assert('header' === $header_block['attrs']['area'], 'template-part-marker-area');
 foreach (['footer', 'sidebar'] as $area) {
-    $area_element = new Site_Editor_Marker_Smoke_Element($area === 'sidebar' ? 'aside' : $area, ['data-bfb-template-part' => $area], '<p>' . $area . '</p>');
+    $area_element = new Site_Editor_Marker_Smoke_Element('sidebar' === $area ? 'aside' : $area, ['data-bfb-template-part' => $area], '<p>' . $area . '</p>');
     $area_transform = $find_transform($area_element, 'core/template-part');
     $area_block = $area_transform ? \call_user_func($area_transform['transform'], $area_element) : null;
-    $assert($area_transform !== null, $area . '-template-part-transform-selected');
+    $assert(null !== $area_transform, $area . '-template-part-transform-selected');
     $assert($area_block['attrs']['slug'] === $area, $area . '-template-part-marker-slug');
     $assert($area_block['attrs']['area'] === $area, $area . '-template-part-marker-area');
 }
 $custom_template = new Site_Editor_Marker_Smoke_Element('section', ['data-bfb-template-part' => 'landing-hero'], '<h1>Hero</h1>');
 $custom_block = \call_user_func($find_transform($custom_template, 'core/template-part')['transform'], $custom_template);
-$assert($custom_block['attrs']['slug'] === 'landing-hero', 'custom-template-part-slug');
+$assert('landing-hero' === $custom_block['attrs']['slug'], 'custom-template-part-slug');
 $assert(!isset($custom_block['attrs']['area']), 'custom-template-part-has-no-area');
 $unmarked_header = new Site_Editor_Marker_Smoke_Element('header', [], '<h1>Site</h1>');
 $assert($find_transform($unmarked_header, 'core/template-part') === null, 'unmarked-header-not-template-part');

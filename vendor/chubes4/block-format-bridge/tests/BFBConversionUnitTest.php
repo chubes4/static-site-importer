@@ -109,6 +109,22 @@ class BFBConversionUnitTest extends WP_UnitTestCase {
 		$default = bfb_convert( $html, 'html', 'blocks' );
 		$this->assertNotSame( '', $default, 'Default 3-argument conversion should remain supported.' );
 
+		$default_args = null;
+		$default_listener = static function ( array $args ) use ( &$default_args ): array {
+			$default_args = $args;
+			return $args;
+		};
+
+		add_filter( 'bfb_html_to_blocks_args', $default_listener, 10, 1 );
+		try {
+			bfb_convert( $html, 'html', 'blocks' );
+		} finally {
+			remove_filter( 'bfb_html_to_blocks_args', $default_listener, 10 );
+		}
+
+		$this->assertIsArray( $default_args, 'Default conversion should still expose h2bc raw-handler arguments.' );
+		$this->assertArrayNotHasKey( 'context', $default_args, 'Default conversion should not inject conversion context.' );
+
 		$seen_args = null;
 		$listener  = static function ( array $args, string $content, array $options ) use ( &$seen_args ): array {
 			$seen_args = array(
@@ -121,7 +137,18 @@ class BFBConversionUnitTest extends WP_UnitTestCase {
 
 		add_filter( 'bfb_html_to_blocks_args', $listener, 10, 3 );
 		try {
-			$with_options = bfb_convert( $html, 'html', 'blocks', array( 'mode' => 'fidelity' ) );
+			$with_options = bfb_convert(
+				$html,
+				'html',
+				'blocks',
+				array(
+					'context' => array(
+						'source' => 'static-site-importer',
+						'mode'   => 'import',
+					),
+					'mode'    => 'fidelity',
+				)
+			);
 		} finally {
 			remove_filter( 'bfb_html_to_blocks_args', $listener, 10 );
 		}
@@ -129,8 +156,26 @@ class BFBConversionUnitTest extends WP_UnitTestCase {
 		$this->assertNotSame( '', $with_options, '4-argument conversion should produce serialized blocks.' );
 		$this->assertIsArray( $seen_args, 'HTML adapter should expose h2bc raw-handler arguments.' );
 		$this->assertSame( 'fidelity', $seen_args['args']['mode'] ?? null, 'Mode option should be forwarded to h2bc args.' );
+		$this->assertSame(
+			array(
+				'source' => 'static-site-importer',
+				'mode'   => 'import',
+			),
+			$seen_args['args']['context'] ?? null,
+			'Generic conversion context should be forwarded to h2bc args.'
+		);
 		$this->assertSame( $html, $seen_args['args']['HTML'] ?? null, 'BFB should preserve the reserved HTML raw-handler arg.' );
-		$this->assertSame( array( 'mode' => 'fidelity' ), $seen_args['options'] ?? null, 'HTML adapter should receive public conversion options.' );
+		$this->assertSame(
+			array(
+				'context' => array(
+					'source' => 'static-site-importer',
+					'mode'   => 'import',
+				),
+				'mode'    => 'fidelity',
+			),
+			$seen_args['options'] ?? null,
+			'HTML adapter should receive public conversion options.'
+		);
 
 		$probe = new class() implements BFB_Format_Adapter {
 			/**
@@ -288,6 +333,7 @@ class BFBConversionUnitTest extends WP_UnitTestCase {
 	 * The bundled artifact should include h2bc's file-link transform.
 	 */
 	public function test_bundled_h2bc_artifact_includes_file_transform(): void {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Test fixture reads the bundled artifact from disk.
 		$registry_source = file_get_contents( BFB_PATH . 'vendor_prefixed/chubes4/html-to-blocks-converter/includes/class-transform-registry.php' );
 
 		$this->assertIsString( $registry_source );
@@ -340,6 +386,62 @@ MARKDOWN;
 		$this->assertStringContainsString( '<del>strike</del>', $serialized );
 		$this->assertStringContainsString( 'https://example.com/auto', $serialized );
 		$this->assertStringContainsString( 'language-php', $serialized );
+	}
+
+	/**
+	 * Import-grade Markdown bodies should become native blocks without SSI-specific APIs.
+	 */
+	public function test_markdown_to_blocks_covers_import_grade_body_fixtures(): void {
+		$fixtures = array(
+			'docs'    => array(
+				'file'     => 'import-grade-docs.md',
+				'blocks'   => array( 'core/heading', 'core/paragraph', 'core/list', 'core/list-item', 'core/table', 'core/code', 'core/quote' ),
+				'snippets' => array(
+					'<!-- wp:heading {"level":1} -->',
+					'<h2 class="wp-block-heading">Preflight</h2>',
+					'<td>Markdown</td><td>Native blocks</td>',
+					'const format = &#039;markdown&#039;;',
+				),
+			),
+			'article' => array(
+				'file'     => 'import-grade-article.md',
+				'blocks'   => array( 'core/heading', 'core/paragraph', 'core/quote', 'core/list', 'core/list-item', 'core/code' ),
+				'snippets' => array(
+					'<h1 class="wp-block-heading">The Import-Grade Article</h1>',
+					'<img src="https://example.com/migration-diagram.png" alt="Migration diagram"',
+					'<strong>bold decisions</strong>',
+					'bfb_convert( $markdown, &#039;markdown&#039;, &#039;blocks&#039; );',
+				),
+			),
+			'landing' => array(
+				'file'     => 'import-grade-landing.md',
+				'blocks'   => array( 'core/heading', 'core/paragraph', 'core/list', 'core/list-item', 'core/separator', 'core/table', 'core/quote' ),
+				'snippets' => array(
+					'<h1 class="wp-block-heading">Ship Cleaner Imports</h1>',
+					'<a href="https://example.com/start">Start the import</a>',
+					'<!-- wp:separator -->',
+					'<td>Landing pages</td><td>Content blocks</td>',
+				),
+			),
+		);
+
+		foreach ( $fixtures as $label => $fixture ) {
+			$markdown   = $this->markdown_fixture( $fixture['file'] );
+			$serialized = bfb_convert( $markdown, 'markdown', 'blocks' );
+			$blocks     = parse_blocks( $serialized );
+			$flat       = $this->flatten_blocks( $blocks );
+
+			$this->assertNotSame( '', $serialized, "{$label} fixture should produce serialized blocks." );
+			$this->assertNotContains( 'core/html', $flat, "{$label} fixture should not fall back to raw HTML blocks." );
+
+			foreach ( $fixture['blocks'] as $block_name ) {
+				$this->assertContains( $block_name, $flat, "{$label} fixture should include {$block_name}." );
+			}
+
+			foreach ( $fixture['snippets'] as $snippet ) {
+				$this->assertStringContainsString( $snippet, $serialized, "{$label} fixture should serialize {$snippet}." );
+			}
+		}
 	}
 
 	/**
@@ -749,6 +851,22 @@ MARKDOWN;
 		$this->assertNotSame( '', $serialized, "{$from} conversion should produce serialized blocks." );
 
 		return parse_blocks( $serialized );
+	}
+
+	/**
+	 * Load a Markdown fixture body.
+	 *
+	 * @param string $file Fixture filename.
+	 * @return string Fixture contents.
+	 */
+	private function markdown_fixture( string $file ): string {
+		$path = __DIR__ . '/fixtures/markdown/' . $file;
+		$this->assertFileExists( $path );
+
+		$contents = file_get_contents( $path );
+		$this->assertIsString( $contents );
+
+		return $contents;
 	}
 
 	/**

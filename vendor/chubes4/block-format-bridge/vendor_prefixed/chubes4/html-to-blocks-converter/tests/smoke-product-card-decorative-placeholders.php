@@ -3,9 +3,9 @@
 namespace BlockFormatBridge\Vendor;
 
 /**
- * Smoke test: labeled detail wrappers with br-separated contact text convert natively.
+ * Smoke test: product-card decorative placeholders convert without raw HTML fallback.
  *
- * Run: php tests/smoke-detail-br-wrapper-fallback.php
+ * Run: php tests/smoke-product-card-decorative-placeholders.php
  */
 // phpcs:disable
 if (!\defined('ABSPATH')) {
@@ -44,7 +44,7 @@ if (!\class_exists('WP_Block_Type_Registry', \false)) {
         }
         public function is_registered($name)
         {
-            return \in_array($name, ['core/group', 'core/heading', 'core/html', 'core/paragraph'], \true);
+            return \in_array($name, ['core/group', 'core/html', 'core/paragraph'], \true);
         }
         public function get_registered($name)
         {
@@ -70,9 +70,14 @@ if (!\function_exists('BlockFormatBridge\Vendor\get_shortcode_regex')) {
         return '(?!)';
     }
 }
+$fallback_events = [];
 if (!\function_exists('do_action')) {
     function do_action($hook_name, ...$args)
     {
+        global $fallback_events;
+        if ('html_to_blocks_unsupported_html_fallback' === $hook_name) {
+            $fallback_events[] = $args;
+        }
     }
 }
 if (!\function_exists('BlockFormatBridge\Vendor\serialize_blocks')) {
@@ -109,43 +114,63 @@ $assert = static function ($condition, $label, $detail = '') use (&$failures, &$
         $failures[] = 'FAIL [' . $label . ']' . ('' !== $detail ? ': ' . $detail : '');
     }
 };
-$flatten_block_names = static function (array $blocks) use (&$flatten_block_names): array {
-    $names = [];
+$flatten_blocks = static function (array $blocks) use (&$flatten_blocks): array {
+    $flat = [];
     foreach ($blocks as $block) {
-        $names[] = $block['blockName'] ?? '';
-        $names = \array_merge($names, $flatten_block_names($block['innerBlocks'] ?? []));
+        $flat[] = $block;
+        $flat = \array_merge($flat, $flatten_blocks($block['innerBlocks'] ?? []));
     }
-    return $names;
+    return $flat;
+};
+$class_names = static function (array $blocks) use ($flatten_blocks): array {
+    return \array_filter(\array_map(static function ($block) {
+        return $block['attrs']['className'] ?? '';
+    }, $flatten_blocks($blocks)));
+};
+$block_names = static function (array $blocks) use ($flatten_blocks): array {
+    return \array_map(static function ($block) {
+        return $block['blockName'] ?? '';
+    }, $flatten_blocks($blocks));
 };
 $html = <<<'HTML'
-<div class="ss-location-text ss-reveal">
-  <span class="ss-section-label">Find Us</span>
-  <h2>Come <em>find us</em> on King Street</h2>
-  <div class="ss-location-detail">
-    <span class="ss-location-detail-label">Hours</span>
-    <p>Tuesday &ndash; Friday &nbsp; 7am &ndash; 3pm<br>Saturday &ndash; Sunday &nbsp; 7am &ndash; 2pm<br>Closed Monday</p>
-  </div>
-  <div class="ss-location-detail">
-    <span class="ss-location-detail-label">Address</span>
-    <p>482 King Street<br>Charleston, SC 29403</p>
-  </div>
-  <div class="ss-location-detail">
-    <span class="ss-location-detail-label">Order Ahead</span>
-    <p>hello@saltandstar.com<br>(843) 555-0182</p>
-  </div>
-</div>
+<div class="category-img wood-walnut"></div>
+<div class="category-img wood-maple"></div>
+<div class="category-img wood-cherry"></div>
+<div class="category-img" style="background: linear-gradient(160deg, #4a6741 0%, #3d5535 40%, #6b7c5e 70%, #2e4028 100%)"></div>
 HTML;
 $blocks = html_to_blocks_raw_handler(['HTML' => $html]);
+$names = $block_names($blocks);
+$classes = $class_names($blocks);
 $serialized = serialize_blocks($blocks);
-$names = $flatten_block_names($blocks);
-$assert(\count($blocks) === 1, 'single-top-level-wrapper');
-$assert(!\in_array('core/html', $names, \true), 'does-not-fallback-to-core-html', $serialized);
-$assert(\substr_count(\implode(',', $names), 'core/group') >= 4, 'outer-and-detail-wrappers-become-groups', \implode(',', $names));
-$assert(\in_array('core/heading', $names, \true), 'heading-block-created');
-$assert(\substr_count(\implode(',', $names), 'core/paragraph') >= 7, 'labels-and-details-become-paragraphs', \implode(',', $names));
-foreach (['Find Us', 'Come <em>find us</em> on King Street', 'Hours', 'Tuesday &ndash; Friday', '7am &ndash; 3pm<br>Saturday', 'Closed Monday', 'Address', '482 King Street<br>Charleston, SC 29403', 'Order Ahead', 'hello@saltandstar.com<br>(843) 555-0182'] as $expected) {
-    $assert(\strpos($serialized, $expected) !== \false, 'preserves-' . \substr(\md5($expected), 0, 8), 'Missing: ' . $expected . "\n" . $serialized);
-}
+$assert(\count($blocks) === 4, 'category-placeholders-are-not-dropped', (string) \count($blocks));
+$assert(!\in_array('core/html', $names, \true), 'category-placeholders-do-not-use-core-html', \implode(', ', $names));
+$assert(\count($fallback_events) === 0, 'category-placeholders-emit-no-fallback-events', (string) \count($fallback_events));
+$assert(\in_array('core/group', $names, \true), 'category-placeholders-use-group-blocks', \implode(', ', $names));
+$assert(\in_array('category-img wood-walnut', $classes, \true), 'category-placeholder-classes-survive', \implode(', ', $classes));
+$assert(\str_contains($serialized, 'linear-gradient(160deg'), 'category-placeholder-gradient-survives', $serialized);
+$assert(!\str_contains($serialized, '<!-- wp:html -->'), 'category-serialized-output-has-no-wp-html', $serialized);
+$fallback_events = [];
+$figure_html = <<<'HTML'
+<figure class="gallery-item animated" style="transition-delay:0.04s">
+  <div class="gallery-item-bg" style="background: linear-gradient(135deg, #5c3d2e 0%, #4a3020 40%, #7a5540 70%, #3d2b1f 100%)"></div>
+  <figcaption class="gallery-caption">Walnut board in daily use — @mollyskitchen</figcaption>
+</figure>
+HTML;
+$figure_blocks = html_to_blocks_raw_handler(['HTML' => $figure_html]);
+$figure_names = $block_names($figure_blocks);
+$figure_classes = $class_names($figure_blocks);
+$figure_serialized = \html_entity_decode(serialize_blocks($figure_blocks), \ENT_QUOTES, 'UTF-8');
+$assert(\count($figure_blocks) === 1, 'gallery-figure-single-wrapper', (string) \count($figure_blocks));
+$assert(!\in_array('core/html', $figure_names, \true), 'gallery-figure-does-not-use-core-html', \implode(', ', $figure_names));
+$assert(\count($fallback_events) === 0, 'gallery-figure-emits-no-fallback-events', (string) \count($fallback_events));
+$assert(\in_array('core/group', $figure_names, \true), 'gallery-figure-uses-groups', \implode(', ', $figure_names));
+$assert(\in_array('core/paragraph', $figure_names, \true), 'gallery-caption-becomes-paragraph', \implode(', ', $figure_names));
+$assert(\in_array('gallery-item animated', $figure_classes, \true), 'gallery-figure-classes-survive', \implode(', ', $figure_classes));
+$assert(\in_array('gallery-item-bg', $figure_classes, \true), 'gallery-bg-class-survives', \implode(', ', $figure_classes));
+$assert(\in_array('gallery-caption', $figure_classes, \true), 'gallery-caption-class-survives', \implode(', ', $figure_classes));
+$assert(\str_contains($figure_serialized, 'Walnut board in daily use — @mollyskitchen'), 'gallery-caption-text-survives', $figure_serialized);
+$assert(\str_contains($figure_serialized, 'linear-gradient(135deg'), 'gallery-gradient-survives', $figure_serialized);
+$assert(!\str_contains($figure_serialized, '<!-- wp:html -->'), 'gallery-serialized-output-has-no-wp-html', $figure_serialized);
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

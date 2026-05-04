@@ -48,8 +48,8 @@ class BFB_HTML_Adapter implements BFB_Format_Adapter {
 		 * Filters the argument array passed to html-to-blocks-converter.
 		 *
 		 * BFB reserves the `HTML` key for source content. Per-call conversion
-		 * options, such as `mode`, are forwarded alongside it for h2bc to
-		 * consume when supported.
+		 * options, such as `context` and `mode`, are forwarded alongside it for
+		 * h2bc to consume when supported.
 		 *
 		 * @since 0.5.0
 		 *

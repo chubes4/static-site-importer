@@ -26,7 +26,7 @@ if (!\function_exists('BlockFormatBridge\Vendor\esc_url')) {
 if (!\function_exists('BlockFormatBridge\Vendor\wp_strip_all_tags')) {
     function wp_strip_all_tags($value)
     {
-        return \strip_tags((string) $value);
+        return wp_strip_all_tags((string) $value);
     }
 }
 class WP_Block_Type_Registry
@@ -64,7 +64,7 @@ class Static_Nav_Smoke_Element
         $this->attributes = \array_change_key_case($attributes, \CASE_LOWER);
         $this->inner_html = $inner_html;
         $this->children = $children;
-        $this->outer_html = $outer_html !== '' ? $outer_html : '<' . \strtolower($tag_name) . '>' . $inner_html . '</' . \strtolower($tag_name) . '>';
+        $this->outer_html = '' !== $outer_html ? $outer_html : '<' . \strtolower($tag_name) . '>' . $inner_html . '</' . \strtolower($tag_name) . '>';
     }
     public function get_tag_name(): string
     {
@@ -96,7 +96,7 @@ $assertions = 0;
 $smoke_assert = static function ($condition, $label, $detail = '') use (&$failures, &$assertions) {
     $assertions++;
     if (!$condition) {
-        $failures[] = 'FAIL [' . $label . ']' . ($detail !== '' ? ': ' . $detail : '');
+        $failures[] = 'FAIL [' . $label . ']' . ('' !== $detail ? ': ' . $detail : '');
     }
 };
 $find_transform = static function ($element, string $block_name) {
@@ -115,7 +115,7 @@ $anchor = static function (string $href, string $label, array $attributes = []) 
     return new Static_Nav_Smoke_Element('a', $attributes, $label, [], '<a href="' . $href . '">' . $label . '</a>');
 };
 $li = static function (array $children, string $inner_html = '') {
-    if ($inner_html === '') {
+    if ('' === $inner_html) {
         $inner_html = \implode('', \array_map(static fn($child) => $child->get_outer_html(), $children));
     }
     return new Static_Nav_Smoke_Element('li', [], $inner_html, $children);
@@ -132,10 +132,10 @@ $contact = $li([$anchor('/contact/', 'Contact', ['target' => '_blank', 'rel' => 
 $flat_list = $ul([$about, $contact]);
 $flat_nav = new Static_Nav_Smoke_Element('nav', ['aria-label' => 'Primary', 'class' => 'wp-block-navigation primary alignwide'], $flat_list->get_outer_html(), [$flat_list]);
 $transform = $find_transform($flat_nav, 'core/navigation');
-$smoke_assert($transform === null, 'flat-nav-does-not-emit-native-navigation');
+$smoke_assert(null === $transform, 'flat-nav-does-not-emit-native-navigation');
 $group_transform = $find_transform($flat_nav, 'core/group');
 $group = \call_user_func($group_transform['transform'], $flat_nav, static fn($args) => []);
-$smoke_assert($group['blockName'] === 'core/group', 'flat-nav-group-block-name');
+$smoke_assert('core/group' === $group['blockName'], 'flat-nav-group-block-name');
 $smoke_assert(($group['attrs']['tagName'] ?? '') === 'nav', 'flat-nav-group-tag-name');
 $smoke_assert(($group['attrs']['ariaLabel'] ?? '') === 'Primary', 'flat-nav-group-aria-label');
 $smoke_assert(($group['attrs']['className'] ?? '') === 'primary', 'flat-nav-group-class-name');
@@ -151,7 +151,7 @@ $salt_group = \call_user_func($salt_group_transform['transform'], $salt_nav, sta
     }
     return [];
 });
-$smoke_assert($salt_group['blockName'] === 'core/group', 'salt-nav-group-block-name');
+$smoke_assert('core/group' === $salt_group['blockName'], 'salt-nav-group-block-name');
 $smoke_assert(($salt_group['attrs']['tagName'] ?? '') === 'nav', 'salt-nav-group-tag-name');
 $smoke_assert(($salt_group['attrs']['ariaLabel'] ?? '') === 'Main navigation', 'salt-nav-group-aria-label');
 $smoke_assert(($salt_group['attrs']['className'] ?? '') === 'site-nav', 'salt-nav-group-class-name');
