@@ -1049,6 +1049,62 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * JS-revealed opacity/transform animation starts are visible in editor canvases.
+	 */
+	public function test_js_reveal_animation_starts_are_neutralized_in_editor_only(): void {
+		$html_path = $this->write_temp_fixture(
+			'js-reveal-animation.html',
+			'<!doctype html><html><head><title>JS Reveal Animation</title><style>' .
+			'.hero { min-height: 80vh; display: grid; place-items: center; }' .
+			'.hero-eyebrow { opacity: 0; transform: translateY(12px); transition: opacity .4s ease, transform .4s ease; }' .
+			'.hero-title, .hero-tagline { opacity: 0 !important; transform: translateY(20px); }' .
+			'@media (min-width: 800px) { .hero-meta { opacity: 0; transform: translateX(-16px); } }' .
+			'.visually-hidden { opacity: 0; }' .
+			'.spinner { opacity: 0; transform: none; }' .
+			'</style></head><body><main><section class="hero">' .
+			'<p class="hero-eyebrow">Field Notes Live</p><h1 class="hero-title">Conference content should be editable</h1>' .
+			'<p class="hero-tagline">Frontend JavaScript reveals this copy.</p><p class="hero-meta">May 2026</p>' .
+			'<span class="visually-hidden">Screen reader label</span><span class="spinner">Loading</span>' .
+			'</section></main><script>document.querySelectorAll(\'.hero-eyebrow,.hero-title,.hero-tagline,.hero-meta\').forEach(function(el){el.style.opacity=\'1\';el.style.transform=\'translateY(0)\';});</script></body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'JS Reveal Animation',
+				'slug'      => 'js-reveal-animation',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir    = $result['theme_dir'];
+		$pattern      = $this->pattern_blocks( $this->read_file( $theme_dir . '/patterns/page-js-reveal-animation.php' ) );
+		$style        = $this->read_file( $theme_dir . '/style.css' );
+		$editor_style = $this->read_file( $theme_dir . '/assets/css/editor-style.css' );
+		$report       = json_decode( $this->read_file( $result['report_path'] ), true );
+
+		$this->assertStringContainsString( 'Conference content should be editable', $pattern );
+		$this->assertStringContainsString( '.hero-eyebrow { opacity: 0; transform: translateY(12px);', $style );
+		$this->assertStringContainsString( '.hero-title, .hero-tagline { opacity: 0 !important; transform: translateY(20px);', $style );
+		$this->assertStringNotContainsString( 'Static Site Importer: show JS-revealed animation content in editor canvases.', $style );
+		$this->assertStringContainsString( 'Static Site Importer: show JS-revealed animation content in editor canvases.', $editor_style );
+		$this->assertStringContainsString( '.editor-styles-wrapper .hero-eyebrow', $editor_style );
+		$this->assertStringContainsString( '.editor-styles-wrapper .hero-title', $editor_style );
+		$this->assertStringContainsString( '.editor-styles-wrapper .hero-tagline', $editor_style );
+		$this->assertStringContainsString( '.editor-styles-wrapper .hero-meta', $editor_style );
+		$this->assertStringContainsString( 'opacity: 1 !important; transform: none !important;', $editor_style );
+		$this->assertStringNotContainsString( '.editor-styles-wrapper .visually-hidden', $editor_style );
+		$this->assertStringNotContainsString( '.editor-styles-wrapper .spinner', $editor_style );
+		$this->assertSame( 0, $report['quality']['fallback_count'] ?? null );
+		$this->assertSame( 0, $report['quality']['core_html_block_count'] ?? null );
+		$this->assertSame( 0, $report['quality']['invalid_block_count'] ?? null );
+	}
+
+	/**
 	 * Safe inline SVG icons are materialized as theme assets and native image blocks.
 	 */
 	public function test_safe_inline_svg_icons_materialize_as_theme_assets(): void {

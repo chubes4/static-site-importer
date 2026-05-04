@@ -16,6 +16,9 @@ $plugin_root = dirname( __DIR__ );
 if ( ! class_exists( 'Static_Site_Importer_Document', false ) ) {
 	require_once $plugin_root . '/includes/class-static-site-importer-document.php';
 }
+if ( ! class_exists( 'Static_Site_Importer_Woo_Product_Seeder', false ) ) {
+	require_once $plugin_root . '/includes/class-static-site-importer-woo-product-seeder.php';
+}
 if ( ! class_exists( 'Static_Site_Importer_Theme_Generator', false ) ) {
 	require_once $plugin_root . '/includes/class-static-site-importer-theme-generator.php';
 }
