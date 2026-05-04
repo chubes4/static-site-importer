@@ -407,7 +407,7 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Leading page navigation before a hero/header belongs in the shared header part.
+	 * Leading page navigation belongs in the shared header part; the hero stays in page content.
 	 */
 	public function test_leading_nav_before_header_is_preserved_in_header_part(): void {
 		$html_path = $this->write_temp_fixture(
@@ -434,11 +434,14 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 
 		$theme_dir = $result['theme_dir'];
 		$header    = $this->read_file( $theme_dir . '/parts/header.html' );
+		$pattern   = $this->pattern_blocks( $this->read_file( $theme_dir . '/patterns/page-leading-nav-header.php' ) );
 
 		$this->assertStringContainsString( 'Studio Code', $header );
 		$this->assertStringContainsString( 'Early Access', $header );
 		$this->assertStringContainsString( 'Get Started', $header );
-		$this->assertStringContainsString( 'Launch with Studio', $header );
+		$this->assertStringNotContainsString( 'Launch with Studio', $header );
+		$this->assertStringContainsString( 'Launch with Studio', $pattern );
+		$this->assertStringContainsString( 'Hero copy.', $pattern );
 	}
 
 	/**

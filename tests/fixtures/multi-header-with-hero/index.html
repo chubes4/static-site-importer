@@ -1,0 +1,1516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Static Site Importer — Radical Speed Month 2025</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Editorial+New:ital,wght@0,400;1,400&family=Syne:wght@400;500;600;700;800&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --black: #0a0a0a;
+    --white: #f5f2ec;
+    --cream: #ede8df;
+    --acid: #c8ff00;
+    --acid-dim: #9bc600;
+    --rust: #e84b2a;
+    --rust-dim: #c03a1d;
+    --mid: #5a5650;
+    --border: rgba(245,242,236,0.12);
+    --border-dark: rgba(10,10,10,0.15);
+    --font-display: 'Syne', sans-serif;
+    --font-body: 'Editorial New', Georgia, serif;
+    --font-mono: 'Space Mono', monospace;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--black);
+    color: var(--white);
+    font-family: var(--font-body);
+    font-size: 18px;
+    line-height: 1.65;
+    overflow-x: hidden;
+  }
+
+  /* ─── NOISE OVERLAY ─── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 1000;
+    opacity: 0.4;
+  }
+
+  /* ─── NAV ─── */
+  nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 48px;
+    backdrop-filter: blur(20px);
+    background: rgba(10,10,10,0.7);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .nav-logo {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 13px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--acid);
+  }
+
+  .nav-meta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--mid);
+    letter-spacing: 0.05em;
+  }
+
+  /* ─── HERO ─── */
+  .hero {
+    min-height: 100vh;
+    display: grid;
+    grid-template-rows: 1fr auto;
+    padding: 120px 48px 80px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hero-bg {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 70% 60% at 80% 30%, rgba(200,255,0,0.07) 0%, transparent 70%),
+      radial-gradient(ellipse 50% 70% at 10% 80%, rgba(232,75,42,0.06) 0%, transparent 60%);
+  }
+
+  .hero-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 80px;
+    align-items: end;
+    max-width: 1400px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  .hero-tag {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--acid);
+    margin-bottom: 32px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .hero-tag::before {
+    content: '';
+    display: block;
+    width: 32px;
+    height: 1px;
+    background: var(--acid);
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: clamp(52px, 7vw, 96px);
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    color: var(--white);
+  }
+
+  h1 em {
+    font-style: italic;
+    font-weight: 400;
+    color: var(--acid);
+  }
+
+  .hero-sub {
+    font-family: var(--font-body);
+    font-size: clamp(16px, 1.8vw, 21px);
+    line-height: 1.6;
+    color: rgba(245,242,236,0.7);
+    max-width: 480px;
+    margin-top: 40px;
+  }
+
+  .hero-right {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 24px;
+  }
+
+  .hero-stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+  }
+
+  .hero-stat {
+    background: rgba(10,10,10,0.9);
+    padding: 28px 24px;
+  }
+
+  .hero-stat-num {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 42px;
+    line-height: 1;
+    color: var(--acid);
+  }
+
+  .hero-stat-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--mid);
+    margin-top: 8px;
+  }
+
+  .hero-cta {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .btn-primary {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    background: var(--acid);
+    color: var(--black);
+    padding: 16px 32px;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+    transition: background 0.2s, transform 0.15s;
+  }
+
+  .btn-primary:hover {
+    background: var(--acid-dim);
+    transform: translateY(-2px);
+  }
+
+  .btn-ghost {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    background: transparent;
+    color: var(--white);
+    padding: 16px 32px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+    transition: border-color 0.2s, color 0.2s;
+  }
+
+  .btn-ghost:hover {
+    border-color: var(--white);
+    color: var(--acid);
+  }
+
+  /* ─── HERO SCROLL TICKER ─── */
+  .hero-ticker {
+    border-top: 1px solid var(--border);
+    padding-top: 32px;
+    overflow: hidden;
+    max-width: 1400px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  .ticker-track {
+    display: flex;
+    gap: 64px;
+    white-space: nowrap;
+    animation: ticker 20s linear infinite;
+  }
+
+  .ticker-item {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--mid);
+    flex-shrink: 0;
+  }
+
+  .ticker-item span {
+    color: var(--acid);
+    margin-right: 16px;
+  }
+
+  @keyframes ticker {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+
+  /* ─── SECTION BASE ─── */
+  section {
+    padding: 120px 48px;
+  }
+
+  .section-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  .section-tag {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--acid);
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .section-tag::before {
+    content: '';
+    display: block;
+    width: 24px;
+    height: 1px;
+    background: var(--acid);
+  }
+
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: clamp(36px, 5vw, 64px);
+    line-height: 1;
+    letter-spacing: -0.025em;
+    color: var(--white);
+    margin-bottom: 24px;
+  }
+
+  h2 em {
+    font-style: italic;
+    font-weight: 400;
+    color: var(--acid);
+  }
+
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+    color: var(--white);
+    margin-bottom: 12px;
+  }
+
+  p {
+    color: rgba(245,242,236,0.72);
+    max-width: 680px;
+    line-height: 1.75;
+  }
+
+  p + p { margin-top: 20px; }
+
+  /* ─── RSM CONTEXT ─── */
+  .rsm-section {
+    background: var(--cream);
+    color: var(--black);
+  }
+
+  .rsm-section .section-tag { color: var(--rust); }
+  .rsm-section .section-tag::before { background: var(--rust); }
+
+  .rsm-section h2 { color: var(--black); }
+  .rsm-section h2 em { color: var(--rust); }
+
+  .rsm-section p { color: rgba(10,10,10,0.65); }
+
+  .rsm-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 80px;
+    align-items: start;
+    margin-top: 64px;
+  }
+
+  .rsm-pill-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .rsm-pill-list li {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    padding: 14px 20px;
+    border: 1px solid rgba(10,10,10,0.15);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    color: var(--black);
+    background: white;
+  }
+
+  .rsm-pill-list li::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    background: var(--rust);
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* ─── PROBLEM/OPPORTUNITY ─── */
+  .problem-section {
+    background: var(--black);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .problem-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    margin-top: 64px;
+  }
+
+  .problem-card {
+    background: var(--black);
+    padding: 48px;
+  }
+
+  .problem-card.opportunity {
+    background: rgba(200,255,0,0.04);
+  }
+
+  .problem-card-tag {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 24px;
+    padding: 6px 12px;
+    border: 1px solid;
+    display: inline-block;
+  }
+
+  .problem-card-tag.problem-tag {
+    color: var(--rust);
+    border-color: var(--rust);
+  }
+
+  .problem-card-tag.opportunity-tag {
+    color: var(--acid);
+    border-color: var(--acid);
+  }
+
+  .problem-card h3 { font-size: 28px; }
+
+  .problem-card p { color: rgba(245,242,236,0.65); max-width: none; }
+
+  /* ─── HOW IT WORKS ─── */
+  .how-section {
+    background: #0f0e0b;
+  }
+
+  .how-steps {
+    margin-top: 80px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+  }
+
+  .step {
+    background: #0f0e0b;
+    padding: 48px 36px;
+    position: relative;
+  }
+
+  .step-num {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 80px;
+    line-height: 1;
+    color: rgba(200,255,0,0.08);
+    position: absolute;
+    top: 16px;
+    right: 20px;
+    letter-spacing: -0.05em;
+  }
+
+  .step-icon {
+    width: 40px;
+    height: 40px;
+    background: rgba(200,255,0,0.1);
+    border: 1px solid rgba(200,255,0,0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 24px;
+  }
+
+  .step-icon svg {
+    width: 20px;
+    height: 20px;
+    stroke: var(--acid);
+    fill: none;
+    stroke-width: 1.5;
+  }
+
+  .step h3 { font-size: 18px; margin-bottom: 12px; }
+
+  .step p {
+    font-size: 15px;
+    color: rgba(245,242,236,0.55);
+    max-width: none;
+    line-height: 1.65;
+  }
+
+  /* ─── CODE DEMO ─── */
+  .code-section {
+    background: var(--black);
+    padding: 80px 48px;
+  }
+
+  .code-demo {
+    margin-top: 64px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+  }
+
+  .code-pane {
+    background: #080807;
+    padding: 40px;
+  }
+
+  .code-pane-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--mid);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .code-pane-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  pre {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.7;
+    color: rgba(245,242,236,0.6);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .hl-tag { color: #7ca8c8; }
+  .hl-attr { color: #c4a87a; }
+  .hl-string { color: var(--acid); }
+  .hl-comment { color: #4a4844; }
+  .hl-cmd { color: var(--rust); }
+
+  /* ─── USE CASES ─── */
+  .cases-section {
+    background: var(--cream);
+    color: var(--black);
+  }
+
+  .cases-section .section-tag { color: var(--rust); }
+  .cases-section .section-tag::before { background: var(--rust); }
+
+  .cases-section h2 { color: var(--black); }
+  .cases-section h2 em { color: var(--rust); }
+
+  .cases-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    margin-top: 64px;
+  }
+
+  .case-card {
+    background: white;
+    padding: 40px 36px;
+    border: 1px solid rgba(10,10,10,0.1);
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.3s, box-shadow 0.3s;
+  }
+
+  .case-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--rust);
+  }
+
+  .case-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 20px 60px rgba(10,10,10,0.12);
+  }
+
+  .case-card-type {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--rust);
+    margin-bottom: 16px;
+  }
+
+  .case-card h3 {
+    font-size: 20px;
+    color: var(--black);
+    margin-bottom: 12px;
+  }
+
+  .case-card p {
+    font-size: 15px;
+    color: rgba(10,10,10,0.6);
+    max-width: none;
+    line-height: 1.7;
+  }
+
+  /* ─── STUDIO IMPACT ─── */
+  .studio-section {
+    background: #0a0a0a;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .studio-bg {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 60% 80% at 90% 50%, rgba(200,255,0,0.04) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .impact-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 64px;
+    align-items: start;
+    margin-top: 64px;
+  }
+
+  .impact-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    border: 1px solid var(--border);
+  }
+
+  .impact-item {
+    padding: 28px 32px;
+    border-bottom: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: 32px 1fr;
+    gap: 20px;
+    align-items: start;
+    transition: background 0.2s;
+  }
+
+  .impact-item:last-child { border-bottom: none; }
+
+  .impact-item:hover {
+    background: rgba(200,255,0,0.03);
+  }
+
+  .impact-item-num {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--acid);
+    padding-top: 3px;
+  }
+
+  .impact-item h3 {
+    font-size: 16px;
+    margin-bottom: 6px;
+  }
+
+  .impact-item p {
+    font-size: 14px;
+    color: rgba(245,242,236,0.5);
+    max-width: none;
+    line-height: 1.6;
+  }
+
+  .impact-quote {
+    background: rgba(200,255,0,0.05);
+    border: 1px solid rgba(200,255,0,0.12);
+    padding: 48px;
+  }
+
+  .impact-quote-mark {
+    font-family: var(--font-display);
+    font-size: 80px;
+    line-height: 0.8;
+    color: var(--acid);
+    opacity: 0.3;
+    margin-bottom: 24px;
+    display: block;
+  }
+
+  .impact-quote blockquote {
+    font-family: var(--font-body);
+    font-style: italic;
+    font-size: 22px;
+    line-height: 1.55;
+    color: var(--white);
+    max-width: none;
+  }
+
+  .impact-quote cite {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--acid);
+    text-transform: uppercase;
+    font-style: normal;
+    display: block;
+    margin-top: 28px;
+  }
+
+  /* ─── DATA LIBERATION ─── */
+  .liberation-section {
+    background: #0f0e0b;
+    position: relative;
+  }
+
+  .liberation-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 80px;
+    align-items: center;
+    margin-top: 64px;
+  }
+
+  .lib-visual {
+    position: relative;
+    padding: 40px;
+    background: rgba(232,75,42,0.05);
+    border: 1px solid rgba(232,75,42,0.15);
+  }
+
+  .lib-visual-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .lib-source {
+    background: rgba(10,10,10,0.8);
+    border: 1px solid var(--border);
+    padding: 16px 20px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: rgba(245,242,236,0.5);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .lib-source-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--rust);
+    flex-shrink: 0;
+  }
+
+  .lib-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+    color: var(--acid);
+    font-size: 20px;
+  }
+
+  .lib-output {
+    background: rgba(200,255,0,0.08);
+    border: 1px solid rgba(200,255,0,0.2);
+    padding: 20px 24px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--acid);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-weight: 700;
+  }
+
+  /* ─── METRICS ─── */
+  .metrics-section {
+    background: var(--acid);
+    color: var(--black);
+    padding: 80px 48px;
+  }
+
+  .metrics-section .section-tag { color: var(--black); opacity: 0.5; }
+  .metrics-section .section-tag::before { background: var(--black); opacity: 0.5; }
+
+  .metrics-section h2 { color: var(--black); }
+
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: rgba(10,10,10,0.15);
+    border: 1px solid rgba(10,10,10,0.15);
+    margin-top: 64px;
+  }
+
+  .metric {
+    background: var(--acid);
+    padding: 48px 36px;
+    text-align: center;
+    transition: background 0.2s;
+  }
+
+  .metric:hover { background: var(--acid-dim); }
+
+  .metric-num {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 64px;
+    line-height: 1;
+    color: var(--black);
+    letter-spacing: -0.04em;
+  }
+
+  .metric-unit {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 36px;
+  }
+
+  .metric-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: rgba(10,10,10,0.6);
+    margin-top: 12px;
+    line-height: 1.5;
+  }
+
+  /* ─── TECH ─── */
+  .tech-section {
+    background: var(--black);
+    padding: 80px 48px;
+  }
+
+  .tech-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 48px;
+  }
+
+  .tech-tag {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 10px 18px;
+    border: 1px solid var(--border);
+    color: rgba(245,242,236,0.5);
+    letter-spacing: 0.06em;
+    transition: border-color 0.2s, color 0.2s;
+  }
+
+  .tech-tag:hover {
+    border-color: var(--acid);
+    color: var(--acid);
+  }
+
+  /* ─── CTA ─── */
+  .cta-section {
+    background: var(--black);
+    padding: 140px 48px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+    border-top: 1px solid var(--border);
+  }
+
+  .cta-bg {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 50%, rgba(200,255,0,0.05) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .cta-section h2 {
+    font-size: clamp(48px, 8vw, 112px);
+    text-align: center;
+    max-width: 900px;
+    margin: 0 auto 40px;
+  }
+
+  .cta-section p {
+    text-align: center;
+    font-size: 18px;
+    max-width: 560px;
+    margin: 0 auto 56px;
+    color: rgba(245,242,236,0.55);
+  }
+
+  .cta-buttons {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  /* ─── FOOTER ─── */
+  footer {
+    background: var(--black);
+    border-top: 1px solid var(--border);
+    padding: 40px 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .footer-brand {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 12px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--mid);
+  }
+
+  .footer-links {
+    display: flex;
+    gap: 32px;
+  }
+
+  .footer-links a {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--mid);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+
+  .footer-links a:hover { color: var(--acid); }
+
+  /* ─── SCROLL REVEAL ─── */
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: opacity 0.7s ease, transform 0.7s ease;
+  }
+
+  /* ─── RESPONSIVE ─── */
+  @media (max-width: 900px) {
+    nav { padding: 16px 24px; }
+    section { padding: 80px 24px; }
+    .hero { padding: 100px 24px 60px; }
+    .hero-content { grid-template-columns: 1fr; gap: 48px; }
+    .rsm-grid { grid-template-columns: 1fr; gap: 40px; }
+    .problem-split { grid-template-columns: 1fr; }
+    .how-steps { grid-template-columns: 1fr 1fr; }
+    .code-demo { grid-template-columns: 1fr; }
+    .cases-grid { grid-template-columns: 1fr; }
+    .impact-grid { grid-template-columns: 1fr; gap: 40px; }
+    .liberation-grid { grid-template-columns: 1fr; gap: 48px; }
+    .metrics-grid { grid-template-columns: 1fr 1fr; }
+    footer { flex-direction: column; gap: 24px; text-align: center; }
+  }
+
+  @media (max-width: 600px) {
+    .hero-stat-grid { grid-template-columns: 1fr 1fr; }
+    .how-steps { grid-template-columns: 1fr; }
+    .metrics-grid { grid-template-columns: 1fr 1fr; }
+    .footer-links { flex-direction: column; gap: 12px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+    html { scroll-behavior: auto; }
+    .ticker-track { animation: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-logo">Static Site Importer</div>
+  <div class="nav-meta">Radical Speed Month 2025 &mdash; Automattic</div>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="hero-bg"></div>
+
+  <div class="hero-content">
+    <div class="hero-left">
+      <div class="hero-tag">Radical Speed Month 2025</div>
+      <h1>Static<br>into<br><em>WordPress.</em></h1>
+      <p class="hero-sub">
+        Static Site Importer converts any custom HTML/CSS into a fully editable WordPress block theme&mdash;giving Studio a fast lane for site generation and giving customers a real path into WordPress from existing work.
+      </p>
+    </div>
+
+    <div class="hero-right">
+      <div class="hero-stat-grid">
+        <div class="hero-stat">
+          <div class="hero-stat-num">1</div>
+          <div class="hero-stat-label">Command</div>
+        </div>
+        <div class="hero-stat">
+          <div class="hero-stat-num">100%</div>
+          <div class="hero-stat-label">Block editable</div>
+        </div>
+        <div class="hero-stat">
+          <div class="hero-stat-num">0</div>
+          <div class="hero-stat-label">Block prompts</div>
+        </div>
+        <div class="hero-stat">
+          <div class="hero-stat-num">Any</div>
+          <div class="hero-stat-label">HTML template</div>
+        </div>
+      </div>
+
+      <div class="hero-cta">
+        <a href="#how" class="btn-primary">See how it works</a>
+        <a href="#impact" class="btn-ghost">Studio impact</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="hero-ticker">
+    <div class="ticker-track">
+      <div class="ticker-item"><span>&rarr;</span> HTML/CSS in</div>
+      <div class="ticker-item"><span>&rarr;</span> Block theme out</div>
+      <div class="ticker-item"><span>&rarr;</span> Site Editor ready</div>
+      <div class="ticker-item"><span>&rarr;</span> Zero boilerplate</div>
+      <div class="ticker-item"><span>&rarr;</span> Data liberation</div>
+      <div class="ticker-item"><span>&rarr;</span> Agent-native pipeline</div>
+      <div class="ticker-item"><span>&rarr;</span> One-shot generation</div>
+      <div class="ticker-item"><span>&rarr;</span> HTML/CSS in</div>
+      <div class="ticker-item"><span>&rarr;</span> Block theme out</div>
+      <div class="ticker-item"><span>&rarr;</span> Site Editor ready</div>
+      <div class="ticker-item"><span>&rarr;</span> Zero boilerplate</div>
+      <div class="ticker-item"><span>&rarr;</span> Data liberation</div>
+      <div class="ticker-item"><span>&rarr;</span> Agent-native pipeline</div>
+      <div class="ticker-item"><span>&rarr;</span> One-shot generation</div>
+    </div>
+  </div>
+</header>
+
+<!-- RSM CONTEXT -->
+<section class="rsm-section">
+  <div class="section-inner">
+    <div class="section-tag">The Context</div>
+    <h2>Radical Speed Month<br>is about <em>real bets.</em></h2>
+
+    <div class="rsm-grid">
+      <div>
+        <p>
+          RSM gives Automattic engineers a dedicated month to build something that matters&mdash;fast. No committees, no roadmap review, just a clear problem and the space to solve it properly.
+        </p>
+        <p>
+          Static Site Importer is that bet: a single-command conversion layer that makes HTML/CSS a first-class input into the WordPress ecosystem. It changes the unit of work for Studio agents from "assemble blocks from scratch" to "build a site, then import it."
+        </p>
+        <p>
+          That shift has compounding effects across agent quality, customer journeys, and the broader conversation about where WordPress fits in a world increasingly comfortable with static-first tools.
+        </p>
+      </div>
+      <div>
+        <ul class="rsm-pill-list">
+          <li>Month-long focused build, zero committee overhead</li>
+          <li>Solves a real gap in Studio's site generation pipeline</li>
+          <li>Opens a credible data liberation path for existing HTML</li>
+          <li>Positions WordPress as the endpoint for the static-site trend</li>
+          <li>Ships as a reusable WP-CLI command, not a one-off script</li>
+          <li>Demo-able, measurable, and production-ready by end of month</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PROBLEM / OPPORTUNITY -->
+<section class="problem-section">
+  <div class="section-inner">
+    <div class="section-tag">Problem &amp; Opportunity</div>
+    <h2>The static-site<br>trend isn't slowing <em>down.</em></h2>
+
+    <div class="problem-split">
+      <div class="problem-card">
+        <div class="problem-card-tag problem-tag">The Problem</div>
+        <h3>WordPress isn't the obvious answer anymore</h3>
+        <p>
+          Developers and agencies increasingly reach for static sites: they feel fast, portable, version-controllable, and trivially easy to generate with AI. When someone asks Claude or ChatGPT to "build a site," the answer arrives as clean HTML and CSS&mdash;not a block editor JSON blob.
+        </p>
+        <p>
+          Studio's site generation has felt this pressure. Generating block-format output directly requires careful prompt engineering, produces fragile markup, and leaves little room for creative layouts that don't conform to Gutenberg conventions. The debugging surface area is large and the output quality is inconsistent.
+        </p>
+        <p>
+          Meanwhile, customers arrive with existing assets&mdash;HTML exports, agency templates, generated prototypes&mdash;and face a hard choice: start over in WordPress, or stay outside it.
+        </p>
+      </div>
+
+      <div class="problem-card opportunity">
+        <div class="problem-card-tag opportunity-tag">The Opportunity</div>
+        <h3>Static HTML is the perfect intermediate format</h3>
+        <p>
+          AI agents are remarkably good at generating clean, semantic HTML and CSS. It's a well-understood format with decades of training data, instant browser validation, and zero proprietary conventions. The limiting factor has never been generating the HTML&mdash;it's been converting it into something WordPress can own.
+        </p>
+        <p>
+          Static Site Importer closes that gap. By treating HTML as the canonical output format for site generation&mdash;and handling the WordPress conversion as a reliable, deterministic step&mdash;Studio can produce better sites faster, support more diverse layouts, and give existing HTML assets a first-class path into WordPress.
+        </p>
+        <p>
+          The trend toward static doesn't have to route around WordPress. With this project, it routes through it.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="how-section" id="how">
+  <div class="section-inner">
+    <div class="section-tag">How It Works</div>
+    <h2>Four steps from<br><em>HTML to editable.</em></h2>
+
+    <div class="how-steps">
+      <div class="step">
+        <div class="step-num">01</div>
+        <div class="step-icon">
+          <svg viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+        </div>
+        <h3>Write or provide HTML</h3>
+        <p>Start with any static HTML document&mdash;agent-generated, hand-built, exported from a tool, or an existing customer template. No special conventions required. Pure HTML and CSS.</p>
+      </div>
+
+      <div class="step">
+        <div class="step-num">02</div>
+        <div class="step-icon">
+          <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+        </div>
+        <h3>Run the importer</h3>
+        <p>One WP-CLI command parses the HTML, extracts the CSS, identifies the document structure, and scaffolds a complete block theme with a front page template and associated styles.</p>
+      </div>
+
+      <div class="step">
+        <div class="step-num">03</div>
+        <div class="step-icon">
+          <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+        </div>
+        <h3>Theme activates automatically</h3>
+        <p>The generated theme is registered, activated, and set as the front page. The site immediately reflects the imported design. No manual file editing, no theme activation steps.</p>
+      </div>
+
+      <div class="step">
+        <div class="step-num">04</div>
+        <div class="step-icon">
+          <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+        </div>
+        <h3>Edit in Site Editor</h3>
+        <p>The customer lands in a fully functional WordPress site with the visual design they started with, ready to edit content in the Site Editor. No hand-off friction, no "this is approximate" disclaimer.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CODE DEMO -->
+<section class="code-section">
+  <div class="section-inner">
+    <div class="section-tag">The Command</div>
+    <h2>One line.<br><em>That's the interface.</em></h2>
+
+    <div class="code-demo">
+      <div class="code-pane">
+        <div class="code-pane-label">Input &mdash; your static HTML</div>
+        <pre><span class="hl-tag">&lt;!DOCTYPE html&gt;</span>
+<span class="hl-tag">&lt;html&gt;</span>
+<span class="hl-tag">&lt;head&gt;</span>
+  <span class="hl-tag">&lt;title&gt;</span>My Site<span class="hl-tag">&lt;/title&gt;</span>
+  <span class="hl-tag">&lt;style&gt;</span>
+    <span class="hl-comment">/* Any CSS you want */</span>
+    body <span class="hl-string">{ font-family: 'Syne', sans-serif; }</span>
+    .hero <span class="hl-string">{ background: #c8ff00; padding: 120px; }</span>
+  <span class="hl-tag">&lt;/style&gt;</span>
+<span class="hl-tag">&lt;/head&gt;</span>
+<span class="hl-tag">&lt;body&gt;</span>
+  <span class="hl-tag">&lt;header <span class="hl-attr">class</span>=<span class="hl-string">"hero"</span>&gt;</span>
+    <span class="hl-tag">&lt;h1&gt;</span>Custom Design<span class="hl-tag">&lt;/h1&gt;</span>
+    <span class="hl-tag">&lt;p&gt;</span>Exactly as built.<span class="hl-tag">&lt;/p&gt;</span>
+  <span class="hl-tag">&lt;/header&gt;</span>
+  <span class="hl-comment">&lt;!-- ... rest of site ... --&gt;</span>
+<span class="hl-tag">&lt;/body&gt;</span>
+<span class="hl-tag">&lt;/html&gt;</span></pre>
+      </div>
+
+      <div class="code-pane">
+        <div class="code-pane-label">Command &mdash; one WP-CLI call</div>
+        <pre><span class="hl-comment"># Import and activate in one step</span>
+<span class="hl-cmd">wp</span> static-site-importer import-theme \
+  /path/to/index.html \
+  --slug=<span class="hl-string">my-custom-theme</span> \
+  --name=<span class="hl-string">"My Custom Theme"</span> \
+  --activate \
+  --overwrite
+
+<span class="hl-comment"># Output</span>
+<span class="hl-string">Theme generated: my-custom-theme</span>
+<span class="hl-string">Front page template created.</span>
+<span class="hl-string">Theme activated successfully.</span>
+<span class="hl-string">Done.</span></pre>
+
+        <div class="code-pane-label" style="margin-top: 32px;">Studio integration &mdash; agent call</div>
+        <pre><span class="hl-comment"># Studio Code calls this after</span>
+<span class="hl-comment"># writing the static HTML</span>
+<span class="hl-cmd">wp_cli</span>(
+  <span class="hl-string">"static-site-importer import-theme"</span>
+  <span class="hl-string">"/wordpress/tmp/static-site/index.html"</span>
+  <span class="hl-string">"--slug=generated-theme"</span>
+  <span class="hl-string">"--activate --overwrite"</span>
+)</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- USE CASES -->
+<section class="cases-section">
+  <div class="section-inner">
+    <div class="section-tag">Who It Helps</div>
+    <h2>Every customer<br>with <em>existing HTML.</em></h2>
+
+    <div class="cases-grid">
+      <div class="case-card reveal">
+        <div class="case-card-type">Studio Agent</div>
+        <h3>AI-generated sites, no block gymnastics</h3>
+        <p>Agents write clean HTML and CSS&mdash;they're excellent at it. The importer handles the block conversion, so agents never need to learn Gutenberg's format. Better layouts, fewer retries, zero block validation errors.</p>
+      </div>
+
+      <div class="case-card reveal">
+        <div class="case-card-type">Developer</div>
+        <h3>Prototype to production without starting over</h3>
+        <p>Built a quick HTML prototype to show a client? Run the importer. The prototype becomes a real WordPress site with editable content. The design the client approved is the design they get.</p>
+      </div>
+
+      <div class="case-card reveal">
+        <div class="case-card-type">Agency</div>
+        <h3>Deliver custom templates as WordPress themes</h3>
+        <p>Agencies with existing HTML template libraries can import them directly. Each template becomes an activatable WordPress block theme. No manual block re-authoring. Client handoff via Site Editor.</p>
+      </div>
+
+      <div class="case-card reveal">
+        <div class="case-card-type">Migrating Customer</div>
+        <h3>HTML export gets a real WordPress home</h3>
+        <p>Customers leaving Squarespace, Wix, or any static host often have HTML exports. Instead of starting from scratch in WordPress, they import what they have and edit from there.</p>
+      </div>
+
+      <div class="case-card reveal">
+        <div class="case-card-type">Content Creator</div>
+        <h3>Figma-to-WordPress without the middle steps</h3>
+        <p>Tools that export Figma designs to HTML gain a clear path to WordPress. The gap between design tool output and live site narrows to a single command.</p>
+      </div>
+
+      <div class="case-card reveal">
+        <div class="case-card-type">Enterprise</div>
+        <h3>Brand templates as reusable site foundations</h3>
+        <p>Enterprises with brand-approved HTML templates can deploy them as WordPress themes across multiple sites. Consistent design, centralized updates, maintainable in the block editor.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STUDIO IMPACT -->
+<section class="studio-section" id="impact">
+  <div class="studio-bg"></div>
+  <div class="section-inner">
+    <div class="section-tag">Studio Value</div>
+    <h2>What this changes<br>for <em>Studio.</em></h2>
+
+    <div class="impact-grid">
+      <ul class="impact-list">
+        <li class="impact-item">
+          <div class="impact-item-num">01</div>
+          <div>
+            <h3>Better one-shot site generation</h3>
+            <p>Agents generate HTML instead of block JSON. HTML is easier to generate well, easier to debug, and produces more reliable visual results. One-shot quality improves significantly.</p>
+          </div>
+        </li>
+        <li class="impact-item">
+          <div class="impact-item-num">02</div>
+          <div>
+            <h3>Fewer fragile block-format prompts</h3>
+            <p>Block format prompts are brittle, require constant maintenance, and produce inconsistent output. With the importer, that whole class of problem disappears from the agent's surface area.</p>
+          </div>
+        </li>
+        <li class="impact-item">
+          <div class="impact-item-num">03</div>
+          <div>
+            <h3>Easier debugging and iteration</h3>
+            <p>HTML renders directly in a browser. Agents can check their work, catch visual issues, and iterate without running a full WordPress installation. Faster development loop, fewer surprises.</p>
+          </div>
+        </li>
+        <li class="impact-item">
+          <div class="impact-item-num">04</div>
+          <div>
+            <h3>One reusable conversion pipeline</h3>
+            <p>Every Studio agent and workflow shares the same reliable importer. Improvements to the conversion logic benefit everything at once instead of being duplicated across multiple prompt strategies.</p>
+          </div>
+        </li>
+        <li class="impact-item">
+          <div class="impact-item-num">05</div>
+          <div>
+            <h3>Customer-provided templates</h3>
+            <p>A customer who arrives with an existing HTML template can hand it to Studio and end up with a working WordPress site. That conversion flow doesn't exist anywhere else in the ecosystem.</p>
+          </div>
+        </li>
+        <li class="impact-item">
+          <div class="impact-item-num">06</div>
+          <div>
+            <h3>Cleaner agent-to-editor handoff</h3>
+            <p>The customer receives a site that looks exactly like what the agent built&mdash;and can edit it. No "this is approximate" moment. The handoff from agent output to human editor is seamless.</p>
+          </div>
+        </li>
+      </ul>
+
+      <div class="impact-quote">
+        <span class="impact-quote-mark">&ldquo;</span>
+        <blockquote>
+          The best version of Studio isn't one where agents try to speak Gutenberg. It's one where agents speak HTML&mdash;which they already do well&mdash;and a reliable converter handles the rest. The importer makes that architecture real.
+        </blockquote>
+        <cite>Static Site Importer &mdash; RSM 2025</cite>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DATA LIBERATION -->
+<section class="liberation-section">
+  <div class="section-inner">
+    <div class="section-tag">Data Liberation</div>
+    <h2>Existing HTML<br>deserves a <em>home.</em></h2>
+
+    <div class="liberation-grid">
+      <div>
+        <p>
+          Millions of sites exist outside WordPress as static HTML&mdash;built by hand, generated by tools, exported by platforms, or assembled by AI. These aren't broken assets waiting to be discarded. They represent real design work, real content, and real customer investment.
+        </p>
+        <p>
+          WordPress's data liberation mission is about preserving that investment and making WordPress the natural next step, not a complete restart. Static Site Importer is a concrete implementation of that principle: your HTML comes in, a real WordPress site comes out, and you keep what you built.
+        </p>
+        <p>
+          The shift matters most at the edges of the ecosystem&mdash;the customer who generated a site prototype with an AI tool, the developer who has a clean template and doesn't want to re-learn the block editor from scratch, the agency that built in HTML because they always have.
+        </p>
+        <p>
+          For all of them, the importer says: your format is valid. We'll meet you where you are.
+        </p>
+      </div>
+
+      <div class="lib-visual">
+        <div class="lib-visual-inner">
+          <div class="lib-source">
+            <div class="lib-source-dot"></div>
+            AI-generated HTML prototype
+          </div>
+          <div class="lib-source">
+            <div class="lib-source-dot"></div>
+            Squarespace / Wix HTML export
+          </div>
+          <div class="lib-source">
+            <div class="lib-source-dot"></div>
+            Hand-built custom template
+          </div>
+          <div class="lib-source">
+            <div class="lib-source-dot"></div>
+            Figma export / design tool output
+          </div>
+          <div class="lib-source">
+            <div class="lib-source-dot"></div>
+            Agency HTML template library
+          </div>
+          <div class="lib-source">
+            <div class="lib-source-dot"></div>
+            Legacy static site backup
+          </div>
+
+          <div class="lib-arrow">&darr;</div>
+
+          <div class="lib-output">
+            WordPress block theme &mdash; Site Editor ready
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- METRICS -->
+<section class="metrics-section">
+  <div class="section-inner">
+    <div class="section-tag">Highlights</div>
+    <h2>By the numbers.</h2>
+
+    <div class="metrics-grid">
+      <div class="metric">
+        <div class="metric-num">1<span class="metric-unit">cmd</span></div>
+        <div class="metric-label">From HTML to<br>activated WordPress theme</div>
+      </div>
+      <div class="metric">
+        <div class="metric-num">0</div>
+        <div class="metric-label">Block format prompts<br>needed by agents</div>
+      </div>
+      <div class="metric">
+        <div class="metric-num">100<span class="metric-unit">%</span></div>
+        <div class="metric-label">Visual fidelity to<br>original static design</div>
+      </div>
+      <div class="metric">
+        <div class="metric-num">30<span class="metric-unit">d</span></div>
+        <div class="metric-label">Built in a single<br>RSM sprint</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TECH STACK -->
+<section class="tech-section">
+  <div class="section-inner">
+    <div class="section-tag">Built With</div>
+    <h2>The stack behind<br><em>the importer.</em></h2>
+
+    <div class="tech-tags">
+      <div class="tech-tag">WP-CLI Command</div>
+      <div class="tech-tag">PHP HTML Parser</div>
+      <div class="tech-tag">Block Theme Scaffolding</div>
+      <div class="tech-tag">theme.json Generation</div>
+      <div class="tech-tag">CSS Extraction</div>
+      <div class="tech-tag">Template Part Mapping</div>
+      <div class="tech-tag">WordPress Site Editor</div>
+      <div class="tech-tag">Block Theme API</div>
+      <div class="tech-tag">Studio wp_cli Integration</div>
+      <div class="tech-tag">Agent Pipeline</div>
+      <div class="tech-tag">Static HTML</div>
+      <div class="tech-tag">Semantic CSS</div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+  <div class="cta-bg"></div>
+  <div class="section-inner" style="position: relative;">
+    <div class="section-tag" style="justify-content: center;">Radical Speed Month 2025</div>
+    <h2>HTML in.<br><em>WordPress out.</em></h2>
+    <p>Static Site Importer closes the loop between AI-generated output and editable WordPress sites. One reliable pipeline. Better generation. Real data liberation.</p>
+    <div class="cta-buttons">
+      <a href="#how" class="btn-primary">See how it works</a>
+      <a href="#impact" class="btn-ghost">Studio impact</a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-brand">Static Site Importer &mdash; RSM 2025</div>
+  <div class="footer-links">
+    <a href="#how">How It Works</a>
+    <a href="#impact">Studio Impact</a>
+    <a href="#">Try It</a>
+  </div>
+</footer>
+
+<script>
+  // Scroll reveal
+  const reveals = document.querySelectorAll('.reveal');
+  if (reveals.length > 0) {
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.style.opacity = '1';
+          entry.target.style.transform = 'none';
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.15 });
+
+    reveals.forEach(el => {
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(24px)';
+      observer.observe(el);
+    });
+  }
+
+  // Staggered hero entrance
+  const heroLeft = document.querySelector('.hero-left');
+  const heroRight = document.querySelector('.hero-right');
+  if (heroLeft && heroRight) {
+    heroLeft.style.opacity = '0';
+    heroLeft.style.transform = 'translateY(32px)';
+    heroRight.style.opacity = '0';
+    heroRight.style.transform = 'translateY(32px)';
+    setTimeout(() => {
+      heroLeft.style.transition = 'opacity 0.8s ease, transform 0.8s ease';
+      heroLeft.style.opacity = '1';
+      heroLeft.style.transform = 'none';
+    }, 200);
+    setTimeout(() => {
+      heroRight.style.transition = 'opacity 0.8s ease, transform 0.8s ease';
+      heroRight.style.opacity = '1';
+      heroRight.style.transform = 'none';
+    }, 450);
+  }
+</script>
+</body>
+</html>

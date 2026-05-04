@@ -83,10 +83,11 @@ $assert( ! str_contains( $read( __FILE__ ), 'Developer' . '/wordpress-is-dead' )
 $result = Static_Site_Importer_Theme_Generator::import_theme(
 	$fixture,
 	array(
-		'name'      => 'WordPress Is Dead Fixture',
-		'slug'      => 'wordpress-is-dead-fixture',
-		'overwrite' => true,
-		'activate'  => false,
+		'name'        => 'WordPress Is Dead Fixture',
+		'slug'        => 'wordpress-is-dead-fixture',
+		'overwrite'   => true,
+		'activate'    => false,
+		'keep_source' => true,
 	)
 );
 
@@ -198,10 +199,11 @@ if ( ! is_wp_error( $result ) ) {
 	$second_result = Static_Site_Importer_Theme_Generator::import_theme(
 		$fixture,
 		array(
-			'name'      => 'WordPress Is Dead Fixture',
-			'slug'      => 'wordpress-is-dead-fixture',
-			'overwrite' => true,
-			'activate'  => false,
+			'name'        => 'WordPress Is Dead Fixture',
+			'slug'        => 'wordpress-is-dead-fixture',
+			'overwrite'   => true,
+			'activate'    => false,
+			'keep_source' => true,
 		)
 	);
 	$assert( ! is_wp_error( $second_result ), 'second-import-succeeds', is_wp_error( $second_result ) ? $second_result->get_error_message() : '' );
@@ -481,11 +483,15 @@ if ( false !== $wrote_leading_nav ) {
 	);
 	$assert( ! is_wp_error( $leading_nav_result ), 'leading-nav-import-succeeds', is_wp_error( $leading_nav_result ) ? $leading_nav_result->get_error_message() : '' );
 	if ( ! is_wp_error( $leading_nav_result ) ) {
-		$leading_nav_header = $read( $leading_nav_result['theme_dir'] . '/parts/header.html' );
+		$leading_nav_source_slug = sanitize_title( preg_replace( '/\.html?$/i', '', basename( $leading_nav_fixture ) ) );
+		$leading_nav_header      = $read( $leading_nav_result['theme_dir'] . '/parts/header.html' );
+		$leading_nav_pattern     = $pattern_blocks( $read( $leading_nav_result['theme_dir'] . '/patterns/page-' . $leading_nav_source_slug . '.php' ) );
 		$assert( str_contains( $leading_nav_header, 'Studio Code' ), 'leading-nav-header-preserves-logo' );
 		$assert( str_contains( $leading_nav_header, 'Early Access' ), 'leading-nav-header-preserves-badge' );
 		$assert( str_contains( $leading_nav_header, 'Get Started' ), 'leading-nav-header-preserves-cta' );
-		$assert( str_contains( $leading_nav_header, 'Launch with Studio' ), 'leading-nav-header-preserves-hero' );
+		$assert( ! str_contains( $leading_nav_header, 'Launch with Studio' ), 'leading-nav-header-excludes-hero' );
+		$assert( str_contains( $leading_nav_pattern, 'Launch with Studio' ), 'leading-nav-pattern-preserves-hero-heading' );
+		$assert( str_contains( $leading_nav_pattern, 'Hero copy.' ), 'leading-nav-pattern-preserves-hero-copy' );
 	}
 }
 

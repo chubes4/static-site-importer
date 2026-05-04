@@ -135,10 +135,15 @@ class Static_Site_Importer_Document {
 		$body = $this->first_element( 'body' );
 		$root = $body instanceof DOMElement ? $body : $this->dom->documentElement;
 
-		$header = $this->first_plausible_global_header( $root );
-		$nav    = $this->first_plausible_global_nav( $root, $header );
-		$footer = $this->first_element( 'footer' );
-		$main   = $this->first_element( 'main' );
+		$header       = $this->first_plausible_global_header( $root );
+		$nav          = $this->first_plausible_global_nav( $root, $header );
+		$footer       = $this->first_element( 'footer' );
+		$main         = $this->first_element( 'main' );
+		$body_headers = $this->body_content_headers( $root, $header, $nav );
+
+		if ( $header instanceof DOMElement && $this->contains_same_node( $body_headers, $header ) ) {
+			$header = null;
+		}
 
 		$header_parts = array();
 		if ( $nav instanceof DOMElement && $header instanceof DOMElement && $this->is_leading_sibling( $root, $nav, $header ) ) {
@@ -169,7 +174,12 @@ class Static_Site_Importer_Document {
 				continue;
 			}
 
-			if ( $this->same_node( $child, $nav ) || $this->same_node( $child, $header ) || $this->same_node( $child, $footer ) || $this->same_node( $child, $main ) ) {
+			if ( $this->same_node( $child, $main ) ) {
+				$main_parts[] = $main_html;
+				continue;
+			}
+
+			if ( $this->same_node( $child, $nav ) || $this->same_node( $child, $header ) || $this->same_node( $child, $footer ) ) {
 				continue;
 			}
 
@@ -178,15 +188,19 @@ class Static_Site_Importer_Document {
 				continue;
 			}
 
-			if ( ! $main instanceof DOMElement ) {
+			if ( ! $main instanceof DOMElement || $this->contains_same_node( $body_headers, $child ) ) {
 				$main_parts[] = $this->outer_html( $child );
 			}
+		}
+
+		if ( $main instanceof DOMElement && empty( $main_parts ) ) {
+			$main_parts[] = $main_html;
 		}
 
 		return array(
 			'background' => trim( implode( "\n", $background ) ),
 			'header'     => trim( $header_html ),
-			'main'       => trim( $main instanceof DOMElement ? $main_html : implode( "\n", $main_parts ) ),
+			'main'       => trim( implode( "\n", $main_parts ) ),
 			'footer'     => trim( $footer_html ),
 		);
 	}
@@ -254,6 +268,58 @@ class Static_Site_Importer_Document {
 		}
 
 		return $this->is_direct_child( $root, $header );
+	}
+
+	/**
+	 * Collect direct-child headers that should remain in page content.
+	 *
+	 * @param DOMElement      $root   Page root element.
+	 * @param DOMElement|null $header Selected header element.
+	 * @param DOMElement|null $nav    Selected nav element.
+	 * @return DOMElement[]
+	 */
+	private function body_content_headers( DOMElement $root, ?DOMElement $header, ?DOMElement $nav ): array {
+		$body_headers = array();
+		$seen_header  = false;
+
+		foreach ( iterator_to_array( $root->childNodes ) as $child ) {
+			if ( ! $child instanceof DOMElement || 'header' !== strtolower( $child->tagName ) ) {
+				continue;
+			}
+
+			if ( $header instanceof DOMElement && $this->same_node( $child, $header ) ) {
+				$seen_header = true;
+
+				if ( $nav instanceof DOMElement && ! $this->has_global_chrome_signal( $child ) && $this->is_leading_sibling( $root, $nav, $child ) ) {
+					$body_headers[] = $child;
+				}
+
+				continue;
+			}
+
+			if ( $seen_header ) {
+				$body_headers[] = $child;
+			}
+		}
+
+		return $body_headers;
+	}
+
+	/**
+	 * Check whether an array contains a DOM node.
+	 *
+	 * @param DOMElement[] $nodes     Nodes to search.
+	 * @param DOMElement   $candidate Candidate element.
+	 * @return bool
+	 */
+	private function contains_same_node( array $nodes, DOMElement $candidate ): bool {
+		foreach ( $nodes as $node ) {
+			if ( $this->same_node( $node, $candidate ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
