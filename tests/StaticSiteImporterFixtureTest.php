@@ -483,6 +483,41 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Top-level classed inline footer text becomes an editable native block.
+	 */
+	public function test_classed_footer_span_logo_uses_native_paragraph(): void {
+		$html_path = $this->write_temp_fixture(
+			'classed-footer-span-logo.html',
+			'<!doctype html><html><head><title>Classed Footer Span Logo</title></head><body>' .
+			'<main><section><h1>Classed footer span logo</h1><p>Body copy.</p></section></main>' .
+			'<footer class="site-footer"><span class="footer-logo">Brand</span><p class="footer-meta">Tagline</p></footer>' .
+			'</body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Classed Footer Span Logo',
+				'slug'      => 'classed-footer-span-logo',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$footer    = $this->read_file( $theme_dir . '/parts/footer.html' );
+		$report    = json_decode( $this->read_file( $result['report_path'] ), true );
+
+		$this->assertStringContainsString( '<!-- wp:paragraph {"className":"footer-logo"} --><p class="footer-logo">Brand</p><!-- /wp:paragraph -->', $footer );
+		$this->assertStringContainsString( '<!-- wp:paragraph {"className":"footer-meta"} --><p class="footer-meta">Tagline</p><!-- /wp:paragraph -->', $footer );
+		$this->assertStringNotContainsString( '<!-- wp:freeform', $footer );
+		$this->assertSame( 0, $report['quality']['freeform_block_count'] ?? null );
+	}
+
+	/**
 	 * A top-level nav can contain brand chrome plus a nested menu list.
 	 */
 	public function test_branded_top_level_nav_preserves_brand_and_converts_only_menu_list(): void {
