@@ -135,18 +135,20 @@ class Static_Site_Importer_Document {
 		$body = $this->first_element( 'body' );
 		$root = $body instanceof DOMElement ? $body : $this->dom->documentElement;
 
-		$header       = $this->first_plausible_global_header( $root );
-		$nav          = $this->first_plausible_global_nav( $root, $header );
-		$footer       = $this->first_element( 'footer' );
-		$main         = $this->first_element( 'main' );
-		$body_headers = $this->body_content_headers( $root, $header, $nav );
+		$footer             = $this->first_element( 'footer' );
+		$main               = $this->first_element( 'main' );
+		$effective_children = $this->effective_root_children( $root, $main );
+
+		$header       = $this->first_plausible_global_header( $effective_children );
+		$nav          = $this->first_plausible_global_nav( $effective_children, $header );
+		$body_headers = $this->body_content_headers( $effective_children, $header, $nav );
 
 		if ( $header instanceof DOMElement && $this->contains_same_node( $body_headers, $header ) ) {
 			$header = null;
 		}
 
 		$header_parts = array();
-		if ( $nav instanceof DOMElement && $header instanceof DOMElement && $this->is_leading_sibling( $root, $nav, $header ) ) {
+		if ( $nav instanceof DOMElement && $header instanceof DOMElement && $this->is_leading_sibling_in( $effective_children, $nav, $header ) ) {
 			$header_parts[] = $this->outer_html( $nav );
 		}
 
@@ -164,11 +166,7 @@ class Static_Site_Importer_Document {
 		$background = array();
 		$main_html  = $main instanceof DOMElement ? $this->inner_html( $main ) : '';
 
-		foreach ( iterator_to_array( $root->childNodes ) as $child ) {
-			if ( ! $child instanceof DOMElement ) {
-				continue;
-			}
-
+		foreach ( $effective_children as $child ) {
 			$tag = strtolower( $child->tagName );
 			if ( in_array( $tag, array( 'style', 'script' ), true ) ) {
 				continue;
@@ -206,6 +204,78 @@ class Static_Site_Importer_Document {
 	}
 
 	/**
+	 * Resolve the effective list of body-level direct children, unwrapping a
+	 * single generic page wrapper that holds pre-main chrome.
+	 *
+	 * Some static sites wrap pre-main chrome (nav + hero header) inside a generic
+	 * `<div class="page">` sibling of `<main>`. Treating that wrapper opaquely
+	 * drops the chrome from fragment decomposition. Unwrapping it surfaces the
+	 * inner nav/header as effective body-level siblings while leaving any
+	 * direct-child main/footer alone.
+	 *
+	 * @param DOMElement      $root Page root element (typically <body>).
+	 * @param DOMElement|null $main Main landmark element if present.
+	 * @return DOMElement[]
+	 */
+	private function effective_root_children( DOMElement $root, ?DOMElement $main ): array {
+		$effective = array();
+
+		foreach ( iterator_to_array( $root->childNodes ) as $child ) {
+			if ( ! $child instanceof DOMElement ) {
+				continue;
+			}
+
+			if ( $this->is_unwrappable_page_wrapper( $child, $main ) ) {
+				foreach ( iterator_to_array( $child->childNodes ) as $grandchild ) {
+					if ( $grandchild instanceof DOMElement ) {
+						$effective[] = $grandchild;
+					}
+				}
+
+				continue;
+			}
+
+			$effective[] = $child;
+		}
+
+		return $effective;
+	}
+
+	/**
+	 * Whether a body-level element is a generic page wrapper that should be
+	 * unwrapped for fragment decomposition.
+	 *
+	 * The wrapper must be a plain `<div>` (no semantic landmark of its own),
+	 * must not contain `<main>` (so we never flatten main's container), must
+	 * not look like background chrome, and must contain at least one
+	 * meaningful pre-main landmark (`<nav>` or `<header>`). This is intentionally
+	 * narrow: it only unwraps wrappers that demonstrably hold chrome the
+	 * decomposition would otherwise drop.
+	 *
+	 * @param DOMElement      $element Candidate wrapper.
+	 * @param DOMElement|null $main    Main landmark element if present.
+	 * @return bool
+	 */
+	private function is_unwrappable_page_wrapper( DOMElement $element, ?DOMElement $main ): bool {
+		if ( 'div' !== strtolower( $element->tagName ) ) {
+			return false;
+		}
+
+		if ( $main instanceof DOMElement && $this->is_descendant_of( $main, $element ) ) {
+			return false;
+		}
+
+		if ( $this->looks_like_background_chrome( $element ) ) {
+			return false;
+		}
+
+		$has_landmark = $element->getElementsByTagName( 'nav' )->length > 0
+			|| $element->getElementsByTagName( 'header' )->length > 0;
+
+		return $has_landmark;
+	}
+
+	/**
 	 * Find the first tag in the document.
 	 *
 	 * @param string $tag Tag name.
@@ -221,12 +291,12 @@ class Static_Site_Importer_Document {
 	/**
 	 * Find a header that is plausible reusable site chrome.
 	 *
-	 * @param DOMElement $root Page root element.
+	 * @param DOMElement[] $effective_children Effective body-level direct children.
 	 * @return DOMElement|null
 	 */
-	private function first_plausible_global_header( DOMElement $root ): ?DOMElement {
+	private function first_plausible_global_header( array $effective_children ): ?DOMElement {
 		foreach ( $this->dom->getElementsByTagName( 'header' ) as $header ) {
-			if ( $this->is_plausible_global_header( $root, $header ) ) {
+			if ( $this->is_plausible_global_header( $effective_children, $header ) ) {
 				return $header;
 			}
 		}
@@ -237,17 +307,17 @@ class Static_Site_Importer_Document {
 	/**
 	 * Find a nav that is plausible reusable site chrome.
 	 *
-	 * @param DOMElement      $root   Page root element.
-	 * @param DOMElement|null $header Selected header element.
+	 * @param DOMElement[]    $effective_children Effective body-level direct children.
+	 * @param DOMElement|null $header             Selected header element.
 	 * @return DOMElement|null
 	 */
-	private function first_plausible_global_nav( DOMElement $root, ?DOMElement $header ): ?DOMElement {
+	private function first_plausible_global_nav( array $effective_children, ?DOMElement $header ): ?DOMElement {
 		foreach ( $this->dom->getElementsByTagName( 'nav' ) as $nav ) {
 			if ( $header instanceof DOMElement && $this->is_descendant_of( $nav, $header ) ) {
 				return $nav;
 			}
 
-			if ( $this->is_direct_child( $root, $nav ) || $this->has_global_chrome_signal( $nav ) ) {
+			if ( $this->contains_same_node( $effective_children, $nav ) || $this->has_global_chrome_signal( $nav ) ) {
 				return $nav;
 			}
 		}
@@ -258,39 +328,39 @@ class Static_Site_Importer_Document {
 	/**
 	 * Check whether a header looks like global site chrome rather than section content.
 	 *
-	 * @param DOMElement $root   Page root element.
-	 * @param DOMElement $header Header element.
+	 * @param DOMElement[] $effective_children Effective body-level direct children.
+	 * @param DOMElement   $header             Header element.
 	 * @return bool
 	 */
-	private function is_plausible_global_header( DOMElement $root, DOMElement $header ): bool {
+	private function is_plausible_global_header( array $effective_children, DOMElement $header ): bool {
 		if ( $this->has_global_chrome_signal( $header ) ) {
 			return true;
 		}
 
-		return $this->is_direct_child( $root, $header );
+		return $this->contains_same_node( $effective_children, $header );
 	}
 
 	/**
-	 * Collect direct-child headers that should remain in page content.
+	 * Collect effective body-level headers that should remain in page content.
 	 *
-	 * @param DOMElement      $root   Page root element.
-	 * @param DOMElement|null $header Selected header element.
-	 * @param DOMElement|null $nav    Selected nav element.
+	 * @param DOMElement[]    $effective_children Effective body-level direct children.
+	 * @param DOMElement|null $header             Selected header element.
+	 * @param DOMElement|null $nav                Selected nav element.
 	 * @return DOMElement[]
 	 */
-	private function body_content_headers( DOMElement $root, ?DOMElement $header, ?DOMElement $nav ): array {
+	private function body_content_headers( array $effective_children, ?DOMElement $header, ?DOMElement $nav ): array {
 		$body_headers = array();
 		$seen_header  = false;
 
-		foreach ( iterator_to_array( $root->childNodes ) as $child ) {
-			if ( ! $child instanceof DOMElement || 'header' !== strtolower( $child->tagName ) ) {
+		foreach ( $effective_children as $child ) {
+			if ( 'header' !== strtolower( $child->tagName ) ) {
 				continue;
 			}
 
 			if ( $header instanceof DOMElement && $this->same_node( $child, $header ) ) {
 				$seen_header = true;
 
-				if ( $nav instanceof DOMElement && ! $this->has_global_chrome_signal( $child ) && $this->is_leading_sibling( $root, $nav, $child ) ) {
+				if ( $nav instanceof DOMElement && ! $this->has_global_chrome_signal( $child ) && $this->is_leading_sibling_in( $effective_children, $nav, $child ) ) {
 					$body_headers[] = $child;
 				}
 
@@ -340,17 +410,6 @@ class Static_Site_Importer_Document {
 		}
 
 		return $element->getElementsByTagName( 'nav' )->length > 0;
-	}
-
-	/**
-	 * Check whether a candidate is a direct child of the page root.
-	 *
-	 * @param DOMElement $root      Page root element.
-	 * @param DOMElement $candidate Candidate element.
-	 * @return bool
-	 */
-	private function is_direct_child( DOMElement $root, DOMElement $candidate ): bool {
-		return $candidate->parentNode instanceof DOMNode && $candidate->parentNode->isSameNode( $root );
 	}
 
 	/**
@@ -411,19 +470,15 @@ class Static_Site_Importer_Document {
 	}
 
 	/**
-	 * Check whether one element is a direct sibling before another under the page root.
+	 * Check whether one element appears before another in an ordered effective sibling list.
 	 *
-	 * @param DOMElement $root   Page root element.
-	 * @param DOMElement $before Candidate leading element.
-	 * @param DOMElement $after  Candidate following element.
+	 * @param DOMElement[] $effective_children Ordered list of effective siblings.
+	 * @param DOMElement   $before             Candidate leading element.
+	 * @param DOMElement   $after              Candidate following element.
 	 * @return bool
 	 */
-	private function is_leading_sibling( DOMElement $root, DOMElement $before, DOMElement $after ): bool {
-		foreach ( iterator_to_array( $root->childNodes ) as $child ) {
-			if ( ! $child instanceof DOMElement ) {
-				continue;
-			}
-
+	private function is_leading_sibling_in( array $effective_children, DOMElement $before, DOMElement $after ): bool {
+		foreach ( $effective_children as $child ) {
 			if ( $child->isSameNode( $before ) ) {
 				return true;
 			}
