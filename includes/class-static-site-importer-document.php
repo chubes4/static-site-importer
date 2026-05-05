@@ -22,12 +22,20 @@ class Static_Site_Importer_Document {
 	private DOMDocument $dom;
 
 	/**
+	 * Raw source HTML.
+	 *
+	 * @var string
+	 */
+	private string $raw_html;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param string $html Source HTML.
 	 */
 	public function __construct( string $html ) {
-		$this->dom = new DOMDocument();
+		$this->dom      = new DOMDocument();
+		$this->raw_html = $html;
 
 		$previous = libxml_use_internal_errors( true );
 		$this->dom->loadHTML( $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD );
@@ -132,6 +140,86 @@ class Static_Site_Importer_Document {
 	 * @return array{background:string,header:string,main:string,footer:string}
 	 */
 	public function fragments(): array {
+		$selection = $this->compute_selection();
+
+		return array(
+			'background' => $selection['fragments']['background'],
+			'header'     => $selection['fragments']['header'],
+			'main'       => $selection['fragments']['main'],
+			'footer'     => $selection['fragments']['footer'],
+		);
+	}
+
+	/**
+	 * Build a structured report describing source-region extraction decisions.
+	 *
+	 * Reports the selected page body, header, footer, and any meaningful source
+	 * regions that were not assigned to header/main/footer/background. Includes
+	 * selector paths, source line ranges (when available), and short excerpts so
+	 * agents can pinpoint dropped regions without diffing source against output.
+	 *
+	 * Reporting only — does not affect conversion behavior.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function selection_report(): array {
+		$selection = $this->compute_selection();
+		$body      = $this->first_element( 'body' );
+		$root      = $body instanceof DOMElement ? $body : $this->dom->documentElement;
+
+		$header_node = $selection['header_node'];
+		$nav_node    = $selection['nav_node'];
+		$footer_node = $selection['footer_node'];
+		$main_node   = $selection['main_node'];
+
+		$page_body = $this->describe_page_body( $main_node, $root );
+
+		$extracted_header = null;
+		if ( $header_node instanceof DOMElement || $nav_node instanceof DOMElement ) {
+			$extracted_header = $this->describe_extracted_header( $header_node, $nav_node, $root );
+		}
+
+		$extracted_footer = null;
+		if ( $footer_node instanceof DOMElement ) {
+			$extracted_footer = $this->describe_region( $footer_node, 'footer_element' );
+		}
+
+		$unassigned = $this->collect_unassigned_regions( $selection );
+
+		$counts = array(
+			'source_landmarks'   => array(
+				'main'   => $main_node instanceof DOMElement ? 1 : 0,
+				'header' => $this->dom->getElementsByTagName( 'header' )->length,
+				'nav'    => $this->dom->getElementsByTagName( 'nav' )->length,
+				'footer' => $this->dom->getElementsByTagName( 'footer' )->length,
+			),
+			'unassigned_regions' => count( $unassigned ),
+		);
+
+		return array(
+			'page_body'          => $page_body,
+			'extracted_header'   => $extracted_header,
+			'extracted_footer'   => $extracted_footer,
+			'unassigned_regions' => $unassigned,
+			'counts'             => $counts,
+		);
+	}
+
+	/**
+	 * Build the shared selection model used by fragments() and selection_report().
+	 *
+	 * @return array{
+	 *     fragments: array{background:string,header:string,main:string,footer:string},
+	 *     header_node: ?DOMElement,
+	 *     nav_node: ?DOMElement,
+	 *     footer_node: ?DOMElement,
+	 *     main_node: ?DOMElement,
+	 *     body_headers: DOMElement[],
+	 *     unassigned_children: DOMElement[],
+	 *     skipped_children: DOMElement[]
+	 * }
+	 */
+	private function compute_selection(): array {
 		$body = $this->first_element( 'body' );
 		$root = $body instanceof DOMElement ? $body : $this->dom->documentElement;
 
@@ -157,12 +245,13 @@ class Static_Site_Importer_Document {
 		}
 
 		$header_html = implode( "\n", $header_parts );
-
 		$footer_html = $footer instanceof DOMElement ? $this->outer_html( $footer ) : '';
 
-		$main_parts = array();
-		$background = array();
-		$main_html  = $main instanceof DOMElement ? $this->inner_html( $main ) : '';
+		$main_parts          = array();
+		$background          = array();
+		$main_html           = $main instanceof DOMElement ? $this->inner_html( $main ) : '';
+		$unassigned_children = array();
+		$skipped_children    = array();
 
 		foreach ( iterator_to_array( $root->childNodes ) as $child ) {
 			if ( ! $child instanceof DOMElement ) {
@@ -171,6 +260,7 @@ class Static_Site_Importer_Document {
 
 			$tag = strtolower( $child->tagName );
 			if ( in_array( $tag, array( 'style', 'script' ), true ) ) {
+				$skipped_children[] = $child;
 				continue;
 			}
 
@@ -190,7 +280,13 @@ class Static_Site_Importer_Document {
 
 			if ( ! $main instanceof DOMElement || $this->contains_same_node( $body_headers, $child ) ) {
 				$main_parts[] = $this->outer_html( $child );
+				continue;
 			}
+
+			// Direct child of body that is not main, not header/nav/footer chrome,
+			// not a body content header, and not background — and a <main> exists
+			// elsewhere. Today this child is silently dropped from conversion.
+			$unassigned_children[] = $child;
 		}
 
 		if ( $main instanceof DOMElement && empty( $main_parts ) ) {
@@ -198,10 +294,19 @@ class Static_Site_Importer_Document {
 		}
 
 		return array(
-			'background' => trim( implode( "\n", $background ) ),
-			'header'     => trim( $header_html ),
-			'main'       => trim( implode( "\n", $main_parts ) ),
-			'footer'     => trim( $footer_html ),
+			'fragments'           => array(
+				'background' => trim( implode( "\n", $background ) ),
+				'header'     => trim( $header_html ),
+				'main'       => trim( implode( "\n", $main_parts ) ),
+				'footer'     => trim( $footer_html ),
+			),
+			'header_node'         => $header,
+			'nav_node'            => $nav,
+			'footer_node'         => $footer,
+			'main_node'           => $main,
+			'body_headers'        => $body_headers,
+			'unassigned_children' => $unassigned_children,
+			'skipped_children'    => $skipped_children,
 		);
 	}
 
@@ -446,5 +551,319 @@ class Static_Site_Importer_Document {
 		$class = ' ' . $node->getAttribute( 'class' ) . ' ';
 
 		return str_contains( $class, ' bg-' ) || str_contains( $class, ' orb ' ) || str_contains( $class, ' grid-' );
+	}
+
+	/**
+	 * Describe the page body selection for the import report.
+	 *
+	 * @param ?DOMElement $main Selected <main> element, if any.
+	 * @param DOMElement  $root Page root element.
+	 * @return array<string,mixed>
+	 */
+	private function describe_page_body( ?DOMElement $main, DOMElement $root ): array {
+		if ( $main instanceof DOMElement ) {
+			return array(
+				'mode'       => 'semantic_main',
+				'selector'   => $this->selector_path( $main ),
+				'tag'        => strtolower( $main->tagName ),
+				'line_range' => $this->element_line_range( $main ),
+				'excerpt'    => $this->excerpt( $main ),
+			);
+		}
+
+		return array(
+			'mode'       => 'body_root_fallback',
+			'selector'   => $this->selector_path( $root ),
+			'tag'        => strtolower( $root->tagName ),
+			'line_range' => $this->element_line_range( $root ),
+			'excerpt'    => $this->excerpt( $root ),
+		);
+	}
+
+	/**
+	 * Describe the extracted header selection for the import report.
+	 *
+	 * @param ?DOMElement $header Selected header element.
+	 * @param ?DOMElement $nav    Selected nav element.
+	 * @param DOMElement  $root   Page root element.
+	 * @return array<string,mixed>
+	 */
+	private function describe_extracted_header( ?DOMElement $header, ?DOMElement $nav, DOMElement $root ): array {
+		$mode = 'none';
+		if ( $header instanceof DOMElement && $nav instanceof DOMElement && $this->is_leading_sibling( $root, $nav, $header ) ) {
+			$mode = 'leading_nav_plus_header';
+		} elseif ( $header instanceof DOMElement ) {
+			$mode = 'header_element';
+		} elseif ( $nav instanceof DOMElement ) {
+			$mode = 'nav_element_only';
+		}
+
+		$parts = array();
+		if ( $nav instanceof DOMElement ) {
+			$parts[] = $this->describe_region( $nav, 'nav' );
+		}
+		if ( $header instanceof DOMElement ) {
+			$parts[] = $this->describe_region( $header, 'header' );
+		}
+
+		return array(
+			'mode'  => $mode,
+			'parts' => $parts,
+		);
+	}
+
+	/**
+	 * Describe a single region with selector path, line range, and excerpt.
+	 *
+	 * @param DOMElement $node   Node.
+	 * @param string     $reason Reason or role label.
+	 * @return array<string,mixed>
+	 */
+	private function describe_region( DOMElement $node, string $reason ): array {
+		return array(
+			'role'       => $reason,
+			'tag'        => strtolower( $node->tagName ),
+			'selector'   => $this->selector_path( $node ),
+			'line_range' => $this->element_line_range( $node ),
+			'excerpt'    => $this->excerpt( $node ),
+		);
+	}
+
+	/**
+	 * Collect meaningful unassigned source regions for the import report.
+	 *
+	 * Looks at direct body children that the extractor dropped (because <main>
+	 * exists and they are not chrome) and reports each one. When a dropped
+	 * wrapper element contains nested landmarks (nav, header, hero, main, etc.)
+	 * those nested regions are reported as well so agents can see exactly which
+	 * source regions were excluded.
+	 *
+	 * @param array<string,mixed> $selection Shared selection model.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function collect_unassigned_regions( array $selection ): array {
+		$regions   = array();
+		$main_node = $selection['main_node'];
+		$body      = $this->first_element( 'body' );
+		$root      = $body instanceof DOMElement ? $body : $this->dom->documentElement;
+		foreach ( $selection['unassigned_children'] as $child ) {
+			$position  = ( $main_node instanceof DOMElement && $this->is_leading_sibling( $root, $child, $main_node ) ) ? 'before_main' : 'after_main';
+			$regions[] = array(
+				'role'       => 'unassigned_body_child',
+				'reason'     => 'pre_main_or_post_main_sibling_not_assigned',
+				'position'   => $position,
+				'tag'        => strtolower( $child->tagName ),
+				'selector'   => $this->selector_path( $child ),
+				'line_range' => $this->element_line_range( $child ),
+				'excerpt'    => $this->excerpt( $child ),
+			);
+
+			foreach ( $this->find_meaningful_descendants( $child ) as $nested ) {
+				$regions[] = array(
+					'role'       => 'unassigned_nested_landmark',
+					'reason'     => 'inside_unassigned_body_child',
+					'position'   => $position,
+					'tag'        => strtolower( $nested->tagName ),
+					'selector'   => $this->selector_path( $nested ),
+					'line_range' => $this->element_line_range( $nested ),
+					'excerpt'    => $this->excerpt( $nested ),
+				);
+			}
+		}
+
+		return $regions;
+	}
+
+	/**
+	 * Find meaningful descendant landmarks inside an unassigned body child.
+	 *
+	 * Returns the first matching nav, header, main, footer, and hero-like
+	 * descendants so the report can flag each dropped landmark.
+	 *
+	 * @param DOMElement $node Wrapper element.
+	 * @return DOMElement[]
+	 */
+	private function find_meaningful_descendants( DOMElement $node ): array {
+		$found = array();
+		$seen  = array();
+
+		$tags = array( 'nav', 'header', 'main', 'footer', 'aside', 'section' );
+		foreach ( $tags as $tag ) {
+			$nodes = $node->getElementsByTagName( $tag );
+			if ( 0 === $nodes->length ) {
+				continue;
+			}
+			foreach ( $nodes as $candidate ) {
+				if ( 'section' === $tag && ! $this->looks_like_hero_or_landmark( $candidate ) ) {
+					continue;
+				}
+
+				$key = spl_object_hash( $candidate );
+				if ( isset( $seen[ $key ] ) ) {
+					continue;
+				}
+
+				$seen[ $key ] = true;
+				$found[]      = $candidate;
+
+				if ( in_array( $tag, array( 'nav', 'header', 'main', 'footer' ), true ) ) {
+					break;
+				}
+			}
+		}
+
+		return $found;
+	}
+
+	/**
+	 * Check whether a section looks like a hero-style landmark worth reporting.
+	 *
+	 * @param DOMElement $node Section element.
+	 * @return bool
+	 */
+	private function looks_like_hero_or_landmark( DOMElement $node ): bool {
+		$class = strtolower( ' ' . $node->getAttribute( 'class' ) . ' ' );
+		$id    = strtolower( $node->getAttribute( 'id' ) );
+
+		if ( '' !== $id && in_array( $id, array( 'top', 'hero', 'masthead' ), true ) ) {
+			return true;
+		}
+
+		return preg_match( '/(^|[\s_-])(hero|masthead|jumbotron|banner|intro|cta)([\s_-]|$)/', $class ) === 1;
+	}
+
+	/**
+	 * Build a CSS-like selector path from an element to its document root.
+	 *
+	 * Used in the import report so dropped regions can be matched against the
+	 * raw source HTML.
+	 *
+	 * @param DOMElement $node Element.
+	 * @return string
+	 */
+	private function selector_path( DOMElement $node ): string {
+		$parts   = array();
+		$current = $node;
+		while ( $current instanceof DOMElement ) {
+			$tag = strtolower( $current->tagName );
+			$id  = trim( $current->getAttribute( 'id' ) );
+			if ( '' !== $id ) {
+				$tag .= '#' . $id;
+			} else {
+				$class = trim( $current->getAttribute( 'class' ) );
+				if ( '' !== $class ) {
+					$first = preg_split( '/\s+/', $class )[0] ?? '';
+					if ( '' !== $first ) {
+						$tag .= '.' . $first;
+					}
+				}
+			}
+
+			array_unshift( $parts, $tag );
+			$parent  = $current->parentNode;
+			$current = $parent instanceof DOMElement ? $parent : null;
+		}
+
+		return implode( ' > ', $parts );
+	}
+
+	/**
+	 * Compute a 1-indexed line range for an element based on the raw source HTML.
+	 *
+	 * Returns null when line numbers are not available. The end line is best-effort:
+	 * it locates the matching close tag in the raw HTML starting from the open
+	 * line, falling back to the open line when the close tag cannot be found.
+	 *
+	 * @param DOMElement $node Element.
+	 * @return array{0:int,1:int}|null
+	 */
+	private function element_line_range( DOMElement $node ): ?array {
+		$start = $node->getLineNo();
+		if ( $start <= 0 ) {
+			return null;
+		}
+
+		$end = $this->locate_close_line( $node, $start );
+		if ( $end < $start ) {
+			$end = $start;
+		}
+
+		return array( $start, $end );
+	}
+
+	/**
+	 * Best-effort lookup of the line number where an element's open tag closes.
+	 *
+	 * Self-closing or void elements return the start line. Otherwise scans the
+	 * raw HTML for the matching close tag, accounting for nested same-tag elements.
+	 *
+	 * @param DOMElement $node  Element.
+	 * @param int        $start Start line.
+	 * @return int
+	 */
+	private function locate_close_line( DOMElement $node, int $start ): int {
+		$tag   = strtolower( $node->tagName );
+		$voids = array( 'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr' );
+		if ( in_array( $tag, $voids, true ) ) {
+			return $start;
+		}
+
+		$lines = preg_split( "/\r\n|\r|\n/", $this->raw_html );
+		if ( ! is_array( $lines ) ) {
+			return $start;
+		}
+
+		$total = count( $lines );
+		if ( $start - 1 >= $total ) {
+			return $start;
+		}
+
+		$open_re  = '/<' . preg_quote( $tag, '/' ) . '(?=[\s>\/])/i';
+		$close_re = '/<\/' . preg_quote( $tag, '/' ) . '\s*>/i';
+
+		$depth = 0;
+		for ( $i = $start - 1; $i < $total; $i++ ) {
+			$line   = $lines[ $i ];
+			$opens  = preg_match_all( $open_re, $line );
+			$closes = preg_match_all( $close_re, $line );
+
+			if ( false !== $opens ) {
+				$depth += (int) $opens;
+			}
+			if ( false !== $closes ) {
+				$depth -= (int) $closes;
+			}
+
+			if ( $depth <= 0 ) {
+				return $i + 1;
+			}
+		}
+
+		return $start;
+	}
+
+	/**
+	 * Build a short text excerpt for an element to aid manual review.
+	 *
+	 * @param DOMElement $node Element.
+	 * @return string
+	 */
+	private function excerpt( DOMElement $node ): string {
+		$text = preg_replace( '/\s+/', ' ', (string) $node->textContent ) ?? '';
+		$text = trim( $text );
+		if ( '' === $text ) {
+			return '';
+		}
+
+		$limit = 160;
+		if ( function_exists( 'mb_strlen' ) && mb_strlen( $text ) > $limit ) {
+			return rtrim( mb_substr( $text, 0, $limit ) ) . '…';
+		}
+
+		if ( strlen( $text ) > $limit ) {
+			return rtrim( substr( $text, 0, $limit ) ) . '…';
+		}
+
+		return $text;
 	}
 }
