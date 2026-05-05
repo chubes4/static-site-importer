@@ -445,6 +445,69 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Pre-main nav and hero header wrapped in a generic page div are preserved.
+	 *
+	 * Regression for issue #157: a `<body><div class="page">…nav, header…</div><main>…</main></body>`
+	 * shape used to drop nav + hero entirely, leaving an empty header part and a
+	 * page pattern that started at the first inner-main section. The wrapper is
+	 * a generic, non-semantic container that holds pre-main chrome only and
+	 * must be transparent to fragment decomposition.
+	 */
+	public function test_pre_main_page_wrapper_preserves_nav_and_hero_header(): void {
+		$html_path = $this->write_temp_fixture(
+			'studio-code-page-wrapper.html',
+			'<!doctype html><html><head><title>Studio Code</title></head><body>' .
+			'<div class="page">' .
+			'<nav class="nav" aria-label="Primary navigation">' .
+			'<a class="brand" href="#top"><span class="brand-mark"></span><span>Studio Code</span></a>' .
+			'<div class="nav-links"><a href="#benefits">Benefits</a><a href="#workflow">Workflow</a></div>' .
+			'</nav>' .
+			'<header class="hero" id="top">' .
+			'<div><span class="eyebrow">Product launch page</span><h1>Build with HTML. Ship as WordPress.</h1>' .
+			'<p class="lede">Studio turns static markup into a working theme.</p>' .
+			'<div class="actions"><a class="button" href="#workflow">See the workflow</a></div></div>' .
+			'<aside class="console-card">Conversion console preview.</aside>' .
+			'</header>' .
+			'</div>' .
+			'<main class="page"><section id="benefits"><h2>Benefits</h2><p>Benefit copy.</p></section></main>' .
+			'</body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Studio Code Page Wrapper',
+				'slug'      => 'studio-code-page-wrapper',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$header    = $this->read_file( $theme_dir . '/parts/header.html' );
+		$pattern   = $this->pattern_blocks( $this->read_file( $theme_dir . '/patterns/page-studio-code-page-wrapper.php' ) );
+
+		// Nav lands in the shared header part.
+		$this->assertNotSame( '', trim( $header ), 'Header part must not be empty when pre-main nav exists.' );
+		$this->assertStringContainsString( 'Studio Code', $header );
+		$this->assertStringContainsString( 'Benefits', $header );
+		$this->assertStringContainsString( 'Workflow', $header );
+
+		// Hero stays with page content (not in header part).
+		$this->assertStringNotContainsString( 'Build with HTML. Ship as WordPress.', $header );
+		$this->assertStringNotContainsString( 'Conversion console preview.', $header );
+		$this->assertStringContainsString( 'Build with HTML. Ship as WordPress.', $pattern );
+		$this->assertStringContainsString( 'Studio turns static markup', $pattern );
+		$this->assertStringContainsString( 'Conversion console preview.', $pattern );
+
+		// Page body still includes the inner-main sections.
+		$this->assertStringContainsString( 'Benefit copy.', $pattern );
+	}
+
+	/**
 	 * Classed theme chrome keeps source element ownership without core/html islands.
 	 */
 	public function test_classed_header_and_footer_chrome_preserve_source_elements(): void {
