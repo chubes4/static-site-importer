@@ -1018,7 +1018,7 @@ class Static_Site_Importer_Theme_Generator {
 	 */
 	private static function should_preserve_theme_part_source_element( DOMElement $element ): bool {
 		$tag = strtolower( $element->tagName );
-		if ( ! in_array( $tag, array( 'div', 'span' ), true ) || ! self::element_has_only_phrasing_content( $element ) ) {
+		if ( 'div' !== $tag || ! self::element_has_only_phrasing_content( $element ) ) {
 			return false;
 		}
 
