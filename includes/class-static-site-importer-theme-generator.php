@@ -142,7 +142,8 @@ class Static_Site_Importer_Theme_Generator {
 		self::record_source_region_selection( $document, $html_path );
 		self::record_source_documents_summary( $site_dir, $pages, $permalinks );
 		self::record_products_manifest( $site_dir );
-		self::$active_commerce_context = self::commerce_context_from_args( $args );
+		$inferred_commerce_context     = self::should_infer_commerce_context( $args ) ? self::infer_commerce_context_from_pages( $pages ) : array();
+		self::$active_commerce_context = self::commerce_context_from_args( $args, $inferred_commerce_context );
 		self::record_commerce_context_summary();
 
 		self::$active_theme_dir         = $theme_dir;
@@ -558,8 +559,8 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		if ( preg_match( '#(^|/)index$#i', $extensionless ) ) {
-			$clean = preg_replace( '#(^|/)index$#i', '$1', $extensionless );
-			$clean = trim( (string) $clean, '/' );
+			$clean  = preg_replace( '#(^|/)index$#i', '$1', $extensionless );
+			$clean  = trim( (string) $clean, '/' );
 			$keys[] = '' === $clean ? '/' : $clean;
 			$keys[] = '' === $clean ? '/' : '/' . $clean . '/';
 			if ( '' !== $clean ) {
@@ -1900,9 +1901,10 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return string
 	 */
 	private static function normalize_route_path( string $path ): string {
-		$path     = str_replace( '\\', '/', strtok( $path, '?' ) ?: $path );
-		$path     = ltrim( $path, '/' );
-		$segments = array();
+		$queryless = strtok( $path, '?' );
+		$path      = str_replace( '\\', '/', false === $queryless ? $path : $queryless );
+		$path      = ltrim( $path, '/' );
+		$segments  = array();
 		foreach ( explode( '/', $path ) as $segment ) {
 			if ( '' === $segment || '.' === $segment ) {
 				continue;
@@ -3306,20 +3308,626 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param array<string, mixed> $args Import args.
 	 * @return array<string, mixed>
 	 */
-	private static function commerce_context_from_args( array $args ): array {
-		if ( isset( $args['commerce_context'] ) && is_array( $args['commerce_context'] ) ) {
-			return $args['commerce_context'];
-		}
-
+	private static function commerce_context_from_args( array $args, array $inferred_context = array() ): array {
 		$manifest = self::$conversion_report['commerce']['products_manifest'] ?? array();
 		if ( is_array( $manifest ) && true === ( $manifest['valid'] ?? false ) ) {
+			self::set_commerce_product_inference_report( 'manifest', isset( $manifest['products'] ) && is_array( $manifest['products'] ) ? $manifest['products'] : array() );
 			return array(
-				'source'   => 'products_manifest',
+				'source'   => 'products.json',
 				'products' => isset( $manifest['products'] ) && is_array( $manifest['products'] ) ? $manifest['products'] : array(),
 			);
 		}
 
+		if ( isset( $args['commerce_context'] ) && is_array( $args['commerce_context'] ) ) {
+			return $args['commerce_context'];
+		}
+
+		if ( ! empty( $inferred_context ) ) {
+			return $inferred_context;
+		}
+
 		return array();
+	}
+
+	/**
+	 * Determine whether SSI should infer products from source HTML.
+	 *
+	 * @param array<string, mixed> $args Import args.
+	 * @return bool
+	 */
+	private static function should_infer_commerce_context( array $args ): bool {
+		$manifest = self::$conversion_report['commerce']['products_manifest'] ?? array();
+		if ( is_array( $manifest ) && true === ( $manifest['valid'] ?? false ) ) {
+			return false;
+		}
+
+		return ! isset( $args['commerce_context'] ) || ! is_array( $args['commerce_context'] );
+	}
+
+	/**
+	 * Infer commerce context from static storefront HTML when no valid manifest exists.
+	 *
+	 * @param array<string, Static_Site_Importer_Source_Page> $pages Source pages.
+	 * @return array<string, mixed>
+	 */
+	private static function infer_commerce_context_from_pages( array $pages ): array {
+		$json_ld_products = array();
+		$card_products    = array();
+		$selector_hints   = array();
+		$rejected         = array();
+
+		foreach ( $pages as $filename => $page ) {
+			if ( 'html' !== $page->type() ) {
+				continue;
+			}
+
+			$html = self::read_visual_probe_file( $page->path() );
+			if ( '' === trim( $html ) ) {
+				continue;
+			}
+
+			$doc = self::load_html_document( $html );
+			if ( null === $doc ) {
+				continue;
+			}
+
+			$json_ld_products = array_merge( $json_ld_products, self::json_ld_products_from_document( $doc, $filename ) );
+			$cards            = self::product_card_products_from_document( $doc, $filename );
+			$card_products    = array_merge( $card_products, $cards['products'] );
+			$selector_hints   = array_merge( $selector_hints, $cards['selector_hints'] );
+			$rejected         = array_merge( $rejected, $cards['rejected'] );
+		}
+
+		if ( ! empty( $json_ld_products ) ) {
+			$products = self::dedupe_products_by_slug( $json_ld_products );
+			self::set_commerce_product_inference_report( 'json_ld', $products, array(), array(), array() );
+			return array(
+				'source'   => 'json_ld',
+				'products' => $products,
+			);
+		}
+
+		if ( count( $card_products ) >= 2 ) {
+			$products = self::dedupe_products_by_slug( $card_products );
+			self::set_commerce_product_inference_report( 'html_cards', $products, $selector_hints, $rejected, array() );
+			return array(
+				'source'         => 'html_cards',
+				'products'       => $products,
+				'selector_hints' => $selector_hints,
+			);
+		}
+
+		if ( ! empty( $card_products ) ) {
+			foreach ( $card_products as $product ) {
+				$rejected[] = array(
+					'source_filename' => isset( $product['source_filename'] ) ? (string) $product['source_filename'] : '',
+					'selector'        => isset( $product['card_selector'] ) ? (string) $product['card_selector'] : '',
+					'reason'          => 'html_card_inference_requires_repeated_products',
+				);
+			}
+		}
+
+		$warnings = array( 'No valid products.json manifest, JSON-LD Product data, or visible product cards with prices were found.' );
+		self::set_commerce_product_inference_report( 'none', array(), $selector_hints, $rejected, $warnings );
+		self::$conversion_report['diagnostics'][] = array(
+			'code'     => 'commerce_product_inference_none',
+			'severity' => 'warning',
+			'source'   => 'html',
+			'message'  => $warnings[0],
+		);
+
+		return array();
+	}
+
+	/**
+	 * Store commerce product inference diagnostics on the import report.
+	 *
+	 * @param string           $strategy       Extraction strategy.
+	 * @param array<int,array> $products       Products inferred or selected.
+	 * @param array<int,array> $selector_hints Selector hints.
+	 * @param array<int,array> $rejected       Rejected candidates.
+	 * @param array<int,string>  $warnings      Warnings.
+	 * @return void
+	 */
+	private static function set_commerce_product_inference_report( string $strategy, array $products, array $selector_hints = array(), array $rejected = array(), array $warnings = array() ): void {
+		self::$conversion_report['commerce_product_inference'] = array(
+			'strategy'                => $strategy,
+			'product_count'           => count( $products ),
+			'skipped_candidate_count' => count( $rejected ),
+			'selector_hints'          => $selector_hints,
+			'warnings'                => $warnings,
+			'rejected_candidates'     => $rejected,
+			'products'                => array_map(
+				static function ( array $product ): array {
+					$summary = array(
+						'name'          => isset( $product['name'] ) ? (string) $product['name'] : '',
+						'slug'          => isset( $product['slug'] ) ? (string) $product['slug'] : '',
+						'regular_price' => isset( $product['regular_price'] ) ? (string) $product['regular_price'] : '',
+					);
+					foreach ( array( 'source_filename', 'card_selector', 'image', 'categories' ) as $field ) {
+						if ( isset( $product[ $field ] ) ) {
+							$summary[ $field ] = $product[ $field ];
+						}
+					}
+					return $summary;
+				},
+				$products
+			),
+		);
+	}
+
+	/**
+	 * Parse a full HTML document for commerce extraction.
+	 *
+	 * @param string $html Source HTML.
+	 * @return DOMDocument|null
+	 */
+	private static function load_html_document( string $html ): ?DOMDocument {
+		$doc      = new DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$loaded   = $doc->loadHTML( $html );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+
+		return $loaded ? $doc : null;
+	}
+
+	/**
+	 * Extract JSON-LD Product objects from a document.
+	 *
+	 * @param DOMDocument $doc      Source document.
+	 * @param string      $filename Source filename.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function json_ld_products_from_document( DOMDocument $doc, string $filename ): array {
+		$products = array();
+		foreach ( $doc->getElementsByTagName( 'script' ) as $script ) {
+			if ( ! str_contains( strtolower( $script->getAttribute( 'type' ) ), 'ld+json' ) ) {
+				continue;
+			}
+
+			$data = json_decode( trim( $script->textContent ), true );
+			if ( JSON_ERROR_NONE !== json_last_error() ) {
+				continue;
+			}
+
+			foreach ( self::json_ld_product_nodes( $data ) as $node ) {
+				$product = self::product_from_json_ld_node( $node, $filename );
+				if ( ! empty( $product ) ) {
+					$products[] = $product;
+				}
+			}
+		}
+
+		return $products;
+	}
+
+	/**
+	 * Find Product-shaped nodes in decoded JSON-LD.
+	 *
+	 * @param mixed $node Decoded JSON-LD node.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function json_ld_product_nodes( $node ): array {
+		if ( ! is_array( $node ) ) {
+			return array();
+		}
+
+		$nodes = array();
+		$type  = $node['@type'] ?? '';
+		$types = is_array( $type ) ? $type : array( $type );
+		foreach ( $types as $candidate_type ) {
+			if ( is_string( $candidate_type ) && 'product' === strtolower( $candidate_type ) ) {
+				$nodes[] = $node;
+				break;
+			}
+		}
+
+		foreach ( array( '@graph', 'itemListElement', 'item' ) as $key ) {
+			if ( isset( $node[ $key ] ) ) {
+				$nodes = array_merge( $nodes, self::json_ld_product_nodes( $node[ $key ] ) );
+			}
+		}
+
+		if ( array_is_list( $node ) ) {
+			foreach ( $node as $child ) {
+				$nodes = array_merge( $nodes, self::json_ld_product_nodes( $child ) );
+			}
+		}
+
+		return $nodes;
+	}
+
+	/**
+	 * Normalize a JSON-LD Product node into the seeder product shape.
+	 *
+	 * @param array<string, mixed> $node     JSON-LD node.
+	 * @param string               $filename Source filename.
+	 * @return array<string, mixed>
+	 */
+	private static function product_from_json_ld_node( array $node, string $filename ): array {
+		$name  = self::commerce_scalar( $node['name'] ?? '' );
+		$price = self::commerce_price_from_json_ld_offer( $node['offers'] ?? array() );
+		if ( '' === $name || '' === $price ) {
+			return array();
+		}
+
+		$url  = self::commerce_scalar( $node['url'] ?? '' );
+		$slug = '' !== $url ? sanitize_title( basename( (string) wp_parse_url( $url, PHP_URL_PATH ) ) ) : sanitize_title( $name );
+		if ( '' === $slug ) {
+			$slug = sanitize_title( $name );
+		}
+
+		$image = $node['image'] ?? '';
+		if ( is_array( $image ) ) {
+			$image = reset( $image );
+		}
+
+		$product = array(
+			'name'            => $name,
+			'slug'            => $slug,
+			'regular_price'   => $price,
+			'description'     => self::commerce_scalar( $node['description'] ?? '' ),
+			'image'           => self::commerce_scalar( $image ),
+			'source_filename' => $filename,
+			'card_selector'   => 'script[type="application/ld+json"]',
+		);
+
+		$category = self::commerce_scalar( $node['category'] ?? '' );
+		if ( '' !== $category ) {
+			$product['categories'] = array( $category );
+		}
+
+		return $product;
+	}
+
+	/**
+	 * Extract a price from JSON-LD offers.
+	 *
+	 * @param mixed $offers Offers node.
+	 * @return string
+	 */
+	private static function commerce_price_from_json_ld_offer( $offers ): string {
+		if ( is_array( $offers ) && array_is_list( $offers ) ) {
+			foreach ( $offers as $offer ) {
+				$price = self::commerce_price_from_json_ld_offer( $offer );
+				if ( '' !== $price ) {
+					return $price;
+				}
+			}
+			return '';
+		}
+
+		if ( ! is_array( $offers ) ) {
+			return self::normalize_commerce_price( self::commerce_scalar( $offers ) );
+		}
+
+		foreach ( array( 'price', 'lowPrice', 'highPrice' ) as $key ) {
+			$price = self::normalize_commerce_price( self::commerce_scalar( $offers[ $key ] ?? '' ) );
+			if ( '' !== $price ) {
+				return $price;
+			}
+		}
+
+		return '';
+	}
+
+	/**
+	 * Extract visible product cards from a document.
+	 *
+	 * @param DOMDocument $doc      Source document.
+	 * @param string      $filename Source filename.
+	 * @return array{products:array<int,array<string,mixed>>,selector_hints:array<int,array<string,mixed>>,rejected:array<int,array<string,string>>}
+	 */
+	private static function product_card_products_from_document( DOMDocument $doc, string $filename ): array {
+		$products       = array();
+		$selector_hints = array();
+		$rejected       = array();
+		$xpath          = new DOMXPath( $doc );
+		$nodes          = $xpath->query( '//*[self::article or self::li or self::div][contains(translate(concat(" ", @class, " ", @id, " ", @itemtype, " "), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "product") or @data-product-slug or @data-product-name or @data-price]' );
+
+		if ( ! $nodes instanceof DOMNodeList ) {
+			return array(
+				'products'       => array(),
+				'selector_hints' => array(),
+				'rejected'       => array(),
+			);
+		}
+
+		foreach ( $nodes as $node ) {
+			if ( ! $node instanceof DOMElement || self::has_descendant_product_candidate( $node ) ) {
+				continue;
+			}
+
+			$selector = self::commerce_selector_for_element( $node );
+			$product  = self::product_from_card_element( $doc, $node, $filename, $selector );
+			if ( empty( $product ) ) {
+				$rejected[] = array(
+					'source_filename' => $filename,
+					'selector'        => $selector,
+					'reason'          => 'missing_name_or_price',
+				);
+				continue;
+			}
+
+			$products[]       = $product;
+			$selector_hints[] = array(
+				'source_filename' => $filename,
+				'card_selector'   => $selector,
+			);
+		}
+
+		return array(
+			'products'       => $products,
+			'selector_hints' => self::dedupe_selector_hints( $selector_hints ),
+			'rejected'       => $rejected,
+		);
+	}
+
+	/**
+	 * Check whether a broad candidate contains a more specific product/card candidate.
+	 *
+	 * @param DOMElement $element Candidate element.
+	 * @return bool
+	 */
+	private static function has_descendant_product_candidate( DOMElement $element ): bool {
+		foreach ( $element->getElementsByTagName( '*' ) as $child ) {
+			if ( self::element_looks_like_product_card( $child ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Check whether an element looks like a product/card candidate.
+	 *
+	 * @param DOMElement $element Element.
+	 * @return bool
+	 */
+	private static function element_looks_like_product_card( DOMElement $element ): bool {
+		$tag       = strtolower( $element->tagName );
+		$haystack  = strtolower( $element->getAttribute( 'class' ) . ' ' . $element->getAttribute( 'id' ) );
+		$valid_tag = in_array( $tag, array( 'article', 'li', 'div' ), true );
+
+		return $valid_tag && ( str_contains( $haystack, 'product' ) || $element->hasAttribute( 'data-product-slug' ) || $element->hasAttribute( 'data-product-name' ) || $element->hasAttribute( 'data-price' ) );
+	}
+
+	/**
+	 * Normalize one visible product card into the seeder product shape.
+	 *
+	 * @param DOMDocument $doc      Source document.
+	 * @param DOMElement  $element  Card element.
+	 * @param string      $filename Source filename.
+	 * @param string      $selector Selector hint.
+	 * @return array<string, mixed>
+	 */
+	private static function product_from_card_element( DOMDocument $doc, DOMElement $element, string $filename, string $selector ): array {
+		$name  = self::product_card_name( $element );
+		$price = self::normalize_commerce_price( self::product_card_price_text( $element ) );
+		if ( '' === $name || '' === $price ) {
+			return array();
+		}
+
+		$slug = sanitize_title( $element->getAttribute( 'data-product-slug' ) );
+		if ( '' === $slug ) {
+			$slug = sanitize_title( $name );
+		}
+
+		$product = array(
+			'name'            => $name,
+			'slug'            => $slug,
+			'regular_price'   => $price,
+			'source_filename' => $filename,
+			'card_selector'   => $selector,
+		);
+
+		$image = self::product_card_image( $element );
+		if ( '' !== $image ) {
+			$product['image'] = $image;
+		}
+
+		$category = self::product_card_category( $element );
+		if ( '' !== $category ) {
+			$product['categories'] = array( $category );
+		}
+
+		return $product;
+	}
+
+	/**
+	 * Extract a product name from a card.
+	 *
+	 * @param DOMElement $element Card element.
+	 * @return string
+	 */
+	private static function product_card_name( DOMElement $element ): string {
+		foreach ( array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ) as $tag ) {
+			$headings = $element->getElementsByTagName( $tag );
+			if ( $headings->length > 0 ) {
+				return self::clean_commerce_text( $headings->item( 0 )->textContent ?? '' );
+			}
+		}
+
+		foreach ( array( 'data-product-name', 'aria-label', 'title' ) as $attribute ) {
+			$value = self::clean_commerce_text( $element->getAttribute( $attribute ) );
+			if ( '' !== $value ) {
+				return $value;
+			}
+		}
+
+		return '';
+	}
+
+	/**
+	 * Extract raw price text from a card.
+	 *
+	 * @param DOMElement $element Card element.
+	 * @return string
+	 */
+	private static function product_card_price_text( DOMElement $element ): string {
+		foreach ( array( 'data-price', 'data-regular-price' ) as $attribute ) {
+			$value = self::clean_commerce_text( $element->getAttribute( $attribute ) );
+			if ( '' !== $value ) {
+				return $value;
+			}
+		}
+
+		foreach ( $element->getElementsByTagName( '*' ) as $child ) {
+			$haystack = strtolower( $child->getAttribute( 'class' ) . ' ' . $child->getAttribute( 'data-price' ) );
+			if ( str_contains( $haystack, 'price' ) ) {
+				return self::clean_commerce_text( $child->textContent );
+			}
+		}
+
+		return self::clean_commerce_text( $element->textContent );
+	}
+
+	/**
+	 * Extract image source from a product card.
+	 *
+	 * @param DOMElement $element Card element.
+	 * @return string
+	 */
+	private static function product_card_image( DOMElement $element ): string {
+		$images = $element->getElementsByTagName( 'img' );
+		if ( $images->length <= 0 ) {
+			return '';
+		}
+
+		$image = $images->item( 0 );
+		return $image instanceof DOMElement ? trim( $image->getAttribute( 'src' ) ) : '';
+	}
+
+	/**
+	 * Infer a product category from nearby section context.
+	 *
+	 * @param DOMElement $element Card element.
+	 * @return string
+	 */
+	private static function product_card_category( DOMElement $element ): string {
+		$parent = $element->parentNode;
+		while ( $parent instanceof DOMElement ) {
+			if ( in_array( strtolower( $parent->tagName ), array( 'section', 'main' ), true ) ) {
+				foreach ( array( 'h1', 'h2', 'h3' ) as $tag ) {
+					$headings = $parent->getElementsByTagName( $tag );
+					if ( $headings->length > 0 ) {
+						$category = self::clean_commerce_text( $headings->item( 0 )->textContent ?? '' );
+						if ( '' !== $category && self::product_card_name( $element ) !== $category ) {
+							return $category;
+						}
+					}
+				}
+			}
+
+			$parent = $parent->parentNode;
+		}
+
+		return '';
+	}
+
+	/**
+	 * Build a stable selector hint for a DOM element.
+	 *
+	 * @param DOMElement $element Element.
+	 * @return string
+	 */
+	private static function commerce_selector_for_element( DOMElement $element ): string {
+		$slug = sanitize_title( $element->getAttribute( 'data-product-slug' ) );
+		if ( '' !== $slug ) {
+			return '[data-product-slug="' . $slug . '"]';
+		}
+
+		$id = sanitize_html_class( $element->getAttribute( 'id' ) );
+		if ( '' !== $id ) {
+			return '#' . $id;
+		}
+
+		$classes = preg_split( '/\s+/', trim( $element->getAttribute( 'class' ) ) );
+		$classes = is_array( $classes ) ? array_values( array_filter( array_map( 'sanitize_html_class', $classes ) ) ) : array();
+		if ( ! empty( $classes ) ) {
+			return strtolower( $element->tagName ) . '.' . implode( '.', array_slice( $classes, 0, 2 ) );
+		}
+
+		return strtolower( $element->tagName );
+	}
+
+	/**
+	 * Normalize scalar commerce data.
+	 *
+	 * @param mixed $value Raw value.
+	 * @return string
+	 */
+	private static function commerce_scalar( $value ): string {
+		return is_scalar( $value ) ? self::clean_commerce_text( (string) $value ) : '';
+	}
+
+	/**
+	 * Normalize visible text.
+	 *
+	 * @param string $text Raw text.
+	 * @return string
+	 */
+	private static function clean_commerce_text( string $text ): string {
+		return trim( (string) preg_replace( '/\s+/', ' ', wp_strip_all_tags( html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) ) );
+	}
+
+	/**
+	 * Normalize a storefront price to the products.json decimal string shape.
+	 *
+	 * @param string $price Raw price.
+	 * @return string
+	 */
+	private static function normalize_commerce_price( string $price ): string {
+		if ( ! preg_match( '/(?:[$€£]\s*)?([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+)(?:\s*(?:USD|EUR|GBP))?/i', $price, $matches ) ) {
+			return '';
+		}
+
+		$number = str_replace( ',', '', $matches[1] );
+		return number_format( (float) $number, 2, '.', '' );
+	}
+
+	/**
+	 * Dedupe products by slug.
+	 *
+	 * @param array<int, array<string, mixed>> $products Products.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function dedupe_products_by_slug( array $products ): array {
+		$seen   = array();
+		$result = array();
+		foreach ( $products as $product ) {
+			$slug = isset( $product['slug'] ) ? (string) $product['slug'] : '';
+			if ( '' === $slug || isset( $seen[ $slug ] ) ) {
+				continue;
+			}
+			$seen[ $slug ] = true;
+			$result[]      = $product;
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Dedupe selector hints.
+	 *
+	 * @param array<int, array<string, mixed>> $hints Selector hints.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function dedupe_selector_hints( array $hints ): array {
+		$seen   = array();
+		$result = array();
+		foreach ( $hints as $hint ) {
+			$key = ( $hint['source_filename'] ?? '' ) . '|' . ( $hint['card_selector'] ?? '' );
+			if ( isset( $seen[ $key ] ) ) {
+				continue;
+			}
+			$seen[ $key ] = true;
+			$result[]     = $hint;
+		}
+
+		return $result;
 	}
 
 	/**
@@ -3863,6 +4471,10 @@ class Static_Site_Importer_Theme_Generator {
 			if ( is_array( $report_manifest ) && true === ( $report_manifest['valid'] ?? false ) ) {
 				$manifest = isset( $report_manifest['products'] ) && is_array( $report_manifest['products'] ) ? $report_manifest['products'] : array();
 			}
+		}
+
+		if ( null === $manifest && ! empty( self::$active_commerce_context['products'] ) && is_array( self::$active_commerce_context['products'] ) ) {
+			$manifest = self::$active_commerce_context['products'];
 		}
 
 		if ( null === $manifest ) {
