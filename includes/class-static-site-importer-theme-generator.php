@@ -1900,10 +1900,10 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return string
 	 */
 	private static function normalize_route_path( string $path ): string {
-		$route    = strtok( $path, '?' );
-		$path     = str_replace( '\\', '/', false === $route ? $path : $route );
-		$path     = ltrim( $path, '/' );
-		$segments = array();
+		$path_without_query = strtok( $path, '?' );
+		$path               = str_replace( '\\', '/', false === $path_without_query ? $path : $path_without_query );
+		$path               = ltrim( $path, '/' );
+		$segments           = array();
 		foreach ( explode( '/', $path ) as $segment ) {
 			if ( '' === $segment || '.' === $segment ) {
 				continue;
@@ -4173,7 +4173,7 @@ class Static_Site_Importer_Theme_Generator {
 
 		/** @var array<int, array<string, mixed>> $analyzed_blocks */
 		$analyzed_blocks = $blocks;
-		self::analyze_generated_block_list( $analyzed_blocks, $block_count, $core_html_count, $freeform_count, $invalid_count );
+		self::analyze_generated_block_list( $analyzed_blocks, $block_count, $core_html_count, $freeform_count, $invalid_count, $relative_path );
 
 		$serialized             = serialize_blocks( $blocks );
 		$serialization_mismatch = self::normalize_block_document_for_report( $block_markup ) !== self::normalize_block_document_for_report( $serialized );
@@ -4217,15 +4217,18 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param int                           $core_html_count HTML block count.
 	 * @param int                           $freeform_count  Freeform block count.
 	 * @param int                           $invalid_count   Invalid block count.
+	 * @param string                        $source          Theme-relative source document path.
+	 * @param array<int,int>                $path            Parsed block path.
 	 * @return void
 	 */
-	private static function analyze_generated_block_list( array $blocks, int &$block_count, int &$core_html_count, int &$freeform_count, int &$invalid_count ): void {
-		foreach ( $blocks as $block ) {
+	private static function analyze_generated_block_list( array $blocks, int &$block_count, int &$core_html_count, int &$freeform_count, int &$invalid_count, string $source = '', array $path = array() ): void {
+		foreach ( $blocks as $index => $block ) {
 			$name = isset( $block['blockName'] ) ? $block['blockName'] : null;
 			if ( is_string( $name ) && '' !== $name ) {
 				++$block_count;
 				if ( 'core/html' === $name ) {
 					++$core_html_count;
+					self::record_generated_core_html_block( $source, array_merge( $path, array( $index ) ), $block );
 				}
 				if ( 'core/freeform' === $name ) {
 					++$freeform_count;
@@ -4236,9 +4239,38 @@ class Static_Site_Importer_Theme_Generator {
 			}
 
 			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
-				self::analyze_generated_block_list( $block['innerBlocks'], $block_count, $core_html_count, $freeform_count, $invalid_count );
+				self::analyze_generated_block_list( $block['innerBlocks'], $block_count, $core_html_count, $freeform_count, $invalid_count, $source, array_merge( $path, array( $index ) ) );
 			}
 		}
+	}
+
+	/**
+	 * Record an actionable generated core/html block diagnostic.
+	 *
+	 * @param string              $source Theme-relative source document path.
+	 * @param array<int,int>      $path   Parsed block path.
+	 * @param array<string,mixed> $block  Parsed block.
+	 * @return void
+	 */
+	private static function record_generated_core_html_block( string $source, array $path, array $block ): void {
+		$html = '';
+		if ( isset( $block['attrs']['content'] ) && is_string( $block['attrs']['content'] ) ) {
+			$html = $block['attrs']['content'];
+		} elseif ( isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ) {
+			$html = $block['innerHTML'];
+		}
+
+		self::$conversion_report['diagnostics'][] = self::fallback_diagnostic_entry(
+			'core_html_block',
+			$source,
+			$html,
+			array(
+				'reason' => 'generated_document_contains_core_html',
+				'stage'  => 'generated_theme_block_analysis',
+				'path'   => implode( '.', $path ),
+			),
+			$block
+		);
 	}
 
 	/**
@@ -4356,15 +4388,49 @@ class Static_Site_Importer_Theme_Generator {
 	private static function record_unsupported_fallback( string $source, string $element_html, array $context, array $block ): void {
 		++self::$conversion_report['quality']['fallback_count'];
 		++self::$conversion_report['conversion_fragments'][ $source ]['fallback_count'];
-		self::$conversion_report['diagnostics'][] = array(
-			'type'         => 'unsupported_html_fallback',
-			'source'       => $source,
-			'reason'       => isset( $context['reason'] ) ? (string) $context['reason'] : 'unknown',
-			'tag_name'     => isset( $context['tag_name'] ) ? (string) $context['tag_name'] : null,
-			'block_name'   => isset( $block['blockName'] ) ? (string) $block['blockName'] : null,
-			'html_length'  => strlen( $element_html ),
-			'html_excerpt' => self::diagnostic_excerpt( $element_html ),
+		self::$conversion_report['diagnostics'][] = self::fallback_diagnostic_entry( 'unsupported_html_fallback', $source, $element_html, $context, $block );
+	}
+
+	/**
+	 * Build a normalized fallback/core-html diagnostic entry.
+	 *
+	 * @param string              $type         Diagnostic type.
+	 * @param string              $source       Source fragment or generated document path.
+	 * @param string              $element_html Source HTML fragment.
+	 * @param array<string,mixed> $context      Diagnostic context.
+	 * @param array<string,mixed> $block        Generated or parsed block.
+	 * @return array<string,mixed>
+	 */
+	private static function fallback_diagnostic_entry( string $type, string $source, string $element_html, array $context, array $block ): array {
+		$selector = isset( $context['selector'] ) && is_scalar( $context['selector'] ) ? trim( (string) $context['selector'] ) : '';
+		if ( '' === $selector ) {
+			$selector = self::diagnostic_selector_from_html( $element_html );
+		}
+
+		$entry = array(
+			'type'                => $type,
+			'source'              => $source,
+			'selector'            => '' !== $selector ? $selector : null,
+			'excerpt'             => self::diagnostic_excerpt( wp_strip_all_tags( $element_html ) ),
+			'source_html_preview' => self::diagnostic_excerpt( $element_html ),
+			'reason'              => isset( $context['reason'] ) ? (string) $context['reason'] : 'unknown',
+			'tag_name'            => isset( $context['tag_name'] ) ? (string) $context['tag_name'] : self::diagnostic_tag_name_from_html( $element_html ),
+			'block_name'          => isset( $block['blockName'] ) ? (string) $block['blockName'] : null,
+			'converter'           => 'html-to-blocks-converter',
+			'stage'               => isset( $context['stage'] ) ? (string) $context['stage'] : 'html_to_blocks',
+			'html_length'         => strlen( $element_html ),
+			'html_excerpt'        => self::diagnostic_excerpt( $element_html ),
 		);
+
+		if ( isset( $context['occurrence'] ) ) {
+			$entry['occurrence'] = (int) $context['occurrence'];
+		}
+
+		if ( isset( $context['path'] ) && is_scalar( $context['path'] ) ) {
+			$entry['block_path'] = (string) $context['path'];
+		}
+
+		return $entry;
 	}
 
 	/**
@@ -4485,6 +4551,55 @@ class Static_Site_Importer_Theme_Generator {
 
 		self::$conversion_report['quality'] = $quality;
 		return $quality;
+	}
+
+	/**
+	 * Infer a compact CSS-like selector from an HTML preview.
+	 *
+	 * @param string $html Source HTML.
+	 * @return string
+	 */
+	private static function diagnostic_selector_from_html( string $html ): string {
+		if ( ! preg_match( '/<\s*([a-z0-9:-]+)\b([^>]*)>/i', $html, $match ) ) {
+			return '';
+		}
+
+		$selector = strtolower( (string) $match[1] );
+		$attrs    = (string) $match[2];
+		if ( preg_match( '/\sid\s*=\s*(["\'])(.*?)\1/i', $attrs, $id_match ) ) {
+			$id = preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $id_match[2] );
+			if ( is_string( $id ) && '' !== $id ) {
+				$selector .= '#' . $id;
+			}
+		}
+
+		if ( preg_match( '/\sclass\s*=\s*(["\'])(.*?)\1/i', $attrs, $class_match ) ) {
+			$classes = preg_split( '/\s+/', trim( (string) $class_match[2] ) );
+			if ( is_array( $classes ) ) {
+				foreach ( array_slice( $classes, 0, 3 ) as $class ) {
+					$class = preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $class );
+					if ( is_string( $class ) && '' !== $class ) {
+						$selector .= '.' . $class;
+					}
+				}
+			}
+		}
+
+		return $selector;
+	}
+
+	/**
+	 * Infer the first element tag name from an HTML preview.
+	 *
+	 * @param string $html Source HTML.
+	 * @return string|null
+	 */
+	private static function diagnostic_tag_name_from_html( string $html ): ?string {
+		if ( ! preg_match( '/<\s*([a-z0-9:-]+)\b/i', $html, $match ) ) {
+			return null;
+		}
+
+		return strtoupper( (string) $match[1] );
 	}
 
 	/**
