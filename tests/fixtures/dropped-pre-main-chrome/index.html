@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>Dropped Pre-Main Chrome</title>
+	<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+	<div class="page">
+		<nav class="nav" aria-label="Primary navigation">
+			<ul>
+				<li><a href="#benefits">Benefits</a></li>
+				<li><a href="#contact">Contact</a></li>
+			</ul>
+		</nav>
+		<header class="hero" id="top">
+			<h1>Welcome to the Pre-Main Chrome Drop Repro</h1>
+			<p>Both this nav and this hero are inside body &gt; div.page before &lt;main&gt; — they are dropped today.</p>
+		</header>
+	</div>
+
+	<main class="page">
+		<section id="benefits" class="content-shell">
+			<h2>Benefits</h2>
+			<p>This is the only region the importer keeps. The pre-main wrapper is silently dropped.</p>
+		</section>
+	</main>
+
+	<footer class="site-footer">
+		<p>Footer copy.</p>
+	</footer>
+</body>
+</html>

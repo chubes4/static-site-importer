@@ -139,6 +139,7 @@ class Static_Site_Importer_Theme_Generator {
 		$route_map               = self::source_route_map( $pages, $permalinks );
 		$fragments               = $document->fragments();
 		self::$conversion_report = self::new_conversion_report( $html_path, isset( $args['source_metadata'] ) && is_array( $args['source_metadata'] ) ? $args['source_metadata'] : array() );
+		self::record_source_region_selection( $document, $html_path );
 		self::record_source_documents_summary( $site_dir, $pages, $permalinks );
 		self::record_products_manifest( $site_dir );
 		self::$active_commerce_context = self::commerce_context_from_args( $args );
@@ -2969,15 +2970,15 @@ class Static_Site_Importer_Theme_Generator {
 	 */
 	private static function new_conversion_report( string $html_path, array $source_metadata = array() ): array {
 		return array(
-			'version'              => 1,
-			'entry_file'           => $html_path,
-			'source'               => array_merge(
+			'version'                 => 1,
+			'entry_file'              => $html_path,
+			'source'                  => array_merge(
 				array(
 					'type' => empty( $source_metadata ) ? 'file' : (string) ( $source_metadata['source_type'] ?? 'file' ),
 				),
 				$source_metadata
 			),
-			'quality'              => array(
+			'quality'                 => array(
 				'pass'                               => true,
 				'fallback_count'                     => 0,
 				'content_loss_count'                 => 0,
@@ -2991,7 +2992,7 @@ class Static_Site_Importer_Theme_Generator {
 				'svg_sprite_reference_failure_count' => 0,
 				'failure_reasons'                    => array(),
 			),
-			'source_documents'     => array(
+			'source_documents'        => array(
 				'total_count'                => 0,
 				'counts_by_format'           => array(
 					'html'     => 0,
@@ -3003,22 +3004,41 @@ class Static_Site_Importer_Theme_Generator {
 				'unresolved_link_count'      => 0,
 				'markdown_parse_error_count' => 0,
 			),
-			'conversion_fragments' => array(),
-			'commerce_context'     => array(
+			'conversion_fragments'    => array(),
+			'source_region_selection' => array(
+				'entry_file'         => '',
+				'page_body'          => null,
+				'extracted_header'   => null,
+				'extracted_footer'   => null,
+				'unassigned_regions' => array(),
+				'counts'             => array(
+					'source_landmarks'   => array(
+						'main'   => 0,
+						'header' => 0,
+						'nav'    => 0,
+						'footer' => 0,
+					),
+					'unassigned_regions' => 0,
+				),
+				'notes'              => array(
+					'Reports which source region became the page body, the extracted header/footer parts, and any meaningful direct body children that were not assigned to a generated region. Reporting only — does not change conversion behavior.',
+				),
+			),
+			'commerce_context'        => array(
 				'supplied'       => false,
 				'source'         => 'none',
 				'product_count'  => 0,
 				'selector_hints' => array(),
 				'diagnostics'    => array(),
 			),
-			'assets'               => array(
+			'assets'                  => array(
 				'svg_icons'   => array(),
 				'svg_sprites' => array(),
 			),
-			'generated_theme'      => array(
+			'generated_theme'         => array(
 				'block_documents' => array(),
 			),
-			'visual_fidelity'      => array(
+			'visual_fidelity'         => array(
 				'status'             => 'requires_external_render_check',
 				'gate_owner'         => 'benchmark_harness',
 				'comparison_targets' => array(),
@@ -3026,7 +3046,7 @@ class Static_Site_Importer_Theme_Generator {
 					'Static Site Importer records source and generated DOM probes, render URLs, and theme artifacts for visual comparison; screenshot capture and computed-style/layout thresholds belong to the benchmark harness.',
 				),
 			),
-			'semantic_fidelity'    => array(
+			'semantic_fidelity'       => array(
 				'status'             => 'requires_external_render_check',
 				'gate_owner'         => 'benchmark_harness',
 				'comparison_targets' => array(),
@@ -3034,14 +3054,52 @@ class Static_Site_Importer_Theme_Generator {
 					'Static Site Importer records source/generated semantic comparison targets; browser DOM extraction and semantic fingerprint comparison belong to the benchmark harness.',
 				),
 			),
-			'diagnostics'          => array(),
-			'notes'                => array(
+			'diagnostics'             => array(),
+			'notes'                   => array(
 				'Block Format Bridge owns HTML-to-block transform fidelity; Static Site Importer records converter diagnostics and quality gates the generated theme.',
 				'Generated-theme block validation uses WordPress server-side block parsing and serialization checks; editor-runtime validation remains the exact Gutenberg authority.',
 				'Visual fidelity requires browser rendering; use visual_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',
 				'Semantic fidelity requires browser DOM extraction; use semantic_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',
 			),
 		);
+	}
+
+	/**
+	 * Record page-body extraction decisions for the import report.
+	 *
+	 * Captures the page-body source mode/selector, extracted header/footer
+	 * selectors, and any meaningful direct body children that were not
+	 * assigned to a generated region. Reporting only — does not change
+	 * conversion behavior.
+	 *
+	 * @param Static_Site_Importer_Document $document  Entry document.
+	 * @param string                        $html_path Entry HTML path.
+	 * @return void
+	 */
+	private static function record_source_region_selection( Static_Site_Importer_Document $document, string $html_path ): void {
+		$selection               = $document->selection_report();
+		$selection['entry_file'] = $html_path;
+		// Preserve notes already present on the report shape.
+		$existing_notes = self::$conversion_report['source_region_selection']['notes'] ?? array();
+		if ( ! empty( $existing_notes ) ) {
+			$selection['notes'] = $existing_notes;
+		}
+
+		self::$conversion_report['source_region_selection'] = $selection;
+
+		foreach ( $selection['unassigned_regions'] as $region ) {
+			self::$conversion_report['diagnostics'][] = array(
+				'type'       => 'source_region_unassigned',
+				'role'       => $region['role'] ?? 'unassigned_body_child',
+				'reason'     => $region['reason'] ?? '',
+				'selector'   => $region['selector'] ?? '',
+				'tag'        => $region['tag'] ?? '',
+				'line_range' => $region['line_range'] ?? null,
+				'excerpt'    => $region['excerpt'] ?? '',
+				'source'     => $html_path,
+				'message'    => 'Source region was not assigned to a generated theme part or page pattern. Inspect source_region_selection.unassigned_regions in import-report.json for the selector path and source line range.',
+			);
+		}
 	}
 
 	/**
