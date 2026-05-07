@@ -13,9 +13,9 @@
 class StaticSiteImporterSourceRegionReportTest extends WP_UnitTestCase {
 
 	/**
-	 * Preserves pre-main chrome wrappers by unwrapping their effective siblings.
+	 * Reports pre-main wrapper chrome as assigned after effective-child unwrapping.
 	 */
-	public function test_pre_main_wrapper_chrome_is_preserved_without_unassigned_regions(): void {
+	public function test_pre_main_wrapper_chrome_is_extracted_from_unwrapped_body_child(): void {
 		$plugin_root = dirname( __DIR__ );
 		$fixture     = $plugin_root . '/tests/fixtures/dropped-pre-main-chrome/index.html';
 
@@ -59,13 +59,19 @@ class StaticSiteImporterSourceRegionReportTest extends WP_UnitTestCase {
 		$this->assertIsArray( $selection['extracted_footer'] ?? null );
 		$this->assertSame( 'footer', $selection['extracted_footer']['tag'] ?? '' );
 
-		// The generic wrapper is unwrapped so its nav/header become generated
-		// chrome instead of unassigned dropped source regions.
+		// The generic page wrapper is unwrapped, so its nav/header become assigned
+		// header parts rather than dropped source regions.
+		$this->assertIsArray( $selection['extracted_header'] ?? null );
+		$this->assertSame( 'nav_element_only', $selection['extracted_header']['mode'] ?? '' );
+
+		$header_parts = $selection['extracted_header']['parts'] ?? array();
+		$this->assertCount( 1, $header_parts );
+		$this->assertSame( 'nav', $header_parts[0]['role'] ?? '' );
+		$this->assertStringContainsString( 'nav.nav', (string) ( $header_parts[0]['selector'] ?? '' ) );
+
 		$unassigned = $selection['unassigned_regions'] ?? array();
 		$this->assertIsArray( $unassigned );
 		$this->assertSame( array(), $unassigned );
-		$this->assertIsArray( $selection['extracted_header'] ?? null );
-		$this->assertNotEmpty( $selection['extracted_header']['parts'] ?? array() );
 
 		// Counts surface source landmark presence at a glance.
 		$counts = $selection['counts'] ?? array();
@@ -115,6 +121,10 @@ class StaticSiteImporterSourceRegionReportTest extends WP_UnitTestCase {
 		$this->assertSame( 'semantic_main', $selection['page_body']['mode'] ?? '' );
 		$this->assertSame( array(), $selection['unassigned_regions'] ?? array( 'not-set' ) );
 		$this->assertSame( 0, $selection['counts']['unassigned_regions'] ?? -1 );
+		$this->assertSame( 1, $selection['counts']['intentionally_ignored_regions'] ?? -1 );
+		$this->assertSame( 'accessibility_skip_link', $selection['intentionally_ignored_regions'][0]['role'] ?? '' );
+		$this->assertStringContainsString( 'a.skip-link', (string) ( $selection['intentionally_ignored_regions'][0]['selector'] ?? '' ) );
+		$this->assertSame( 'Skip to content', $selection['intentionally_ignored_regions'][0]['excerpt'] ?? '' );
 		$this->assertIsArray( $selection['extracted_header'] ?? null );
 		$this->assertNotEmpty( $selection['extracted_header']['parts'] ?? array() );
 	}
