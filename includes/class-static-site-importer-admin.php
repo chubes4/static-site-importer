@@ -185,9 +185,14 @@ class Static_Site_Importer_Admin {
 			self::redirect_error( $entry->get_error_message() );
 		}
 
-		$result = Static_Site_Importer_Theme_Generator::import_theme(
-			$entry['html_path'],
+		$ability = wp_get_ability( 'static-site-importer/import-theme' );
+		if ( ! $ability ) {
+			self::redirect_error( 'Static Site Importer import ability is not registered.' );
+		}
+
+		$ability_result = $ability->execute(
 			array(
+				'html_path'       => $entry['html_path'],
 				'name'            => isset( $_POST['theme_name'] ) ? sanitize_text_field( wp_unslash( $_POST['theme_name'] ) ) : '',
 				'slug'            => isset( $_POST['theme_slug'] ) ? sanitize_title( wp_unslash( $_POST['theme_slug'] ) ) : '',
 				'activate'        => ! empty( $_POST['activate'] ),
@@ -196,9 +201,12 @@ class Static_Site_Importer_Admin {
 			)
 		);
 
-		if ( is_wp_error( $result ) ) {
-			self::redirect_error( $result->get_error_message() );
+		if ( empty( $ability_result['success'] ) ) {
+			$error = isset( $ability_result['error'] ) && is_array( $ability_result['error'] ) ? $ability_result['error'] : array();
+			self::redirect_error( isset( $error['message'] ) ? (string) $error['message'] : 'Static site import failed.' );
 		}
+
+		$result = isset( $ability_result['result'] ) && is_array( $ability_result['result'] ) ? $ability_result['result'] : array();
 
 		if ( ! empty( $result['quality']['fail_import'] ) ) {
 			$failure_reasons = isset( $result['quality']['failure_reasons'] ) && is_array( $result['quality']['failure_reasons'] ) ? $result['quality']['failure_reasons'] : array();

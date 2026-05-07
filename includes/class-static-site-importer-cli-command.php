@@ -88,9 +88,15 @@ class Static_Site_Importer_CLI_Command {
 			return;
 		}
 
-		$result = Static_Site_Importer_Theme_Generator::import_theme(
-			$html_file,
+		$ability = wp_get_ability( 'static-site-importer/import-theme' );
+		if ( ! $ability ) {
+			WP_CLI::error( 'Static Site Importer import ability is not registered.' );
+			return;
+		}
+
+		$ability_result = $ability->execute(
 			array(
+				'html_path'                 => $html_file,
 				'slug'                      => isset( $assoc_args['slug'] ) ? (string) $assoc_args['slug'] : '',
 				'name'                      => isset( $assoc_args['name'] ) ? (string) $assoc_args['name'] : '',
 				'activate'                  => isset( $assoc_args['activate'] ),
@@ -104,10 +110,13 @@ class Static_Site_Importer_CLI_Command {
 			)
 		);
 
-		if ( is_wp_error( $result ) ) {
-			WP_CLI::error( $result->get_error_message() );
+		if ( empty( $ability_result['success'] ) ) {
+			$error = isset( $ability_result['error'] ) && is_array( $ability_result['error'] ) ? $ability_result['error'] : array();
+			WP_CLI::error( isset( $error['message'] ) ? (string) $error['message'] : 'Static site import failed.' );
 			return;
 		}
+
+		$result = isset( $ability_result['result'] ) && is_array( $ability_result['result'] ) ? $ability_result['result'] : array();
 
 		$failure_reasons       = isset( $result['quality']['failure_reasons'] ) && is_array( $result['quality']['failure_reasons'] ) ? $result['quality']['failure_reasons'] : array();
 		$commerce_dep_failure  = in_array( 'woocommerce_missing', $failure_reasons, true );

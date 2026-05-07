@@ -4,7 +4,7 @@
  * Description: Import static HTML sites into WordPress pages or block themes using Block Format Bridge.
  * Version: 0.4.0
  * Author: Chris Huber
- * Requires at least: 6.6
+ * Requires at least: 6.9
  * Requires PHP: 8.1
  * Text Domain: static-site-importer
  *
@@ -27,6 +27,7 @@ require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-so
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-url-fetcher.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-woo-product-seeder.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-theme-generator.php';
+require_once STATIC_SITE_IMPORTER_PATH . 'includes/abilities.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-admin.php';
 
 if ( defined( 'WP_CLI' ) && WP_CLI ) {

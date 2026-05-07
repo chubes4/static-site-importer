@@ -84,8 +84,12 @@ $assert( str_contains( $fetcher, 'DEFAULT_MAX_BYTES' ), 'max-response-size-prese
 $assert( str_contains( $fetcher, 'text/html' ), 'html-content-type-required' );
 $assert( str_contains( $cli, '[--url=<url>]' ), 'cli-import-theme-url-option-present' );
 $assert( str_contains( $cli, 'public function import_url' ), 'cli-import-url-subcommand-present' );
+$assert( str_contains( $cli, "wp_get_ability( 'static-site-importer/import-theme' )" ), 'cli-import-wraps-ability' );
+$assert( ! str_contains( $cli, 'Static_Site_Importer_Theme_Generator::import_theme' ), 'cli-import-does-not-call-generator-directly' );
 $assert( str_contains( $admin, 'name="static_site_url"' ), 'admin-url-field-present' );
 $assert( str_contains( $admin, "'source_metadata' => $" . "entry['metadata']" ), 'admin-passes-source-metadata' );
+$assert( str_contains( $admin, "wp_get_ability( 'static-site-importer/import-theme' )" ), 'admin-import-wraps-ability' );
+$assert( ! str_contains( $admin, 'Static_Site_Importer_Theme_Generator::import_theme' ), 'admin-import-does-not-call-generator-directly' );
 
 $assert_error( 'ftp://example.com/', 'static_site_importer_url_scheme' );
 $assert_error( 'https://user:pass@example.com/', 'static_site_importer_url_credentials' );
