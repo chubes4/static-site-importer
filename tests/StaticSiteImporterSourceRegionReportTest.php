@@ -13,9 +13,9 @@
 class StaticSiteImporterSourceRegionReportTest extends WP_UnitTestCase {
 
 	/**
-	 * Reports dropped pre-main chrome wrappers with selectors, line ranges, and excerpts.
+	 * Preserves pre-main chrome wrappers by unwrapping their effective siblings.
 	 */
-	public function test_pre_main_wrapper_chrome_is_reported_as_unassigned(): void {
+	public function test_pre_main_wrapper_chrome_is_preserved_without_unassigned_regions(): void {
 		$plugin_root = dirname( __DIR__ );
 		$fixture     = $plugin_root . '/tests/fixtures/dropped-pre-main-chrome/index.html';
 
@@ -59,43 +59,13 @@ class StaticSiteImporterSourceRegionReportTest extends WP_UnitTestCase {
 		$this->assertIsArray( $selection['extracted_footer'] ?? null );
 		$this->assertSame( 'footer', $selection['extracted_footer']['tag'] ?? '' );
 
-		// No global header/nav was selected — both live inside the dropped
-		// pre-main wrapper, so the report flags them as unassigned.
+		// The generic wrapper is unwrapped so its nav/header become generated
+		// chrome instead of unassigned dropped source regions.
 		$unassigned = $selection['unassigned_regions'] ?? array();
 		$this->assertIsArray( $unassigned );
-		$this->assertNotEmpty( $unassigned, 'pre-main wrapper containing nav and hero should be reported as unassigned' );
-
-		// Locate the wrapper entry.
-		$wrapper = null;
-		$nav     = null;
-		$hero    = null;
-		foreach ( $unassigned as $region ) {
-			$selector = (string) ( $region['selector'] ?? '' );
-			if ( 'unassigned_body_child' === ( $region['role'] ?? '' ) && str_contains( $selector, 'div.page' ) ) {
-				$wrapper = $region;
-			}
-			if ( ( $region['tag'] ?? '' ) === 'nav' ) {
-				$nav = $region;
-			}
-			if ( ( $region['tag'] ?? '' ) === 'header' ) {
-				$hero = $region;
-			}
-		}
-
-		$this->assertNotNull( $wrapper, 'wrapper div.page should be reported as unassigned_body_child' );
-		$this->assertSame( 'before_main', $wrapper['position'] ?? '' );
-		$this->assertSame( 'pre_main_or_post_main_sibling_not_assigned', $wrapper['reason'] ?? '' );
-		$this->assertIsArray( $wrapper['line_range'] ?? null );
-		$this->assertNotEmpty( $wrapper['excerpt'] ?? '' );
-
-		$this->assertNotNull( $nav, 'nested nav inside the wrapper should be reported' );
-		$this->assertSame( 'unassigned_nested_landmark', $nav['role'] ?? '' );
-		$this->assertStringContainsString( 'nav.nav', (string) ( $nav['selector'] ?? '' ) );
-
-		$this->assertNotNull( $hero, 'nested hero header inside the wrapper should be reported' );
-		$this->assertSame( 'unassigned_nested_landmark', $hero['role'] ?? '' );
-		$this->assertStringContainsString( 'header', (string) ( $hero['selector'] ?? '' ) );
-		$this->assertStringContainsString( '#top', (string) ( $hero['selector'] ?? '' ) );
+		$this->assertSame( array(), $unassigned );
+		$this->assertIsArray( $selection['extracted_header'] ?? null );
+		$this->assertNotEmpty( $selection['extracted_header']['parts'] ?? array() );
 
 		// Counts surface source landmark presence at a glance.
 		$counts = $selection['counts'] ?? array();
@@ -103,7 +73,7 @@ class StaticSiteImporterSourceRegionReportTest extends WP_UnitTestCase {
 		$this->assertGreaterThanOrEqual( 1, $counts['source_landmarks']['nav'] ?? 0 );
 		$this->assertGreaterThanOrEqual( 1, $counts['source_landmarks']['header'] ?? 0 );
 		$this->assertGreaterThanOrEqual( 1, $counts['source_landmarks']['footer'] ?? 0 );
-		$this->assertSame( count( $unassigned ), $counts['unassigned_regions'] ?? -1 );
+		$this->assertSame( 0, $counts['unassigned_regions'] ?? -1 );
 
 		// A diagnostics entry mirrors each unassigned region for tooling that
 		// scans the diagnostics list.
@@ -115,9 +85,7 @@ class StaticSiteImporterSourceRegionReportTest extends WP_UnitTestCase {
 				static fn ( $entry ): bool => is_array( $entry ) && 'source_region_unassigned' === ( $entry['type'] ?? '' )
 			)
 		);
-		$this->assertNotEmpty( $source_region_diagnostics );
-		$this->assertSame( count( $unassigned ), count( $source_region_diagnostics ) );
-		$this->assertNotEmpty( $source_region_diagnostics[0]['selector'] ?? '' );
+		$this->assertSame( array(), $source_region_diagnostics );
 	}
 
 	/**

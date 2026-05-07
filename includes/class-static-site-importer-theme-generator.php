@@ -155,7 +155,7 @@ class Static_Site_Importer_Theme_Generator {
 
 		$site_css                             = self::site_css( $site_dir, $document );
 		self::$decorative_empty_group_classes = array_fill_keys(
-			self::absolute_position_classes_from_css( $site_css ),
+			self::decorative_empty_group_classes_from_css( $site_css ),
 			true
 		);
 		self::pre_register_svg_symbol_sprites( $fragments, $pages );
@@ -1901,10 +1901,10 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return string
 	 */
 	private static function normalize_route_path( string $path ): string {
-		$queryless = strtok( $path, '?' );
-		$path      = str_replace( '\\', '/', false === $queryless ? $path : $queryless );
-		$path      = ltrim( $path, '/' );
-		$segments  = array();
+		$path_without_query = strtok( $path, '?' );
+		$path               = str_replace( '\\', '/', false === $path_without_query ? $path : $path_without_query );
+		$path               = ltrim( $path, '/' );
+		$segments           = array();
 		foreach ( explode( '/', $path ) as $segment ) {
 			if ( '' === $segment || '.' === $segment ) {
 				continue;
@@ -2659,7 +2659,7 @@ class Static_Site_Importer_Theme_Generator {
 		if ( '' === $blocks ) {
 			self::record_conversion_empty( $source, $html );
 		}
-		$blocks = self::mark_empty_decorative_group_blocks( $blocks, $source );
+		$blocks = self::restore_dropped_empty_decorative_groups( $html, self::mark_empty_decorative_group_blocks( $blocks, $source ) );
 		self::finish_conversion_fragment( $source, $blocks );
 
 		return '' === $blocks ? '<!-- wp:html -->' . "\n" . $html . "\n" . '<!-- /wp:html -->' : $blocks;
@@ -2688,6 +2688,147 @@ class Static_Site_Importer_Theme_Generator {
 
 		// @phpstan-ignore-next-line argument.type -- Parsed blocks are normalized before serializing.
 		return $changed ? serialize_blocks( $blocks ) : $block_markup;
+	}
+
+	/**
+	 * Restore empty decorative divs when the converter drops them from card bodies.
+	 *
+	 * @param string $html         Source HTML fragment.
+	 * @param string $block_markup Serialized block markup.
+	 * @return string Serialized block markup.
+	 */
+	private static function restore_dropped_empty_decorative_groups( string $html, string $block_markup ): string {
+		if ( '' === trim( $html ) || '' === trim( $block_markup ) || empty( self::$decorative_empty_group_classes ) || ! function_exists( 'parse_blocks' ) || ! function_exists( 'serialize_blocks' ) ) {
+			return $block_markup;
+		}
+
+		$restore = self::empty_decorative_groups_by_parent_class( $html );
+		if ( empty( $restore ) ) {
+			return $block_markup;
+		}
+
+		/** @var array<int, array<string, mixed>> $blocks */
+		$blocks  = parse_blocks( $block_markup );
+		$changed = false;
+		self::restore_dropped_empty_decorative_groups_in_tree( $blocks, $restore, $changed );
+
+		// @phpstan-ignore-next-line argument.type -- Parsed blocks are normalized before serializing.
+		return $changed ? serialize_blocks( $blocks ) : $block_markup;
+	}
+
+	/**
+	 * Extract decorative empty div blocks keyed by their parent class token.
+	 *
+	 * @param string $html Source HTML fragment.
+	 * @return array<string, array<int, array<string, mixed>>>
+	 */
+	private static function empty_decorative_groups_by_parent_class( string $html ): array {
+		$doc     = self::load_fragment_document( $html );
+		$restore = array();
+
+		foreach ( $doc->getElementsByTagName( 'div' ) as $element ) {
+			if ( ! self::is_empty_decorative_theme_part_element( $element ) || ! $element->parentNode instanceof DOMElement ) {
+				continue;
+			}
+
+			$matched = false;
+			$block   = self::decorative_group_block_from_element( $element, $matched );
+			if ( null === $block || ! $matched ) {
+				continue;
+			}
+
+			$parent_classes = preg_split( '/\s+/', trim( $element->parentNode->getAttribute( 'class' ) ) );
+			$parent_classes = false === $parent_classes ? array() : $parent_classes;
+			foreach ( $parent_classes as $parent_class ) {
+				if ( '' !== $parent_class && self::class_token_looks_like_card_container( $parent_class ) ) {
+					$restore[ $parent_class ][] = $block;
+				}
+			}
+		}
+
+		return $restore;
+	}
+
+	/**
+	 * Whether a class token identifies a card-like container that can safely receive restored layers.
+	 *
+	 * @param string $class_name Class token.
+	 * @return bool
+	 */
+	private static function class_token_looks_like_card_container( string $class_name ): bool {
+		return str_contains( $class_name, 'card' ) || str_contains( $class_name, 'gallery' ) || str_contains( $class_name, 'product' ) || str_contains( $class_name, 'category' );
+	}
+
+	/**
+	 * Restore decorative blocks inside matching generated group blocks.
+	 *
+	 * @param array<int, array<string, mixed>>              $blocks  Parsed blocks.
+	 * @param array<string, array<int, array<string,mixed>>> $restore Blocks keyed by parent class.
+	 * @param bool                                          $changed Whether any block changed.
+	 * @return void
+	 */
+	private static function restore_dropped_empty_decorative_groups_in_tree( array &$blocks, array $restore, bool &$changed ): void {
+		foreach ( $blocks as &$block ) {
+			if ( 'core/group' === ( $block['blockName'] ?? '' ) ) {
+				$attrs   = is_array( $block['attrs'] ?? null ) ? $block['attrs'] : array();
+				$classes = preg_split( '/\s+/', trim( (string) ( $attrs['className'] ?? '' ) ) );
+				$classes = false === $classes ? array() : $classes;
+				foreach ( $classes as $class ) {
+					if ( ! isset( $restore[ $class ] ) || self::block_contains_any_decorative_group( $block, $restore[ $class ] ) ) {
+						continue;
+					}
+
+					$inner_blocks          = is_array( $block['innerBlocks'] ?? null ) ? $block['innerBlocks'] : array();
+					$block['innerBlocks']  = array_merge( $restore[ $class ], $inner_blocks );
+					$block['innerContent'] = self::prepend_inner_content_placeholders( is_array( $block['innerContent'] ?? null ) ? $block['innerContent'] : array(), count( $restore[ $class ] ) );
+					$changed               = true;
+					break;
+				}
+			}
+
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				self::restore_dropped_empty_decorative_groups_in_tree( $block['innerBlocks'], $restore, $changed );
+			}
+		}
+		unset( $block );
+	}
+
+	/**
+	 * Add innerContent placeholders for restored leading inner blocks.
+	 *
+	 * @param array<int, mixed> $inner_content Existing innerContent.
+	 * @param int              $count         Number of leading blocks to insert.
+	 * @return array<int, mixed>
+	 */
+	private static function prepend_inner_content_placeholders( array $inner_content, int $count ): array {
+		$placeholders = array_fill( 0, max( 0, $count ), null );
+		if ( empty( $inner_content ) ) {
+			return $placeholders;
+		}
+
+		$first = array_shift( $inner_content );
+		return array_merge( array( $first ), $placeholders, $inner_content );
+	}
+
+	/**
+	 * Check whether a generated block already contains any decorative class slated for restore.
+	 *
+	 * @param array<string, mixed>             $block        Parsed block.
+	 * @param array<int, array<string, mixed>> $restore_list Candidate restored blocks.
+	 * @return bool
+	 */
+	private static function block_contains_any_decorative_group( array $block, array $restore_list ): bool {
+		$haystack = wp_json_encode( $block, JSON_UNESCAPED_SLASHES );
+		$haystack = is_string( $haystack ) ? $haystack : '';
+		foreach ( $restore_list as $restore_block ) {
+			$attrs      = is_array( $restore_block['attrs'] ?? null ) ? $restore_block['attrs'] : array();
+			$class_name = (string) ( $attrs['className'] ?? '' );
+			if ( '' !== $class_name && str_contains( $haystack, $class_name ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -4782,7 +4923,7 @@ class Static_Site_Importer_Theme_Generator {
 
 		/** @var array<int, array<string, mixed>> $analyzed_blocks */
 		$analyzed_blocks = $blocks;
-		self::analyze_generated_block_list( $analyzed_blocks, $block_count, $core_html_count, $freeform_count, $invalid_count );
+		self::analyze_generated_block_list( $analyzed_blocks, $block_count, $core_html_count, $freeform_count, $invalid_count, $relative_path );
 
 		$serialized             = serialize_blocks( $blocks );
 		$serialization_mismatch = self::normalize_block_document_for_report( $block_markup ) !== self::normalize_block_document_for_report( $serialized );
@@ -4826,15 +4967,18 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param int                           $core_html_count HTML block count.
 	 * @param int                           $freeform_count  Freeform block count.
 	 * @param int                           $invalid_count   Invalid block count.
+	 * @param string                        $source          Theme-relative source document path.
+	 * @param array<int,int>                $path            Parsed block path.
 	 * @return void
 	 */
-	private static function analyze_generated_block_list( array $blocks, int &$block_count, int &$core_html_count, int &$freeform_count, int &$invalid_count ): void {
-		foreach ( $blocks as $block ) {
+	private static function analyze_generated_block_list( array $blocks, int &$block_count, int &$core_html_count, int &$freeform_count, int &$invalid_count, string $source = '', array $path = array() ): void {
+		foreach ( $blocks as $index => $block ) {
 			$name = isset( $block['blockName'] ) ? $block['blockName'] : null;
 			if ( is_string( $name ) && '' !== $name ) {
 				++$block_count;
 				if ( 'core/html' === $name ) {
 					++$core_html_count;
+					self::record_generated_core_html_block( $source, array_merge( $path, array( $index ) ), $block );
 				}
 				if ( 'core/freeform' === $name ) {
 					++$freeform_count;
@@ -4845,9 +4989,38 @@ class Static_Site_Importer_Theme_Generator {
 			}
 
 			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
-				self::analyze_generated_block_list( $block['innerBlocks'], $block_count, $core_html_count, $freeform_count, $invalid_count );
+				self::analyze_generated_block_list( $block['innerBlocks'], $block_count, $core_html_count, $freeform_count, $invalid_count, $source, array_merge( $path, array( $index ) ) );
 			}
 		}
+	}
+
+	/**
+	 * Record an actionable generated core/html block diagnostic.
+	 *
+	 * @param string              $source Theme-relative source document path.
+	 * @param array<int,int>      $path   Parsed block path.
+	 * @param array<string,mixed> $block  Parsed block.
+	 * @return void
+	 */
+	private static function record_generated_core_html_block( string $source, array $path, array $block ): void {
+		$html = '';
+		if ( isset( $block['attrs']['content'] ) && is_string( $block['attrs']['content'] ) ) {
+			$html = $block['attrs']['content'];
+		} elseif ( isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ) {
+			$html = $block['innerHTML'];
+		}
+
+		self::$conversion_report['diagnostics'][] = self::fallback_diagnostic_entry(
+			'core_html_block',
+			$source,
+			$html,
+			array(
+				'reason' => 'generated_document_contains_core_html',
+				'stage'  => 'generated_theme_block_analysis',
+				'path'   => implode( '.', $path ),
+			),
+			$block
+		);
 	}
 
 	/**
@@ -4965,15 +5138,49 @@ class Static_Site_Importer_Theme_Generator {
 	private static function record_unsupported_fallback( string $source, string $element_html, array $context, array $block ): void {
 		++self::$conversion_report['quality']['fallback_count'];
 		++self::$conversion_report['conversion_fragments'][ $source ]['fallback_count'];
-		self::$conversion_report['diagnostics'][] = array(
-			'type'         => 'unsupported_html_fallback',
-			'source'       => $source,
-			'reason'       => isset( $context['reason'] ) ? (string) $context['reason'] : 'unknown',
-			'tag_name'     => isset( $context['tag_name'] ) ? (string) $context['tag_name'] : null,
-			'block_name'   => isset( $block['blockName'] ) ? (string) $block['blockName'] : null,
-			'html_length'  => strlen( $element_html ),
-			'html_excerpt' => self::diagnostic_excerpt( $element_html ),
+		self::$conversion_report['diagnostics'][] = self::fallback_diagnostic_entry( 'unsupported_html_fallback', $source, $element_html, $context, $block );
+	}
+
+	/**
+	 * Build a normalized fallback/core-html diagnostic entry.
+	 *
+	 * @param string              $type         Diagnostic type.
+	 * @param string              $source       Source fragment or generated document path.
+	 * @param string              $element_html Source HTML fragment.
+	 * @param array<string,mixed> $context      Diagnostic context.
+	 * @param array<string,mixed> $block        Generated or parsed block.
+	 * @return array<string,mixed>
+	 */
+	private static function fallback_diagnostic_entry( string $type, string $source, string $element_html, array $context, array $block ): array {
+		$selector = isset( $context['selector'] ) && is_scalar( $context['selector'] ) ? trim( (string) $context['selector'] ) : '';
+		if ( '' === $selector ) {
+			$selector = self::diagnostic_selector_from_html( $element_html );
+		}
+
+		$entry = array(
+			'type'                => $type,
+			'source'              => $source,
+			'selector'            => '' !== $selector ? $selector : null,
+			'excerpt'             => self::diagnostic_excerpt( wp_strip_all_tags( $element_html ) ),
+			'source_html_preview' => self::diagnostic_excerpt( $element_html ),
+			'reason'              => isset( $context['reason'] ) ? (string) $context['reason'] : 'unknown',
+			'tag_name'            => isset( $context['tag_name'] ) ? (string) $context['tag_name'] : self::diagnostic_tag_name_from_html( $element_html ),
+			'block_name'          => isset( $block['blockName'] ) ? (string) $block['blockName'] : null,
+			'converter'           => 'html-to-blocks-converter',
+			'stage'               => isset( $context['stage'] ) ? (string) $context['stage'] : 'html_to_blocks',
+			'html_length'         => strlen( $element_html ),
+			'html_excerpt'        => self::diagnostic_excerpt( $element_html ),
 		);
+
+		if ( isset( $context['occurrence'] ) ) {
+			$entry['occurrence'] = (int) $context['occurrence'];
+		}
+
+		if ( isset( $context['path'] ) && is_scalar( $context['path'] ) ) {
+			$entry['block_path'] = (string) $context['path'];
+		}
+
+		return $entry;
 	}
 
 	/**
@@ -5094,6 +5301,55 @@ class Static_Site_Importer_Theme_Generator {
 
 		self::$conversion_report['quality'] = $quality;
 		return $quality;
+	}
+
+	/**
+	 * Infer a compact CSS-like selector from an HTML preview.
+	 *
+	 * @param string $html Source HTML.
+	 * @return string
+	 */
+	private static function diagnostic_selector_from_html( string $html ): string {
+		if ( ! preg_match( '/<\s*([a-z0-9:-]+)\b([^>]*)>/i', $html, $match ) ) {
+			return '';
+		}
+
+		$selector = strtolower( (string) $match[1] );
+		$attrs    = (string) $match[2];
+		if ( preg_match( '/\sid\s*=\s*(["\'])(.*?)\1/i', $attrs, $id_match ) ) {
+			$id = preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $id_match[2] );
+			if ( is_string( $id ) && '' !== $id ) {
+				$selector .= '#' . $id;
+			}
+		}
+
+		if ( preg_match( '/\sclass\s*=\s*(["\'])(.*?)\1/i', $attrs, $class_match ) ) {
+			$classes = preg_split( '/\s+/', trim( (string) $class_match[2] ) );
+			if ( is_array( $classes ) ) {
+				foreach ( array_slice( $classes, 0, 3 ) as $class ) {
+					$class = preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $class );
+					if ( is_string( $class ) && '' !== $class ) {
+						$selector .= '.' . $class;
+					}
+				}
+			}
+		}
+
+		return $selector;
+	}
+
+	/**
+	 * Infer the first element tag name from an HTML preview.
+	 *
+	 * @param string $html Source HTML.
+	 * @return string|null
+	 */
+	private static function diagnostic_tag_name_from_html( string $html ): ?string {
+		if ( ! preg_match( '/<\s*([a-z0-9:-]+)\b/i', $html, $match ) ) {
+			return null;
+		}
+
+		return strtoupper( (string) $match[1] );
 	}
 
 	/**
@@ -5644,6 +5900,77 @@ class Static_Site_Importer_Theme_Generator {
 
 		$opacity = trim( preg_replace( '/\s*!important\s*$/i', '', $opacity ) ?? $opacity );
 		return (bool) preg_match( '/^0(?:\.0+)?%?$/', $opacity );
+	}
+
+	/**
+	 * Collect CSS classes that identify empty decorative layers.
+	 *
+	 * @param string $css Source CSS.
+	 * @return array<int, string> Class names.
+	 */
+	private static function decorative_empty_group_classes_from_css( string $css ): array {
+		$classes = array_merge(
+			self::absolute_position_classes_from_css( $css ),
+			self::sized_decorative_classes_from_css( $css )
+		);
+		$classes = array_values( array_unique( $classes ) );
+		sort( $classes, SORT_STRING );
+
+		return $classes;
+	}
+
+	/**
+	 * Collect terminal selector classes from rules that size decorative empty layers.
+	 *
+	 * @param string $css Source CSS.
+	 * @return array<int, string> Class names.
+	 */
+	private static function sized_decorative_classes_from_css( string $css ): array {
+		$css = preg_replace( '/\/\*.*?\*\//s', '', $css ) ?? $css;
+		if ( '' === trim( $css ) || ! str_contains( $css, '.' ) ) {
+			return array();
+		}
+
+		return self::sized_decorative_classes_from_css_scope( $css );
+	}
+
+	/**
+	 * Collect sized decorative classes inside one CSS block list.
+	 *
+	 * @param string $css CSS to inspect.
+	 * @return array<int, string> Class names.
+	 */
+	private static function sized_decorative_classes_from_css_scope( string $css ): array {
+		$classes = array();
+		$length  = strlen( $css );
+		$offset  = 0;
+
+		while ( $offset < $length && preg_match( '/\G\s*([^{}]+)\{/', $css, $match, 0, $offset ) ) {
+			$prelude    = trim( $match[1] );
+			$body_start = $offset + strlen( $match[0] );
+			$body_end   = self::find_css_block_end( $css, $body_start );
+			if ( null === $body_end ) {
+				break;
+			}
+
+			$body   = substr( $css, $body_start, $body_end - $body_start );
+			$offset = $body_end + 1;
+
+			if ( str_starts_with( $prelude, '@' ) ) {
+				$classes = array_merge( $classes, self::sized_decorative_classes_from_css_scope( $body ) );
+				continue;
+			}
+
+			if ( ! preg_match( '/(?:^|;)\s*(?:min-)?height\s*:/i', $body ) && ! preg_match( '/(?:^|;)\s*aspect-ratio\s*:/i', $body ) ) {
+				continue;
+			}
+
+			foreach ( explode( ',', $prelude ) as $selector ) {
+				$classes = array_merge( $classes, self::selector_terminal_classes( trim( $selector ) ) );
+			}
+		}
+
+		return array_values( array_unique( $classes ) );
 	}
 
 	/**
