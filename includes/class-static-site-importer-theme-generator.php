@@ -144,6 +144,7 @@ class Static_Site_Importer_Theme_Generator {
 		self::record_products_manifest( $site_dir );
 		$inferred_commerce_context     = self::should_infer_commerce_context( $args ) ? self::infer_commerce_context_from_pages( $pages ) : array();
 		self::$active_commerce_context = self::commerce_context_from_args( $args, $inferred_commerce_context );
+		self::suppress_manifest_diagnostic_when_html_supplies_products();
 		self::record_commerce_context_summary();
 
 		self::$active_theme_dir         = $theme_dir;
@@ -3448,7 +3449,8 @@ class Static_Site_Importer_Theme_Generator {
 	/**
 	 * Resolve validated commerce context supplied by the caller.
 	 *
-	 * @param array<string, mixed> $args Import args.
+	 * @param array<string, mixed> $args             Import args.
+	 * @param array<string, mixed> $inferred_context Inferred commerce context.
 	 * @return array<string, mixed>
 	 */
 	private static function commerce_context_from_args( array $args, array $inferred_context = array() ): array {
@@ -3485,6 +3487,24 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return ! isset( $args['commerce_context'] ) || ! is_array( $args['commerce_context'] );
+	}
+
+	/**
+	 * Do not warn about an optional manifest when source HTML supplied product context.
+	 *
+	 * @return void
+	 */
+	private static function suppress_manifest_diagnostic_when_html_supplies_products(): void {
+		if ( ! in_array( self::$active_commerce_context['source'] ?? '', array( 'json_ld', 'html_cards' ), true ) || empty( self::$conversion_report['diagnostics'] ) ) {
+			return;
+		}
+
+		self::$conversion_report['diagnostics'] = array_values(
+			array_filter(
+				self::$conversion_report['diagnostics'],
+				static fn ( $diagnostic ): bool => ! is_array( $diagnostic ) || 'products_manifest_invalid' !== ( $diagnostic['code'] ?? '' )
+			)
+		);
 	}
 
 	/**
