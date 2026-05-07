@@ -1,0 +1,162 @@
+<?php
+/**
+ * Smoke test: static site theme import is exposed as an Ability.
+ *
+ * Run from the repository root:
+ * php tests/smoke-import-theme-ability.php
+ *
+ * @package StaticSiteImporter
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	define( 'ABSPATH', dirname( __DIR__ ) . '/' );
+}
+
+$registered_categories = array();
+$registered_abilities  = array();
+$actions               = array();
+
+if ( ! function_exists( '__' ) ) {
+	function __( string $text, string $domain = 'default' ): string {
+		return $text;
+	}
+}
+
+if ( ! function_exists( 'wp_register_ability_category' ) ) {
+	function wp_register_ability_category( string $name, array $args ): void {
+		$GLOBALS['registered_categories'][ $name ] = $args;
+	}
+}
+
+if ( ! function_exists( 'wp_register_ability' ) ) {
+	function wp_register_ability( string $name, array $args ): void {
+		$GLOBALS['registered_abilities'][ $name ] = $args;
+	}
+}
+
+if ( ! function_exists( 'current_user_can' ) ) {
+	function current_user_can( string $capability ): bool {
+		return 'manage_options' === $capability;
+	}
+}
+
+if ( ! function_exists( 'doing_action' ) ) {
+	function doing_action( string $hook ): bool {
+		return false;
+	}
+}
+
+if ( ! function_exists( 'did_action' ) ) {
+	function did_action( string $hook ): int {
+		return 0;
+	}
+}
+
+if ( ! function_exists( 'add_action' ) ) {
+	function add_action( string $hook, callable|string $callback ): void {
+		$GLOBALS['actions'][ $hook ][] = $callback;
+	}
+}
+
+if ( ! class_exists( 'WP_Error' ) ) {
+	class WP_Error {
+		private string $code;
+		private string $message;
+		private mixed $data;
+
+		public function __construct( string $code, string $message, mixed $data = null ) {
+			$this->code    = $code;
+			$this->message = $message;
+			$this->data    = $data;
+		}
+
+		public function get_error_code(): string {
+			return $this->code;
+		}
+
+		public function get_error_message(): string {
+			return $this->message;
+		}
+
+		public function get_error_data(): mixed {
+			return $this->data;
+		}
+	}
+}
+
+if ( ! function_exists( 'is_wp_error' ) ) {
+	function is_wp_error( mixed $thing ): bool {
+		return $thing instanceof WP_Error;
+	}
+}
+
+class Static_Site_Importer_Theme_Generator {
+	public static array $last_call = array();
+
+	public static function import_theme( string $html_path, array $args = array() ): array|WP_Error {
+		self::$last_call = array( $html_path, $args );
+
+		return array(
+			'theme_slug' => $args['slug'],
+			'theme_name' => $args['name'],
+			'report_path' => '/tmp/import-report.json',
+		);
+	}
+}
+
+require_once dirname( __DIR__ ) . '/includes/abilities.php';
+
+static_site_importer_register_ability_category();
+static_site_importer_register_abilities();
+
+$assertions = 0;
+$failures   = array();
+
+$assert = static function ( bool $condition, string $label, string $detail = '' ) use ( &$assertions, &$failures ): void {
+	$assertions++;
+	if ( ! $condition ) {
+		$failures[] = 'FAIL [' . $label . ']' . ( '' !== $detail ? ': ' . $detail : '' );
+	}
+};
+
+$assert( isset( $registered_categories['static-site-importer'] ), 'category-registered' );
+$assert( isset( $registered_abilities['static-site-importer/import-theme'] ), 'import-theme-ability-registered' );
+
+$ability = $registered_abilities['static-site-importer/import-theme'] ?? array();
+$assert( 'static_site_importer_ability_import_theme' === ( $ability['execute_callback'] ?? '' ), 'execute-callback' );
+$assert( 'static_site_importer_ability_permission_callback' === ( $ability['permission_callback'] ?? '' ), 'permission-callback' );
+$assert( static_site_importer_ability_permission_callback(), 'permission-requires-manage-options' );
+
+$missing = static_site_importer_ability_import_theme( array() );
+$assert( empty( $missing['success'] ), 'missing-html-path-fails' );
+$assert( 'static_site_importer_missing_html_path' === ( $missing['error']['code'] ?? '' ), 'missing-html-path-error-code' );
+
+$result = static_site_importer_ability_import_theme(
+	array(
+		'html_path'       => '/tmp/source/index.html',
+		'slug'            => 'fixture-theme',
+		'name'            => 'Fixture Theme',
+		'activate'        => true,
+		'overwrite'       => true,
+		'keep_source'     => true,
+		'fail_on_quality' => true,
+		'max_fallbacks'   => 0,
+		'report'          => '/tmp/report.json',
+		'source_metadata' => array( 'final_url' => 'https://example.com/' ),
+	)
+);
+
+$assert( ! empty( $result['success'] ), 'ability-import-succeeds' );
+$assert( '/tmp/source/index.html' === ( Static_Site_Importer_Theme_Generator::$last_call[0] ?? '' ), 'html-path-forwarded' );
+$args = Static_Site_Importer_Theme_Generator::$last_call[1] ?? array();
+$assert( 'fixture-theme' === ( $args['slug'] ?? '' ), 'slug-forwarded' );
+$assert( true === ( $args['activate'] ?? false ), 'activate-forwarded' );
+$assert( 0 === ( $args['max_fallbacks'] ?? null ), 'max-fallbacks-forwarded' );
+$assert( 'https://example.com/' === ( $args['source_metadata']['final_url'] ?? '' ), 'source-metadata-forwarded' );
+
+if ( $failures ) {
+	fwrite( STDERR, implode( "\n", $failures ) . "\n" );
+	exit( 1 );
+}
+
+echo 'OK: import theme ability smoke passed (' . $assertions . " assertions)\n";
