@@ -59,11 +59,12 @@ if ( ! function_exists( 'static_site_importer_register_abilities' ) ) {
 						'name'            => array( 'type' => 'string' ),
 						'activate'        => array( 'type' => 'boolean' ),
 						'overwrite'       => array( 'type' => 'boolean' ),
-						'keep_source'     => array( 'type' => 'boolean' ),
-						'fail_on_quality' => array( 'type' => 'boolean' ),
-						'max_fallbacks'   => array( 'type' => 'integer' ),
-						'report'          => array( 'type' => 'string' ),
-						'source_metadata' => array( 'type' => 'object' ),
+						'keep_source'               => array( 'type' => 'boolean' ),
+						'fail_on_quality'           => array( 'type' => 'boolean' ),
+						'max_fallbacks'             => array( 'type' => 'integer' ),
+						'allow_missing_woocommerce' => array( 'type' => 'boolean' ),
+						'report'                    => array( 'type' => 'string' ),
+						'source_metadata'           => array( 'type' => 'object' ),
 					),
 					'required'   => array( 'html_path' ),
 				),
@@ -83,7 +84,7 @@ if ( ! function_exists( 'static_site_importer_ability_permission_callback' ) ) {
 	 * @return bool
 	 */
 	function static_site_importer_ability_permission_callback(): bool {
-		return ! function_exists( 'current_user_can' ) || current_user_can( 'manage_options' );
+		return ! function_exists( 'current_user_can' ) || current_user_can( 'switch_themes' );
 	}
 }
 
@@ -105,11 +106,12 @@ if ( ! function_exists( 'static_site_importer_ability_import_theme' ) ) {
 			'name'            => isset( $input['name'] ) ? (string) $input['name'] : '',
 			'activate'        => ! empty( $input['activate'] ),
 			'overwrite'       => ! empty( $input['overwrite'] ),
-			'keep_source'     => ! empty( $input['keep_source'] ),
-			'fail_on_quality' => ! empty( $input['fail_on_quality'] ),
-			'max_fallbacks'   => isset( $input['max_fallbacks'] ) ? (int) $input['max_fallbacks'] : null,
-			'report'          => isset( $input['report'] ) ? (string) $input['report'] : '',
-			'source_metadata' => isset( $input['source_metadata'] ) && is_array( $input['source_metadata'] ) ? $input['source_metadata'] : array(),
+			'keep_source'               => ! empty( $input['keep_source'] ),
+			'fail_on_quality'           => ! empty( $input['fail_on_quality'] ),
+			'max_fallbacks'             => isset( $input['max_fallbacks'] ) ? (int) $input['max_fallbacks'] : null,
+			'allow_missing_woocommerce' => ! empty( $input['allow_missing_woocommerce'] ),
+			'report'                    => isset( $input['report'] ) ? (string) $input['report'] : '',
+			'source_metadata'           => isset( $input['source_metadata'] ) && is_array( $input['source_metadata'] ) ? $input['source_metadata'] : array(),
 		);
 
 		$result = Static_Site_Importer_Theme_Generator::import_theme( $html_path, $args );

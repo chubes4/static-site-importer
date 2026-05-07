@@ -36,7 +36,7 @@ if ( ! function_exists( 'wp_register_ability' ) ) {
 
 if ( ! function_exists( 'current_user_can' ) ) {
 	function current_user_can( string $capability ): bool {
-		return 'manage_options' === $capability;
+		return 'switch_themes' === $capability;
 	}
 }
 
@@ -138,11 +138,12 @@ $result = static_site_importer_ability_import_theme(
 		'name'            => 'Fixture Theme',
 		'activate'        => true,
 		'overwrite'       => true,
-		'keep_source'     => true,
-		'fail_on_quality' => true,
-		'max_fallbacks'   => 0,
-		'report'          => '/tmp/report.json',
-		'source_metadata' => array( 'final_url' => 'https://example.com/' ),
+		'keep_source'               => true,
+		'fail_on_quality'           => true,
+		'max_fallbacks'             => 0,
+		'allow_missing_woocommerce' => true,
+		'report'                    => '/tmp/report.json',
+		'source_metadata'           => array( 'final_url' => 'https://example.com/' ),
 	)
 );
 
@@ -152,6 +153,7 @@ $args = Static_Site_Importer_Theme_Generator::$last_call[1] ?? array();
 $assert( 'fixture-theme' === ( $args['slug'] ?? '' ), 'slug-forwarded' );
 $assert( true === ( $args['activate'] ?? false ), 'activate-forwarded' );
 $assert( 0 === ( $args['max_fallbacks'] ?? null ), 'max-fallbacks-forwarded' );
+$assert( true === ( $args['allow_missing_woocommerce'] ?? false ), 'allow-missing-woocommerce-forwarded' );
 $assert( 'https://example.com/' === ( $args['source_metadata']['final_url'] ?? '' ), 'source-metadata-forwarded' );
 
 if ( $failures ) {
