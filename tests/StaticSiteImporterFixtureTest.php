@@ -336,6 +336,34 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The CLI command must exit non-zero on quality.fail_import for both human and JSON output.
+	 *
+	 * Regression guard: the JSON branch must not return early before checking fail_import,
+	 * otherwise machine-readable consumers (wc-site-generator, CI harnesses) silently see
+	 * exit 0 on commerce-bearing imports without WooCommerce.
+	 */
+	public function test_cli_command_halts_non_zero_when_fail_import_is_true(): void {
+		$cli_source = file_get_contents( dirname( __DIR__ ) . '/includes/class-static-site-importer-cli-command.php' );
+		$this->assertIsString( $cli_source );
+
+		// JSON branch must call WP_CLI::halt( 1 ) when fail_import is true so the structured
+		// payload is still emitted but the process exit code is non-zero.
+		$this->assertMatchesRegularExpression(
+			'/\$is_json[\s\S]+?WP_CLI::halt\(\s*1\s*\)/m',
+			$cli_source,
+			'CLI JSON branch must halt(1) on fail_import; otherwise --format=json exits 0 on hard failures.'
+		);
+
+		// Human branch must error out before the success block to avoid printing success
+		// followed by an error line.
+		$this->assertMatchesRegularExpression(
+			'/if\s*\(\s*\$fail_import\s*\)\s*\{[\s\S]+?WP_CLI::error\([\s\S]+?WP_CLI::success\(/m',
+			$cli_source,
+			'CLI human branch must report fail_import via WP_CLI::error before printing the success line.'
+		);
+	}
+
+	/**
 	 * Non-commerce imports are unaffected by the WooCommerce dependency gate.
 	 *
 	 * Imports without a valid products.json and without inferred commerce context must
