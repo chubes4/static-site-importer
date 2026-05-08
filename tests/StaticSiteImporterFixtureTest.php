@@ -208,6 +208,8 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 
 	/**
 	 * Minimal semantic hero sections import as editable blocks, not freeform fallback.
+	 *
+	 * Covers validation duplicates #173, #174, #176, #177, #178, and #182.
 	 */
 	public function test_simple_main_hero_section_imports_without_freeform_fallback(): void {
 		$fixture_dir = trailingslashit( get_temp_dir() ) . 'static-site-importer-simple-hero-' . wp_generate_uuid4();
@@ -385,6 +387,8 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	 * Regression guard: the JSON branch must not return early before checking fail_import,
 	 * otherwise machine-readable consumers (wc-site-generator, CI harnesses) silently see
 	 * exit 0 on commerce-bearing imports without WooCommerce.
+	 *
+	 * Covers report-summary validation duplicates #180 and #181.
 	 */
 	public function test_cli_command_halts_non_zero_when_fail_import_is_true(): void {
 		$cli_source = file_get_contents( dirname( __DIR__ ) . '/includes/class-static-site-importer-cli-command.php' );
