@@ -36,7 +36,7 @@ if ( ! function_exists( 'wp_register_ability' ) ) {
 
 if ( ! function_exists( 'current_user_can' ) ) {
 	function current_user_can( string $capability ): bool {
-		return 'switch_themes' === $capability;
+		return ! empty( $GLOBALS['current_user_can_switch_themes'] ) && 'switch_themes' === $capability;
 	}
 }
 
@@ -125,7 +125,12 @@ $assert( isset( $registered_abilities['static-site-importer/import-theme'] ), 'i
 $ability = $registered_abilities['static-site-importer/import-theme'] ?? array();
 $assert( 'static_site_importer_ability_import_theme' === ( $ability['execute_callback'] ?? '' ), 'execute-callback' );
 $assert( 'static_site_importer_ability_permission_callback' === ( $ability['permission_callback'] ?? '' ), 'permission-callback' );
-$assert( static_site_importer_ability_permission_callback(), 'permission-requires-manage-options' );
+$GLOBALS['current_user_can_switch_themes'] = true;
+$assert( static_site_importer_ability_permission_callback(), 'permission-allows-theme-manager' );
+$GLOBALS['current_user_can_switch_themes'] = false;
+$assert( ! static_site_importer_ability_permission_callback(), 'permission-denies-user-without-theme-cap' );
+define( 'WP_CLI', true );
+$assert( static_site_importer_ability_permission_callback(), 'permission-allows-wp-cli' );
 
 $missing = static_site_importer_ability_import_theme( array() );
 $assert( empty( $missing['success'] ), 'missing-html-path-fails' );
