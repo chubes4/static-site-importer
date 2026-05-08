@@ -84,6 +84,10 @@ if ( ! function_exists( 'static_site_importer_ability_permission_callback' ) ) {
 	 * @return bool
 	 */
 	function static_site_importer_ability_permission_callback(): bool {
+		if ( defined( 'WP_CLI' ) && WP_CLI ) {
+			return true;
+		}
+
 		return ! function_exists( 'current_user_can' ) || current_user_can( 'switch_themes' );
 	}
 }
