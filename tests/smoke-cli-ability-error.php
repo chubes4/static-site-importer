@@ -35,6 +35,10 @@ function wp_get_ability( string $name ): object|null {
 
 	return new class() {
 		public function execute( array $args ): WP_Error {
+			if ( array_key_exists( 'max_fallbacks', $args ) ) {
+				throw new RuntimeException( 'max_fallbacks should be omitted when --max-fallbacks is absent.' );
+			}
+
 			return new WP_Error( 'fixture_error', 'Fixture ability failure.' );
 		}
 	};
