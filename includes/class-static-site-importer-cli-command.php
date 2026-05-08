@@ -94,21 +94,24 @@ class Static_Site_Importer_CLI_Command {
 			return;
 		}
 
-		$ability_result = $ability->execute(
-			array(
-				'html_path'                 => $html_file,
-				'slug'                      => isset( $assoc_args['slug'] ) ? (string) $assoc_args['slug'] : '',
-				'name'                      => isset( $assoc_args['name'] ) ? (string) $assoc_args['name'] : '',
-				'activate'                  => isset( $assoc_args['activate'] ),
-				'overwrite'                 => isset( $assoc_args['overwrite'] ),
-				'keep_source'               => isset( $assoc_args['keep-source'] ),
-				'fail_on_quality'           => isset( $assoc_args['fail-on-quality'] ),
-				'max_fallbacks'             => isset( $assoc_args['max-fallbacks'] ) ? (int) $assoc_args['max-fallbacks'] : null,
-				'allow_missing_woocommerce' => isset( $assoc_args['allow-missing-woocommerce'] ),
-				'report'                    => isset( $assoc_args['report'] ) ? (string) $assoc_args['report'] : '',
-				'source_metadata'           => $source_metadata,
-			)
+		$ability_args = array(
+			'html_path'                 => $html_file,
+			'slug'                      => isset( $assoc_args['slug'] ) ? (string) $assoc_args['slug'] : '',
+			'name'                      => isset( $assoc_args['name'] ) ? (string) $assoc_args['name'] : '',
+			'activate'                  => isset( $assoc_args['activate'] ),
+			'overwrite'                 => isset( $assoc_args['overwrite'] ),
+			'keep_source'               => isset( $assoc_args['keep-source'] ),
+			'fail_on_quality'           => isset( $assoc_args['fail-on-quality'] ),
+			'allow_missing_woocommerce' => isset( $assoc_args['allow-missing-woocommerce'] ),
+			'report'                    => isset( $assoc_args['report'] ) ? (string) $assoc_args['report'] : '',
+			'source_metadata'           => $source_metadata,
 		);
+
+		if ( isset( $assoc_args['max-fallbacks'] ) ) {
+			$ability_args['max_fallbacks'] = (int) $assoc_args['max-fallbacks'];
+		}
+
+		$ability_result = $ability->execute( $ability_args );
 
 		if ( is_wp_error( $ability_result ) ) {
 			WP_CLI::error( $ability_result->get_error_message() );
