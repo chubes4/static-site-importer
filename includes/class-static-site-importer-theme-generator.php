@@ -3812,11 +3812,13 @@ class Static_Site_Importer_Theme_Generator {
 			$selector = self::commerce_selector_for_element( $node );
 			$product  = self::product_from_card_element( $doc, $node, $filename, $selector );
 			if ( empty( $product ) ) {
-				$rejected[] = array(
-					'source_filename' => $filename,
-					'selector'        => $selector,
-					'reason'          => 'missing_name_or_price',
-				);
+				if ( '' !== trim( (string) $node->textContent ) ) {
+					$rejected[] = array(
+						'source_filename' => $filename,
+						'selector'        => $selector,
+						'reason'          => 'missing_name_or_price',
+					);
+				}
 				continue;
 			}
 
