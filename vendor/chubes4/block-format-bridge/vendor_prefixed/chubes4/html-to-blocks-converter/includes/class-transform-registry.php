@@ -415,7 +415,11 @@ class HTML_To_Blocks_Transform_Registry
      */
     private static function get_list_transforms()
     {
-        return array(array('blockName' => 'core/group', 'priority' => 9, 'selector' => 'ol,ul', 'isMatch' => function ($element) {
+        return array(array('blockName' => 'core/list', 'priority' => 9, 'selector' => 'dl', 'isMatch' => function ($element) {
+            return 'DL' === $element->get_tag_name() && !empty(self::get_definition_list_pairs($element));
+        }, 'transform' => function ($element) {
+            return self::create_definition_list_block_from_element($element);
+        }), array('blockName' => 'core/group', 'priority' => 9, 'selector' => 'ol,ul', 'isMatch' => function ($element) {
             return \in_array($element->get_tag_name(), array('OL', 'UL'), \true) && self::is_visual_list_element($element);
         }, 'transform' => function ($element, $handler) {
             return self::create_visual_list_group_from_element($element, $handler);
@@ -424,6 +428,112 @@ class HTML_To_Blocks_Transform_Registry
         }, 'transform' => function ($element) {
             return self::create_list_block_from_element($element);
         }));
+    }
+    /**
+     * Creates an unordered list block from a simple definition list.
+     *
+     * @param HTML_To_Blocks_HTML_Element $definition_list The dl element.
+     * @return array Block array.
+     */
+    private static function create_definition_list_block_from_element($definition_list): array
+    {
+        $list_attributes = self::get_block_support_attributes($definition_list, array('anchor' => \true, 'class_name' => \true, 'colors' => \true, 'spacing' => \true, 'border' => \true));
+        $list_attributes = \array_merge($list_attributes, array('ordered' => \false));
+        $inner_blocks = array();
+        foreach (self::get_definition_list_pairs($definition_list) as $pair) {
+            $inner_blocks[] = HTML_To_Blocks_Block_Factory::create_block('core/list-item', array('content' => $pair['term'] . ': ' . $pair['description']));
+        }
+        return HTML_To_Blocks_Block_Factory::create_block('core/list', $list_attributes, $inner_blocks);
+    }
+    /**
+     * Gets simple term/description pairs from a dl element.
+     *
+     * Supports generated fragments shaped as dl > div > dt + dd and plain
+     * dl > dt + dd. More complex definition lists intentionally keep falling
+     * through so unsupported structure remains visible to diagnostics.
+     *
+     * @param HTML_To_Blocks_HTML_Element $definition_list The dl element.
+     * @return array<int,array{term:string,description:string}> Definition pairs.
+     */
+    private static function get_definition_list_pairs($definition_list): array
+    {
+        $children = $definition_list->get_child_elements();
+        if (empty($children)) {
+            return array();
+        }
+        if (self::definition_list_has_only_wrapper_pairs($children)) {
+            $pairs = array();
+            foreach ($children as $child) {
+                $pairs[] = self::get_definition_pair_from_wrapper($child);
+            }
+            return \array_values(\array_filter($pairs));
+        }
+        return self::get_direct_definition_list_pairs($children);
+    }
+    /**
+     * Checks whether all direct dl children are div wrappers around dt/dd pairs.
+     *
+     * @param array<int,HTML_To_Blocks_HTML_Element> $children Direct dl children.
+     * @return bool True when every direct child is a simple pair wrapper.
+     */
+    private static function definition_list_has_only_wrapper_pairs(array $children): bool
+    {
+        foreach ($children as $child) {
+            if ('DIV' !== $child->get_tag_name() || !self::get_definition_pair_from_wrapper($child)) {
+                return \false;
+            }
+        }
+        return \true;
+    }
+    /**
+     * Gets a term/description pair from a simple wrapper element.
+     *
+     * @param HTML_To_Blocks_HTML_Element $wrapper Candidate wrapper element.
+     * @return array{term:string,description:string}|null Definition pair or null.
+     */
+    private static function get_definition_pair_from_wrapper($wrapper): ?array
+    {
+        $children = $wrapper->get_child_elements();
+        if (\count($children) !== 2 || 'DT' !== $children[0]->get_tag_name() || 'DD' !== $children[1]->get_tag_name()) {
+            return null;
+        }
+        return self::create_definition_pair($children[0], $children[1]);
+    }
+    /**
+     * Gets term/description pairs from a dl with direct dt/dd children.
+     *
+     * @param array<int,HTML_To_Blocks_HTML_Element> $children Direct dl children.
+     * @return array<int,array{term:string,description:string}> Definition pairs.
+     */
+    private static function get_direct_definition_list_pairs(array $children): array
+    {
+        $pairs = array();
+        $count = \count($children);
+        for ($index = 0; $index < $count; $index += 2) {
+            $term = $children[$index] ?? null;
+            $description = $children[$index + 1] ?? null;
+            if (!$term || !$description || 'DT' !== $term->get_tag_name() || 'DD' !== $description->get_tag_name()) {
+                return array();
+            }
+            $pair = self::create_definition_pair($term, $description);
+            if (!$pair) {
+                return array();
+            }
+            $pairs[] = $pair;
+        }
+        return $pairs;
+    }
+    /**
+     * Creates a sanitized definition pair from dt and dd elements.
+     *
+     * @param HTML_To_Blocks_HTML_Element $term        The dt element.
+     * @param HTML_To_Blocks_HTML_Element $description The dd element.
+     * @return array{term:string,description:string}|null Definition pair or null.
+     */
+    private static function create_definition_pair($term, $description): ?array
+    {
+        $pair = array('term' => \trim($term->get_inner_html()), 'description' => \trim($description->get_inner_html()));
+        return '' !== wp_strip_all_tags($pair['term']) && '' !== wp_strip_all_tags($pair['description']) ? $pair : null;
     }
     /**
      * Creates a list block from an HTML element (recursive for nested lists)
@@ -2142,7 +2252,7 @@ class HTML_To_Blocks_Transform_Registry
         if ($element->get_tag_name() !== 'SECTION' || !$element->has_attribute('class')) {
             return \false;
         }
-        return \preg_match('/(?:^|\s)(?:hero|cover|banner|masthead)(?:\s|$)/i', $element->get_attribute('class')) === 1;
+        return self::class_matches($element, '/(?:^|[-_\s])(?:hero|cover|banner|masthead)(?:$|[-_\s])/i');
     }
     /**
      * Applies direct border declarations to block support attributes.
@@ -2524,7 +2634,9 @@ class HTML_To_Blocks_Transform_Registry
     {
         $children = $element->get_child_elements();
         $link_element = 'A' === $element->get_tag_name() ? $element : self::get_single_complex_card_anchor_child($element, $children);
-        $inner_blocks = self::create_card_grid_item_inner_blocks($link_element ?: $element, $link_element ? null : $children);
+        $card_element = $link_element ? $link_element : $element;
+        $card_children = $link_element ? null : $children;
+        $inner_blocks = self::create_card_grid_item_inner_blocks($card_element, $card_children);
         if (null === $inner_blocks) {
             $content_html = $link_element ? $link_element->get_inner_html() : $element->get_inner_html();
             $inner_blocks = $handler(array('HTML' => $content_html));
@@ -2737,7 +2849,7 @@ class HTML_To_Blocks_Transform_Registry
      */
     private static function is_empty_decorative_element($element): bool
     {
-        return self::is_empty_element($element) && (self::is_project_card_status_element($element) || self::class_matches($element, '/(?:^|[-_\s])(background|bg|pattern|texture|divider|separator|connector|rule|line|blank|overlay|grain|noise|glow|gradient|dot|mark|bullet|icon|orb|blob|fill|img|image|media|photo|picture|thumb|progress|meter|gauge|today|traffic[-_]?light|tl[-_]?(?:red|yellow|green)|task[-_\s]?check)(?:$|[-_\s]|\d)/i') || self::has_visual_placeholder_background($element));
+        return self::is_empty_element($element) && (self::is_project_card_status_element($element) || self::class_matches($element, '/(?:^|[-_\s])(background|bg|pattern|texture|divider|separator|connector|rule|line|blank|overlay|grain|noise|glow|gradient|scan|dot|mark|bullet|icon|orb|blob|fill|img|image|media|photo|picture|thumb|progress|meter|gauge|today|traffic[-_]?light|tl[-_]?(?:red|yellow|green)|task[-_\s]?check)(?:$|[-_\s]|\d)/i') || self::has_visual_placeholder_background($element));
     }
     /**
      * Checks whether a figure wraps a decorative visual placeholder and caption.
@@ -2921,6 +3033,9 @@ class HTML_To_Blocks_Transform_Registry
             return \in_array($element->get_tag_name(), array('DIV', 'SPAN'), \true) && array() === $element->get_child_elements() && \trim($element->get_text_content()) !== '';
         }, 'transform' => function ($element) {
             $content = $element->get_tag_name() === 'A' ? $element->get_outer_html() : $element->get_inner_html();
+            if (self::is_static_checkbox_label($element)) {
+                $content = \trim(\preg_replace('/<\s*input\b[^>]*>/i', '', $content));
+            }
             $attributes = self::get_block_support_attributes($element, array('anchor' => \true, 'align' => \true, 'text_align' => \true, 'colors' => \true, 'typography' => \true, 'spacing' => \true, 'border' => \true, 'class_name' => \true));
             $attributes['content'] = $content;
             return HTML_To_Blocks_Block_Factory::create_block('core/paragraph', $attributes);
@@ -2944,6 +3059,44 @@ class HTML_To_Blocks_Transform_Registry
         if (\trim(wp_strip_all_tags($inner_html)) === '') {
             return \false;
         }
-        return \preg_match('/<\s*(?:input|select|textarea|button|output|meter|progress)\b/i', $inner_html) !== 1;
+        if (\preg_match('/<\s*(?:select|textarea|button|output|meter|progress)\b/i', $inner_html) === 1) {
+            return \false;
+        }
+        if (\preg_match('/<\s*input\b/i', $inner_html) !== 1) {
+            return \true;
+        }
+        return self::is_static_checkbox_label($element);
+    }
+    /**
+     * Checks whether a label contains only decorative checkbox inputs plus visible text.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element The source element.
+     * @return bool True when checkbox inputs can be dropped and text preserved.
+     */
+    private static function is_static_checkbox_label($element): bool
+    {
+        if ('LABEL' !== $element->get_tag_name() || $element->has_attribute('for') || $element->has_attribute('form')) {
+            return \false;
+        }
+        $inner_html = $element->get_inner_html();
+        if (\trim(wp_strip_all_tags($inner_html)) === '') {
+            return \false;
+        }
+        if (\preg_match_all('/<\s*input\b[^>]*>/i', $inner_html, $matches) < 1) {
+            return \false;
+        }
+        foreach ($matches[0] as $input_html) {
+            $type = '';
+            if (\preg_match('/\stype\s*=\s*(["\']?)([^"\'\s>]+)\1/i', $input_html, $type_match) === 1) {
+                $type = \strtolower($type_match[2]);
+            }
+            if ('checkbox' !== $type) {
+                return \false;
+            }
+            if (\preg_match('/\s(?:id|name|value|form|required|on[a-z0-9_-]*)\b/i', $input_html) === 1) {
+                return \false;
+            }
+        }
+        return \true;
     }
 }

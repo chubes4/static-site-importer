@@ -3,9 +3,9 @@
 namespace BlockFormatBridge\Vendor;
 
 /**
- * Smoke test: empty task-check status divs convert to native blocks.
+ * Smoke test: branded links with decorative nested spans convert to native blocks.
  *
- * Run: php tests/smoke-task-check-divs.php
+ * Run: php tests/smoke-branded-link-spans.php
  */
 // phpcs:disable
 if (!\defined('ABSPATH')) {
@@ -37,7 +37,7 @@ if (!\class_exists('WP_Block_Type_Registry', \false)) {
         }
         public function is_registered($name)
         {
-            return \in_array($name, ['core/group', 'core/html', 'core/paragraph'], \true);
+            return \in_array($name, ['core/html', 'core/paragraph'], \true);
         }
         public function get_registered($name)
         {
@@ -54,7 +54,7 @@ foreach (['esc_attr', 'esc_html', 'esc_url'] as $function_name) {
 if (!\function_exists('BlockFormatBridge\Vendor\wp_strip_all_tags')) {
     function wp_strip_all_tags($text)
     {
-        return \trim(\preg_replace('/<[^>]*>/', '', (string) $text));
+        return \strip_tags((string) $text);
     }
 }
 if (!\function_exists('BlockFormatBridge\Vendor\get_shortcode_regex')) {
@@ -63,14 +63,18 @@ if (!\function_exists('BlockFormatBridge\Vendor\get_shortcode_regex')) {
         return '(?!)';
     }
 }
-$fallback_events = [];
 if (!\function_exists('do_action')) {
     function do_action($hook_name, ...$args)
     {
-        global $fallback_events;
-        if ('html_to_blocks_unsupported_html_fallback' === $hook_name) {
-            $fallback_events[] = $args;
+    }
+}
+if (!\function_exists('BlockFormatBridge\Vendor\parse_blocks')) {
+    function parse_blocks($content)
+    {
+        if (\preg_match('/^<!-- wp:freeform -->(.*)<!-- \/wp:freeform -->$/s', \trim((string) $content), $matches)) {
+            return [['blockName' => 'core/freeform', 'attrs' => [], 'innerBlocks' => [], 'innerHTML' => $matches[1], 'innerContent' => [$matches[1]]]];
         }
+        return [];
     }
 }
 if (!\function_exists('BlockFormatBridge\Vendor\serialize_blocks')) {
@@ -79,13 +83,15 @@ if (!\function_exists('BlockFormatBridge\Vendor\serialize_blocks')) {
         $output = '';
         foreach ($blocks as $block) {
             $name = $block['blockName'] ?? '';
-            $attrs = \array_diff_key($block['attrs'] ?? [], ['content' => \true]);
-            $attrs_json = empty($attrs) ? '' : ' ' . \json_encode($attrs, \JSON_UNESCAPED_SLASHES);
             if ('core/html' === $name) {
                 $output .= '<!-- wp:html -->' . ($block['attrs']['content'] ?? $block['innerHTML'] ?? '') . '<!-- /wp:html -->';
                 continue;
             }
-            $output .= '<!-- wp:' . \substr($name, 5) . $attrs_json . ' -->';
+            if ('core/freeform' === $name) {
+                $output .= '<!-- wp:freeform -->' . ($block['innerHTML'] ?? '') . '<!-- /wp:freeform -->';
+                continue;
+            }
+            $output .= '<!-- wp:' . \substr($name, 5) . ' -->';
             $output .= $block['innerContent'][0] ?? $block['innerHTML'] ?? '';
             $output .= serialize_blocks($block['innerBlocks'] ?? []);
             $inner_content = $block['innerContent'] ?? [];
@@ -109,58 +115,19 @@ $assert = static function ($condition, $label, $detail = '') use (&$failures, &$
         $failures[] = 'FAIL [' . $label . ']' . ('' !== $detail ? ': ' . $detail : '');
     }
 };
-$flatten_blocks = static function (array $blocks) use (&$flatten_blocks): array {
-    $flat = [];
-    foreach ($blocks as $block) {
-        $flat[] = $block;
-        $flat = \array_merge($flat, $flatten_blocks($block['innerBlocks'] ?? []));
-    }
-    return $flat;
-};
-$html = <<<'HTML'
-<div class="task-check"></div>
-<div class="task-check task-done"></div>
-HTML;
-$blocks = html_to_blocks_raw_handler(['HTML' => $html]);
-$flat = $flatten_blocks($blocks);
-$names = \array_map(static function ($block) {
-    return $block['blockName'] ?? '';
-}, $flat);
-$class_names = \array_filter(\array_map(static function ($block) {
-    return $block['attrs']['className'] ?? '';
-}, $flat));
-$serialized = serialize_blocks($blocks);
-$native_events = \count($fallback_events);
-$assert(!\in_array('core/html', $names, \true), 'empty-task-check-divs-do-not-use-core-html', \implode(', ', $names));
-$assert(0 === $native_events, 'empty-task-check-divs-emit-no-fallback-events', (string) $native_events);
-$assert(\substr_count(\implode(',', $names), 'core/group') === 2, 'empty-task-check-divs-use-group-blocks', \implode(', ', $names));
-$assert(\in_array('task-check', $class_names, \true), 'task-check-class-survives', \implode(', ', $class_names));
-$assert(\in_array('task-check task-done', $class_names, \true), 'task-done-class-survives', \implode(', ', $class_names));
-$assert(!\str_contains($serialized, '<!-- wp:html -->'), 'serialized-empty-task-checks-have-no-wp-html', $serialized);
-$fallback_events = [];
-$unsafe_blocks = html_to_blocks_raw_handler(['HTML' => '<div class="task-check"><input type="checkbox" checked></div>']);
-$unsafe_names = \array_map(static function ($block) {
-    return $block['blockName'] ?? '';
-}, $flatten_blocks($unsafe_blocks));
-$assert(\in_array('core/html', $unsafe_names, \true), 'non-empty-task-check-input-still-falls-back', \implode(', ', $unsafe_names));
-$assert(\count($fallback_events) > 0, 'non-empty-task-check-input-emits-fallback-event', (string) \count($fallback_events));
-$fallback_events = [];
-$checkbox_label_blocks = html_to_blocks_raw_handler(['HTML' => '<label><input type="checkbox"> Breathable harvest bag</label>']);
-$checkbox_label_names = \array_map(static function ($block) {
-    return $block['blockName'] ?? '';
-}, $flatten_blocks($checkbox_label_blocks));
-$checkbox_label_serialized = serialize_blocks($checkbox_label_blocks);
-$assert(!\in_array('core/html', $checkbox_label_names, \true), 'checkbox-label-does-not-use-core-html', \implode(', ', $checkbox_label_names));
-$assert(0 === \count($fallback_events), 'checkbox-label-emits-no-fallback-events', (string) \count($fallback_events));
-$assert(\str_contains($checkbox_label_serialized, 'Breathable harvest bag'), 'checkbox-label-text-survives', $checkbox_label_serialized);
-$assert(!\str_contains($checkbox_label_serialized, '<input'), 'checkbox-label-input-is-dropped', $checkbox_label_serialized);
-$fallback_events = [];
-$form_checkbox_blocks = html_to_blocks_raw_handler(['HTML' => '<label><input type="checkbox" name="field[]"> Real form option</label>']);
-$form_checkbox_names = \array_map(static function ($block) {
-    return $block['blockName'] ?? '';
-}, $flatten_blocks($form_checkbox_blocks));
-$assert(\in_array('core/html', $form_checkbox_names, \true), 'named-checkbox-label-still-falls-back', \implode(', ', $form_checkbox_names));
-$assert(\count($fallback_events) > 0, 'named-checkbox-label-emits-fallback-event', (string) \count($fallback_events));
+$brand_link = '<a class="brand" href="#top" aria-label="Studio Code home"><span class="mark"></span><span>Studio Code</span></a>';
+foreach ([$brand_link, '<!-- wp:freeform -->' . $brand_link . '<!-- /wp:freeform -->'] as $index => $html) {
+    $serialized = serialize_blocks(html_to_blocks_raw_handler(['HTML' => $html]));
+    $label = 0 === $index ? 'raw' : 'freeform';
+    $assert(!\str_contains($serialized, '<!-- wp:html -->'), $label . '-avoids-core-html', $serialized);
+    $assert(!\str_contains($serialized, '<!-- wp:freeform -->'), $label . '-avoids-core-freeform', $serialized);
+    $assert(\str_contains($serialized, '<!-- wp:paragraph'), $label . '-uses-paragraph-block', $serialized);
+    $assert(\str_contains($serialized, 'href="#top"'), $label . '-preserves-href', $serialized);
+    $assert(\str_contains($serialized, 'aria-label="Studio Code home"'), $label . '-preserves-aria-label', $serialized);
+    $assert(\str_contains($serialized, 'class="brand"'), $label . '-preserves-link-class', $serialized);
+    $assert(\str_contains($serialized, '<span class="mark"></span>'), $label . '-preserves-decorative-span-class', $serialized);
+    $assert(\str_contains($serialized, '<span>Studio Code</span>'), $label . '-preserves-label-span', $serialized);
+}
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

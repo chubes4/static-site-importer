@@ -29,6 +29,10 @@ function html_to_blocks_raw_handler($args)
         if (!$is_single_freeform) {
             return html_to_blocks_normalize_parsed_image_html_blocks($blocks);
         }
+        $freeform_html = html_to_blocks_get_parsed_block_html($blocks[0]);
+        if ('' !== \trim($freeform_html)) {
+            $html = $freeform_html;
+        }
     }
     $pieces = html_to_blocks_shortcode_converter($html);
     $result = array();
@@ -44,6 +48,28 @@ function html_to_blocks_raw_handler($args)
         $result = \array_merge($result, $blocks);
     }
     return \array_filter($result);
+}
+/**
+ * Gets the HTML payload from a parsed block.
+ *
+ * @param array $block Parsed block array.
+ * @return string Block HTML.
+ */
+function html_to_blocks_get_parsed_block_html(array $block): string
+{
+    if (isset($block['innerHTML']) && \is_string($block['innerHTML'])) {
+        return $block['innerHTML'];
+    }
+    if (empty($block['innerContent']) || !\is_array($block['innerContent'])) {
+        return '';
+    }
+    $html = '';
+    foreach ($block['innerContent'] as $content) {
+        if (\is_string($content)) {
+            $html .= $content;
+        }
+    }
+    return $html;
 }
 /**
  * Determine whether block normalization can be skipped for an already wrapped fragment.

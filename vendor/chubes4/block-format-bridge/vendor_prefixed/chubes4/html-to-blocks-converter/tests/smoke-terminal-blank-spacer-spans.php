@@ -64,7 +64,7 @@ foreach (['esc_attr', 'esc_html', 'esc_url'] as $function_name) {
 if (!\function_exists('BlockFormatBridge\Vendor\wp_strip_all_tags')) {
     function wp_strip_all_tags($text)
     {
-        return wp_strip_all_tags($text);
+        return \strip_tags((string) $text);
     }
 }
 if (!\function_exists('BlockFormatBridge\Vendor\get_shortcode_regex')) {
@@ -169,6 +169,30 @@ $normalized_serialized = serialize_blocks($normalized_fallback);
 $assert(!\in_array('core/html', $normalized_names, \true), 'legacy-t-blank-fallback-normalizes-away-from-core-html', \implode(', ', $normalized_names));
 $assert(\str_contains($normalized_serialized, 'class="t-blank"'), 'legacy-t-blank-class-survives', $normalized_serialized);
 $assert(!\str_contains($normalized_serialized, '<!-- wp:html -->'), 'legacy-t-blank-serialized-output-has-no-wp-html', $normalized_serialized);
+$fallback_events = [];
+$scan_html = <<<'HTML'
+<aside class="terminal reveal">
+  <div class="scan"></div>
+  <p><span class="t-prompt">$</span> build native blocks</p>
+</aside>
+HTML;
+$scan_blocks = html_to_blocks_raw_handler(['HTML' => $scan_html]);
+$scan_flat = $flatten_blocks($scan_blocks);
+$scan_names = \array_map(static function ($block) {
+    return $block['blockName'] ?? '';
+}, $scan_flat);
+$scan_classes = \array_filter(\array_map(static function ($block) {
+    return $block['attrs']['className'] ?? '';
+}, $scan_flat));
+$scan_serialized = serialize_blocks($scan_blocks);
+$assert(\count($scan_blocks) === 1, 'terminal-scan-single-wrapper', (string) \count($scan_blocks));
+$assert(($scan_blocks[0]['blockName'] ?? '') === 'core/group', 'terminal-scan-aside-wrapper-is-group', \implode(', ', $scan_names));
+$assert(!\in_array('core/html', $scan_names, \true), 'terminal-scan-does-not-use-core-html', \implode(', ', $scan_names));
+$assert(\count($fallback_events) === 0, 'terminal-scan-emits-no-fallback-events', (string) \count($fallback_events));
+$assert(\in_array('scan', $scan_classes, \true), 'terminal-scan-class-survives', \implode(', ', $scan_classes));
+$assert(\str_contains($scan_serialized, '<div class="wp-block-group scan"></div>'), 'terminal-scan-serializes-empty-group-wrapper', $scan_serialized);
+$assert(\str_contains($scan_serialized, 'build native blocks'), 'terminal-scan-neighbor-text-survives', $scan_serialized);
+$assert(!\str_contains($scan_serialized, '<!-- wp:html -->'), 'terminal-scan-serialized-output-has-no-wp-html', $scan_serialized);
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

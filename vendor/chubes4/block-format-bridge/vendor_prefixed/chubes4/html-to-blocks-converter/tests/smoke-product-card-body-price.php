@@ -44,7 +44,7 @@ if (!\class_exists('WP_Block_Type_Registry', \false)) {
         }
         public function is_registered($name)
         {
-            return \in_array($name, ['core/group', 'core/heading', 'core/html', 'core/paragraph'], \true);
+            return \in_array($name, ['core/group', 'core/heading', 'core/html', 'core/image', 'core/paragraph'], \true);
         }
         public function get_registered($name)
         {
@@ -61,7 +61,7 @@ foreach (['esc_attr', 'esc_html', 'esc_url'] as $function_name) {
 if (!\function_exists('BlockFormatBridge\Vendor\wp_strip_all_tags')) {
     function wp_strip_all_tags($text)
     {
-        return wp_strip_all_tags($text);
+        return \strip_tags((string) $text);
     }
 }
 if (!\function_exists('BlockFormatBridge\Vendor\get_shortcode_regex')) {
@@ -138,6 +138,23 @@ $assert(\strpos($serialized, 'ss-product-body') !== \false, 'wrapper-class-prese
 $assert(\strpos($serialized, 'ss-product-name') !== \false, 'heading-class-preserved');
 $assert(\strpos($serialized, 'ss-product-desc') !== \false, 'description-class-preserved');
 $assert(\strpos($serialized, 'ss-product-price') !== \false, 'price-class-preserved');
+$product_card_html = <<<'HTML'
+<div class="product-card"><figure><img src="assets/product.png" alt="Product"></figure><h3>Product Name</h3><p class="price">$42.00</p><a class="cta" href="#">Buy</a></div>
+HTML;
+$product_card_blocks = html_to_blocks_raw_handler(['HTML' => $product_card_html]);
+$product_card_serialized = serialize_blocks($product_card_blocks);
+$product_card_names = $flatten_block_names($product_card_blocks);
+$assert(\count($product_card_blocks) === 1, 'product-card-single-wrapper');
+$assert(($product_card_blocks[0]['blockName'] ?? '') === 'core/group', 'product-card-wrapper-is-group');
+$assert(!\in_array('core/html', $product_card_names, \true), 'product-card-does-not-fallback-to-core-html', 'Blocks: ' . \implode(', ', $product_card_names));
+$assert(\in_array('core/image', $product_card_names, \true), 'product-card-image-is-native', 'Blocks: ' . \implode(', ', $product_card_names));
+$assert(\in_array('core/heading', $product_card_names, \true), 'product-card-heading-is-native', 'Blocks: ' . \implode(', ', $product_card_names));
+$assert(\substr_count(\implode(',', $product_card_names), 'core/paragraph') >= 2, 'product-card-price-and-cta-are-editable-text', 'Blocks: ' . \implode(', ', $product_card_names));
+$assert(\strpos($product_card_serialized, 'product-card') !== \false, 'product-card-class-preserved');
+$assert(\strpos($product_card_serialized, 'assets/product.png') !== \false, 'product-card-image-src-preserved');
+$assert(\strpos($product_card_serialized, 'Product Name') !== \false, 'product-card-title-preserved');
+$assert(\strpos($product_card_serialized, '$42.00') !== \false, 'product-card-price-preserved');
+$assert(\strpos($product_card_serialized, 'Buy') !== \false, 'product-card-cta-preserved');
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;
