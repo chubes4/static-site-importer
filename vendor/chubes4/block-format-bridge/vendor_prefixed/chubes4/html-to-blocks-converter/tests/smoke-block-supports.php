@@ -175,7 +175,13 @@ $custom_separator_transform = $find_transform($custom_separator, 'core/separator
 $custom_separator_block = $custom_separator_transform ? \call_user_func($custom_separator_transform['transform'], $custom_separator) : null;
 $assert($custom_separator_block && 'core/separator' === $custom_separator_block['blockName'], 'custom-separator-transform-found');
 $assert(($custom_separator_block['attrs']['className'] ?? '') === 'ep-divider', 'custom-separator-preserves-class');
-$assert(($custom_separator_block['innerHTML'] ?? '') === '<hr class="wp-block-separator has-css-opacity ep-divider"/>', 'custom-separator-serializes-gutenberg-default-opacity-class', $custom_separator_block['innerHTML'] ?? '');
+$assert(($custom_separator_block['innerHTML'] ?? '') === '<hr class="wp-block-separator has-css-opacity ep-divider" />', 'custom-separator-serializes-gutenberg-default-opacity-class', $custom_separator_block['innerHTML'] ?? '');
+$ruler_separator = new Block_Supports_Smoke_Element('div', ['class' => 'ruler', 'aria-hidden' => 'true']);
+$ruler_separator_transform = $find_transform($ruler_separator, 'core/separator');
+$ruler_separator_block = $ruler_separator_transform ? \call_user_func($ruler_separator_transform['transform'], $ruler_separator) : null;
+$assert($ruler_separator_block && 'core/separator' === $ruler_separator_block['blockName'], 'ruler-separator-transform-found');
+$assert(($ruler_separator_block['attrs']['className'] ?? '') === 'ruler', 'ruler-separator-preserves-class');
+$assert(($ruler_separator_block['innerHTML'] ?? '') === '<hr class="wp-block-separator has-css-opacity ruler" />', 'ruler-separator-serializes-as-native-separator', $ruler_separator_block['innerHTML'] ?? '');
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

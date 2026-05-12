@@ -31,7 +31,7 @@ class HTML_To_Blocks_Transform_Registry
         if (null !== self::$transforms) {
             return self::$transforms;
         }
-        self::$transforms = \array_merge(self::get_site_editor_marker_transforms(), self::get_svg_icon_transforms(), self::get_heading_transforms(), self::get_list_transforms(), self::get_button_transforms(), self::get_media_transforms(), self::get_image_transforms(), self::get_details_transforms(), self::get_pullquote_transforms(), self::get_quote_transforms(), self::get_code_transforms(), self::get_code_window_transforms(), self::get_verse_transforms(), self::get_preformatted_transforms(), self::get_separator_transforms(), self::get_table_transforms(), self::get_layout_transforms(), self::get_paragraph_transforms());
+        self::$transforms = \array_merge(self::get_site_editor_marker_transforms(), self::get_svg_icon_transforms(), self::get_heading_transforms(), self::get_list_transforms(), self::get_button_transforms(), self::get_media_transforms(), self::get_image_transforms(), self::get_details_transforms(), self::get_pullquote_transforms(), self::get_quote_transforms(), self::get_code_transforms(), self::get_code_window_transforms(), self::get_verse_transforms(), self::get_preformatted_transforms(), self::get_separator_transforms(), self::get_table_transforms(), self::get_form_transforms(), self::get_layout_transforms(), self::get_paragraph_transforms());
         \usort(self::$transforms, function ($a, $b) {
             return ($a['priority'] ?? 10) - ($b['priority'] ?? 10);
         });
@@ -1784,6 +1784,11 @@ class HTML_To_Blocks_Transform_Registry
                 }
             }
             return HTML_To_Blocks_Block_Factory::create_block('core/separator', $attributes);
+        }), array('blockName' => 'core/separator', 'priority' => 11, 'selector' => 'div,span', 'isMatch' => function ($element) {
+            return \in_array($element->get_tag_name(), array('DIV', 'SPAN'), \true) && self::is_empty_element($element) && self::class_matches($element, '/(?:^|[-_\s])(divider|separator|rule|ruler)(?:$|[-_\s]|\d)/i');
+        }, 'transform' => function ($element) {
+            $attributes = self::get_block_support_attributes($element, array('anchor' => \true, 'class_name' => \true, 'align' => \true, 'colors' => \true, 'spacing' => \true, 'border' => \true));
+            return HTML_To_Blocks_Block_Factory::create_block('core/separator', $attributes);
         }));
     }
     /**
@@ -1894,6 +1899,120 @@ class HTML_To_Blocks_Transform_Registry
     /**
      * Layout transforms - conservative wrappers only.
      *
+     * Static placeholder form transforms.
+     *
+     * Core does not provide a generic form block. When a source form has no real
+     * submission target, preserve the visible intake copy as editable native blocks
+     * rather than falling back to core/html for inert markup.
+     *
+     * @return array Transform definitions
+     */
+    private static function get_form_transforms()
+    {
+        return array(array('blockName' => 'core/group', 'priority' => 10, 'selector' => 'form', 'isMatch' => function ($element) {
+            return self::is_static_placeholder_form($element);
+        }, 'transform' => function ($element) {
+            return self::create_static_placeholder_form_group($element);
+        }));
+    }
+    /**
+     * Determines whether a form is an inert static placeholder.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Source element.
+     * @return bool True when the form can safely become editable copy blocks.
+     */
+    private static function is_static_placeholder_form($element): bool
+    {
+        if ('FORM' !== $element->get_tag_name()) {
+            return \false;
+        }
+        if (!$element->has_attribute('action')) {
+            return \false;
+        }
+        $action = \trim((string) $element->get_attribute('action'));
+        if ('#' !== $action) {
+            return \false;
+        }
+        foreach ($element->get_child_elements() as $child) {
+            if (\in_array($child->get_tag_name(), array('LABEL', 'INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'), \true)) {
+                return \true;
+            }
+        }
+        return \false;
+    }
+    /**
+     * Creates a native group from a static placeholder form.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Source form element.
+     * @return array Block array.
+     */
+    private static function create_static_placeholder_form_group($element): array
+    {
+        $inner_blocks = array();
+        foreach ($element->get_child_elements() as $child) {
+            $tag = $child->get_tag_name();
+            if ('LABEL' === $tag) {
+                $content = self::get_static_form_label_text($child);
+                if ('' !== $content) {
+                    $inner_blocks[] = HTML_To_Blocks_Block_Factory::create_block('core/paragraph', array('content' => esc_html($content)));
+                }
+                continue;
+            }
+            if ('BUTTON' === $tag) {
+                $content = \trim(wp_strip_all_tags($child->get_inner_html()));
+                if ('' !== $content) {
+                    $inner_blocks[] = HTML_To_Blocks_Block_Factory::create_block('core/buttons', array(), array(HTML_To_Blocks_Block_Factory::create_block('core/button', array('text' => esc_html($content), 'url' => '#'))));
+                }
+                continue;
+            }
+            if (\in_array($tag, array('INPUT', 'TEXTAREA', 'SELECT'), \true)) {
+                $content = self::get_static_form_control_label($child);
+                if ('' !== $content) {
+                    $inner_blocks[] = HTML_To_Blocks_Block_Factory::create_block('core/paragraph', array('content' => esc_html($content)));
+                }
+            }
+        }
+        return HTML_To_Blocks_Block_Factory::create_block('core/group', self::get_common_layout_attributes($element), $inner_blocks);
+    }
+    /**
+     * Gets visible text for a static form label.
+     *
+     * @param HTML_To_Blocks_HTML_Element $label Label element.
+     * @return string Label text.
+     */
+    private static function get_static_form_label_text($label): string
+    {
+        $text = \trim(wp_strip_all_tags($label->get_inner_html()));
+        if ('' !== $text) {
+            return \preg_replace('/\s+/', ' ', $text);
+        }
+        foreach ($label->get_child_elements() as $child) {
+            $text = self::get_static_form_control_label($child);
+            if ('' !== $text) {
+                return $text;
+            }
+        }
+        return '';
+    }
+    /**
+     * Gets the best editable text for an unlabeled static form control.
+     *
+     * @param HTML_To_Blocks_HTML_Element $control Form control element.
+     * @return string Control label text.
+     */
+    private static function get_static_form_control_label($control): string
+    {
+        foreach (array('placeholder', 'aria-label', 'name') as $attribute) {
+            if ($control->has_attribute($attribute)) {
+                $value = \trim((string) $control->get_attribute($attribute));
+                if ('' !== $value) {
+                    return \preg_replace('/\s+/', ' ', $value);
+                }
+            }
+        }
+        return '';
+    }
+    /**
      * @return array Transform definitions
      */
     private static function get_layout_transforms()
@@ -2849,7 +2968,7 @@ class HTML_To_Blocks_Transform_Registry
      */
     private static function is_empty_decorative_element($element): bool
     {
-        return self::is_empty_element($element) && (self::is_project_card_status_element($element) || self::class_matches($element, '/(?:^|[-_\s])(background|bg|pattern|texture|divider|separator|connector|rule|line|blank|overlay|grain|noise|glow|gradient|scan|dot|mark|bullet|icon|orb|blob|fill|img|image|media|photo|picture|thumb|progress|meter|gauge|today|traffic[-_]?light|tl[-_]?(?:red|yellow|green)|task[-_\s]?check)(?:$|[-_\s]|\d)/i') || self::has_visual_placeholder_background($element));
+        return self::is_empty_element($element) && (self::is_project_card_status_element($element) || self::class_matches($element, '/(?:^|[-_\s])(background|bg|pattern|texture|divider|separator|connector|rule|ruler|line|blank|overlay|grain|noise|glow|gradient|scan|dot|mark|bullet|icon|orb|blob|fill|img|image|media|photo|picture|thumb|progress|meter|gauge|today|traffic[-_]?light|tl[-_]?(?:red|yellow|green)|task[-_\s]?check)(?:$|[-_\s]|\d)/i') || self::has_visual_placeholder_background($element));
     }
     /**
      * Checks whether a figure wraps a decorative visual placeholder and caption.
