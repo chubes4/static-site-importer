@@ -7,12 +7,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/chubes4/block-format-bridge.git",
-                "reference": "cb1c13dccdb33f603dcec8349685502bee5c6bc3"
+                "reference": "f3f4a3d7d188d68be2b91e33bdfa6224dbdf9fc7"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/chubes4/block-format-bridge/zipball/cb1c13dccdb33f603dcec8349685502bee5c6bc3",
-                "reference": "cb1c13dccdb33f603dcec8349685502bee5c6bc3",
+                "url": "https://api.github.com/repos/chubes4/block-format-bridge/zipball/f3f4a3d7d188d68be2b91e33bdfa6224dbdf9fc7",
+                "reference": "f3f4a3d7d188d68be2b91e33bdfa6224dbdf9fc7",
                 "shasum": ""
             },
             "require": {
@@ -24,7 +24,7 @@
                 "chubes4/html-to-blocks-converter": "dev-main",
                 "humbug/php-scoper": "^0.18.19"
             },
-            "time": "2026-05-12T21:34:48+00:00",
+            "time": "2026-05-13T19:54:21+00:00",
             "default-branch": true,
             "type": "wordpress-plugin",
             "installation-source": "dist",
