@@ -176,6 +176,24 @@ $assert(\str_contains($stars_serialized, 'ss-quote-stars'), 'stars-wrapper-class
 $assert(\str_contains($stars_serialized, '5 out of 5 stars'), 'stars-aria-label-survives', $stars_serialized);
 $assert(\substr_count(\html_entity_decode($star_content, \ENT_QUOTES, 'UTF-8'), '★') === 5, 'five-stars-survive', $star_content);
 $assert(!\in_array('core/html', $stars_names, \true), 'stars-have-no-html-fallback', $stars_serialized);
+$caption_only_figure_html = <<<'HTML'
+<figure class="gallery-tile tile-script"><figcaption>Marked scripts at the table</figcaption></figure>
+HTML;
+$caption_only_figure_blocks = html_to_blocks_raw_handler(['HTML' => $caption_only_figure_html]);
+$caption_only_figure_serialized = serialize_blocks($caption_only_figure_blocks);
+$caption_only_figure_names = $flatten_block_names($caption_only_figure_blocks);
+$assert(\in_array('core/group', $caption_only_figure_names, \true), 'caption-only-figure-becomes-group', $caption_only_figure_serialized);
+$assert(\in_array('core/paragraph', $caption_only_figure_names, \true), 'caption-only-figure-caption-becomes-paragraph', $caption_only_figure_serialized);
+$assert(\str_contains($caption_only_figure_serialized, 'gallery-tile tile-script'), 'caption-only-figure-class-survives', $caption_only_figure_serialized);
+$assert(\str_contains($caption_only_figure_serialized, 'Marked scripts at the table'), 'caption-only-figure-caption-survives', $caption_only_figure_serialized);
+$assert(!\in_array('core/html', $caption_only_figure_names, \true), 'caption-only-figure-has-no-html-fallback', $caption_only_figure_serialized);
+$linked_figure_html = <<<'HTML'
+<figure class="product-card"><a href="/menu">View menu</a><figcaption>Menu tile</figcaption></figure>
+HTML;
+$linked_figure_blocks = html_to_blocks_raw_handler(['HTML' => $linked_figure_html]);
+$linked_figure_names = $flatten_block_names($linked_figure_blocks);
+$linked_figure_serialized = serialize_blocks($linked_figure_blocks);
+$assert(!\in_array('core/group', $linked_figure_names, \true), 'functional-figure-child-does-not-use-decorative-group-transform', $linked_figure_serialized);
 echo 'Assertions: ' . $assertions . \PHP_EOL;
 if (empty($failures)) {
     echo 'ALL PASS' . \PHP_EOL;

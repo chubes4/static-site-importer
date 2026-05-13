@@ -2083,11 +2083,15 @@ class HTML_To_Blocks_Transform_Registry
             return self::is_decorative_figure_with_caption($element);
         }, 'transform' => function ($element) {
             $children = $element->get_child_elements();
-            $visual = $children[0];
-            $caption = $children[1];
+            $caption = \end($children);
             $caption_attrs = self::get_block_support_attributes($caption, array('class_name' => \true));
+            $inner_blocks = array();
+            if (\count($children) === 2) {
+                $inner_blocks[] = HTML_To_Blocks_Block_Factory::create_block('core/group', self::get_empty_decorative_group_attributes($children[0]));
+            }
             $caption_attrs['content'] = \trim($caption->get_inner_html());
-            return HTML_To_Blocks_Block_Factory::create_block('core/group', self::get_common_layout_attributes($element), array(HTML_To_Blocks_Block_Factory::create_block('core/group', self::get_empty_decorative_group_attributes($visual)), HTML_To_Blocks_Block_Factory::create_block('core/paragraph', $caption_attrs)));
+            $inner_blocks[] = HTML_To_Blocks_Block_Factory::create_block('core/paragraph', $caption_attrs);
+            return HTML_To_Blocks_Block_Factory::create_block('core/group', self::get_common_layout_attributes($element), $inner_blocks);
         }), array('blockName' => 'core/group', 'priority' => 15, 'isMatch' => function ($element) {
             return self::is_group_element($element);
         }, 'transform' => function ($element, $handler) {
@@ -2982,10 +2986,14 @@ class HTML_To_Blocks_Transform_Registry
             return \false;
         }
         $children = $element->get_child_elements();
-        if (\count($children) !== 2) {
+        if (\count($children) < 1 || \count($children) > 2) {
             return \false;
         }
-        return self::is_empty_decorative_element($children[0]) && 'FIGCAPTION' === $children[1]->get_tag_name() && \trim(wp_strip_all_tags($children[1]->get_inner_html())) !== '';
+        $caption = \end($children);
+        if ('FIGCAPTION' !== $caption->get_tag_name() || \trim(wp_strip_all_tags($caption->get_inner_html())) === '') {
+            return \false;
+        }
+        return \count($children) === 1 || self::is_empty_decorative_element($children[0]);
     }
     /**
      * Checks whether an empty element carries visual background styling.
