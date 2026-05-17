@@ -85,10 +85,16 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 
 		$this->assertStringContainsString( '--accent', $style );
 		$this->assertStringContainsString( '.wp-block-button.btn > .wp-block-button__link', $style );
-		$this->assertStringContainsString( '.wp-block-group.is-layout-flow > * + * { margin-block-start: 0; margin-block-end: 0; }', $style );
-		$this->assertStringContainsString( '.wp-block-group.is-layout-flex { gap: 0; }', $style );
-		$this->assertStringContainsString( '.wp-block-group.is-layout-flow > * + * { margin-block-start: 0; margin-block-end: 0; }', $editor_style );
-		$this->assertStringContainsString( '.wp-block-group.is-layout-flex { gap: 0; }', $editor_style );
+		$this->assertStringContainsString( '.wp-block-post-content.is-layout-flow > *', $style );
+		$this->assertStringContainsString( '.wp-block-group.is-layout-flow > *', $style );
+		$this->assertStringContainsString( '.wp-block-group.is-vertical > * { margin-block-start: 0; margin-block-end: 0; }', $style );
+		$this->assertStringContainsString( '.wp-block-group.is-layout-flex,', $style );
+		$this->assertStringContainsString( '.wp-block-group.is-vertical { gap: 0; }', $style );
+		$this->assertStringContainsString( '.wp-block-post-content.is-layout-flow > *', $editor_style );
+		$this->assertStringContainsString( '.wp-block-group.is-layout-flow > *', $editor_style );
+		$this->assertStringContainsString( '.wp-block-group.is-vertical > * { margin-block-start: 0; margin-block-end: 0; }', $editor_style );
+		$this->assertStringContainsString( '.wp-block-group.is-layout-flex,', $editor_style );
+		$this->assertStringContainsString( '.wp-block-group.is-vertical { gap: 0; }', $editor_style );
 		$this->assertStringContainsString( "add_theme_support( 'editor-styles' )", $functions );
 		$this->assertStringContainsString( "add_editor_style( 'assets/css/editor-style.css' )", $functions );
 		$this->assertStringContainsString( "add_action( 'enqueue_block_editor_assets'", $functions );
@@ -892,6 +898,42 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 
 		// Page body still includes the inner-main sections.
 		$this->assertStringContainsString( 'Benefit copy.', $pattern );
+	}
+
+	/**
+	 * Main-contained classed headers stay with page content instead of becoming site chrome.
+	 */
+	public function test_main_contained_site_header_stays_in_page_content(): void {
+		$html_path = $this->write_temp_fixture(
+			'main-contained-site-header.html',
+			'<!doctype html><html><head><title>Main Contained Site Header</title></head><body>' .
+			'<main id="main"><section class="hero"><header id="top" class="site-header"><nav><a href="#hours">Hours</a></nav><h1>Neighborhood Used Bookstore</h1><p>Hero copy stays in the page.</p></header></section>' .
+			'<section id="hours"><h2>Open Today</h2><p>Tuesday through Friday.</p></section></main>' .
+			'<footer class="site-footer"><p>Footer copy.</p></footer>' .
+			'</body></html>'
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$html_path,
+			array(
+				'name'      => 'Main Contained Site Header',
+				'slug'      => 'main-contained-site-header',
+				'overwrite' => true,
+				'activate'  => false,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$theme_dir = $result['theme_dir'];
+		$header    = $this->read_file( $theme_dir . '/parts/header.html' );
+		$pattern   = $this->pattern_blocks( $this->read_file( $theme_dir . '/patterns/page-main-contained-site-header.php' ) );
+
+		$this->assertSame( '', trim( $header ), 'A site-header class inside main must not be extracted as reusable site chrome.' );
+		$this->assertStringContainsString( 'Neighborhood Used Bookstore', $pattern );
+		$this->assertStringContainsString( 'Hero copy stays in the page.', $pattern );
+		$this->assertStringContainsString( 'Tuesday through Friday.', $pattern );
 	}
 
 	/**
