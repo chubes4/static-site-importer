@@ -944,7 +944,31 @@ class HTML_To_Blocks_Transform_Registry
      */
     private static function create_inline_span_label_paragraph($element): array
     {
-        return HTML_To_Blocks_Block_Factory::create_block('core/paragraph', array('content' => \trim($element->get_outer_html())));
+        $attributes = array('content' => \trim($element->get_outer_html()));
+        self::apply_inline_preservation_paragraph_spacing($attributes);
+        return HTML_To_Blocks_Block_Factory::create_block('core/paragraph', $attributes);
+    }
+    /**
+     * Removes default paragraph margins from paragraphs standing in for inline markup.
+     *
+     * @param array $attributes Paragraph block attributes.
+     */
+    private static function apply_inline_preservation_paragraph_spacing(array &$attributes): void
+    {
+        if (!isset($attributes['style']) || !\is_array($attributes['style'])) {
+            $attributes['style'] = array();
+        }
+        if (!isset($attributes['style']['spacing']) || !\is_array($attributes['style']['spacing'])) {
+            $attributes['style']['spacing'] = array();
+        }
+        if (!isset($attributes['style']['spacing']['margin']) || !\is_array($attributes['style']['spacing']['margin'])) {
+            $attributes['style']['spacing']['margin'] = array();
+        }
+        foreach (array('top', 'right', 'bottom', 'left') as $side) {
+            if (!isset($attributes['style']['spacing']['margin'][$side])) {
+                $attributes['style']['spacing']['margin'][$side] = '0';
+            }
+        }
     }
     /**
      * Checks whether an aria-hidden div is only inline span labels.
@@ -998,6 +1022,7 @@ class HTML_To_Blocks_Transform_Registry
     private static function create_aria_hidden_inline_span_paragraph($element): array
     {
         $attributes = self::get_block_support_attributes($element, array('anchor' => \true, 'class_name' => \true, 'colors' => \true, 'typography' => \true, 'spacing' => \true, 'border' => \true));
+        self::apply_inline_preservation_paragraph_spacing($attributes);
         $attributes['content'] = \trim($element->get_inner_html());
         return HTML_To_Blocks_Block_Factory::create_block('core/paragraph', $attributes);
     }
@@ -1047,6 +1072,7 @@ class HTML_To_Blocks_Transform_Registry
     private static function create_branded_inline_anchor_paragraph($element): array
     {
         $attributes = self::get_block_support_attributes($element, array('anchor' => \true));
+        self::apply_inline_preservation_paragraph_spacing($attributes);
         $attributes['content'] = \trim($element->get_outer_html());
         return HTML_To_Blocks_Block_Factory::create_block('core/paragraph', $attributes);
     }

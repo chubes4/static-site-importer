@@ -221,6 +221,7 @@ $service_card_blocks = html_to_blocks_raw_handler(['HTML' => $service_card_grid]
 $service_card_serialized = serialize_blocks($service_card_blocks);
 $service_card_names = $flatten_block_names($service_card_blocks);
 $assert(!\in_array('core/html', $service_card_names, \true), 'service-card-label-spans-avoid-core-html', 'Blocks: ' . \implode(', ', $service_card_names));
+$assert(\strpos($service_card_serialized, 'margin-top:0') !== \false, 'service-card-label-wrapper-resets-margin', $service_card_serialized);
 $assert(\strpos($service_card_serialized, '<span class="service-number">01</span>') !== \false, 'service-card-classed-span-preserved', $service_card_serialized);
 $assert(\strpos($service_card_serialized, '<span class="tag">window seats</span>') !== \false, 'service-card-tag-span-preserved', $service_card_serialized);
 $assert(\strpos($service_card_serialized, '<p class="service-number">01</p>') === \false, 'service-card-classed-span-not-rewritten-to-paragraph', $service_card_serialized);
