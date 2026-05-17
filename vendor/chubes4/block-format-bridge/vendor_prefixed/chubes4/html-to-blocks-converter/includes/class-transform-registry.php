@@ -729,7 +729,15 @@ class HTML_To_Blocks_Transform_Registry
      */
     private static function get_button_transforms()
     {
-        return array(array('blockName' => 'core/group', 'priority' => 8, 'selector' => 'div,p', 'isMatch' => function ($element) {
+        return array(array('blockName' => 'core/paragraph', 'priority' => 8, 'selector' => 'div', 'isMatch' => function ($element) {
+            return self::is_aria_hidden_inline_span_container($element);
+        }, 'transform' => function ($element) {
+            return self::create_aria_hidden_inline_span_paragraph($element);
+        }), array('blockName' => 'core/paragraph', 'priority' => 8, 'selector' => 'div', 'isMatch' => function ($element) {
+            return self::is_visual_diagram_span_container($element);
+        }, 'transform' => function ($element) {
+            return self::create_aria_hidden_inline_span_paragraph($element);
+        }), array('blockName' => 'core/group', 'priority' => 8, 'selector' => 'div,p', 'isMatch' => function ($element) {
             return self::is_static_visual_button_container($element);
         }, 'transform' => function ($element) {
             return self::create_static_visual_button_group($element);
@@ -741,6 +749,10 @@ class HTML_To_Blocks_Transform_Registry
             return self::is_button_anchor_container($element) || self::is_single_button_anchor_wrapper($element);
         }, 'transform' => function ($element) {
             return self::create_buttons_block_from_container($element);
+        }), array('blockName' => 'core/paragraph', 'priority' => 9, 'selector' => 'a', 'isMatch' => function ($element) {
+            return $element->get_tag_name() === 'A' && self::is_branded_inline_anchor($element);
+        }, 'transform' => function ($element) {
+            return self::create_branded_inline_anchor_paragraph($element);
         }), array('blockName' => 'core/buttons', 'priority' => 9, 'selector' => 'a', 'isMatch' => function ($element) {
             return $element->get_tag_name() === 'A' && self::is_button_like_anchor($element);
         }, 'transform' => function ($element) {
@@ -901,6 +913,110 @@ class HTML_To_Blocks_Transform_Registry
         return HTML_To_Blocks_Block_Factory::create_block('core/paragraph', $attributes);
     }
     /**
+     * Checks whether an aria-hidden div is only inline span labels.
+     *
+     * Decorative rulers and visual scales commonly use direct span ticks inside an
+     * aria-hidden div. Convert those wrappers to a paragraph so Gutenberg does not
+     * insert an extra paragraph inside a group and break span-level CSS layouts.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Element to inspect.
+     * @return bool True when the wrapper can safely become paragraph markup.
+     */
+    private static function is_aria_hidden_inline_span_container($element): bool
+    {
+        if ('DIV' !== $element->get_tag_name() || !$element->has_attribute('aria-hidden')) {
+            return \false;
+        }
+        if ('true' !== \strtolower(\trim((string) $element->get_attribute('aria-hidden')))) {
+            return \false;
+        }
+        if ('' === \trim($element->get_text_content())) {
+            return \false;
+        }
+        return self::html_contains_only_direct_spans($element->get_inner_html());
+    }
+    /**
+     * Checks whether a visible diagram div contains only inline span labels.
+     *
+     * Diagram layers commonly position direct span labels. Keep those labels as
+     * direct paragraph content instead of wrapping them in an inserted paragraph
+     * inside a group, which changes diagram sizing and vertical rhythm.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Element to inspect.
+     * @return bool True when the wrapper can safely become paragraph markup.
+     */
+    private static function is_visual_diagram_span_container($element): bool
+    {
+        if ('DIV' !== $element->get_tag_name() || !self::class_matches($element, '/(?:^|[-_\s])diagram(?:$|[-_\s])/i')) {
+            return \false;
+        }
+        if ('' === \trim($element->get_text_content())) {
+            return \false;
+        }
+        return self::html_contains_only_direct_spans($element->get_inner_html());
+    }
+    /**
+     * Creates a paragraph preserving direct span markup from an aria-hidden div.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Span-only wrapper.
+     * @return array Block array.
+     */
+    private static function create_aria_hidden_inline_span_paragraph($element): array
+    {
+        $attributes = self::get_block_support_attributes($element, array('anchor' => \true, 'class_name' => \true, 'colors' => \true, 'typography' => \true, 'spacing' => \true, 'border' => \true));
+        $attributes['content'] = \trim($element->get_inner_html());
+        return HTML_To_Blocks_Block_Factory::create_block('core/paragraph', $attributes);
+    }
+    /**
+     * Checks whether HTML contains only sibling span elements and whitespace.
+     *
+     * @param string $html Inner HTML to inspect.
+     * @return bool True when no non-span sibling markup or text remains.
+     */
+    private static function html_contains_only_direct_spans(string $html): bool
+    {
+        $remaining = $html;
+        if (!\preg_match_all('/<span\b[^>]*>.*?<\/span>/is', $html, $matches)) {
+            return \false;
+        }
+        foreach ($matches[0] as $span_html) {
+            $remaining = \str_replace($span_html, '', $remaining);
+        }
+        return '' === \trim($remaining);
+    }
+    /**
+     * Checks whether an anchor is a branded inline link with nested visual spans.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Element to inspect.
+     * @return bool True when the branded link can safely become paragraph markup.
+     */
+    private static function is_branded_inline_anchor($element): bool
+    {
+        if ('A' !== $element->get_tag_name()) {
+            return \false;
+        }
+        $href = \trim((string) ($element->get_attribute('href') ?? ''));
+        if ('' === $href || '#' !== $href[0]) {
+            return \false;
+        }
+        if (!self::class_matches($element, '/(?:^|[-_\s])brand(?:$|[-_\s])/i')) {
+            return \false;
+        }
+        return \preg_match('/<\s*span\b/i', $element->get_inner_html()) === 1;
+    }
+    /**
+     * Creates a paragraph preserving a branded inline anchor as editable markup.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Branded anchor element.
+     * @return array Block array.
+     */
+    private static function create_branded_inline_anchor_paragraph($element): array
+    {
+        $attributes = self::get_block_support_attributes($element, array('anchor' => \true));
+        $attributes['content'] = \trim($element->get_outer_html());
+        return HTML_To_Blocks_Block_Factory::create_block('core/paragraph', $attributes);
+    }
+    /**
      * Checks whether a container is explicitly an action/link row.
      *
      * @param HTML_To_Blocks_HTML_Element $element Element to inspect.
@@ -1017,7 +1133,7 @@ class HTML_To_Blocks_Transform_Registry
         if (\preg_match('/(?:^|\s)(?:wp-block-button__link|wp-element-button)(?:$|\s)/i', $class_name) === 1) {
             return \false;
         }
-        return \preg_match('/(?:^|\s)(?:cta-(?:btn|link)|(?:btn|link)-cta)(?:$|\s)/i', $class_name) === 1;
+        return \preg_match('/(?:^|\s)(?:button|cta-(?:btn|link)|(?:btn|link)-cta)(?:$|\s)/i', $class_name) === 1;
     }
     /**
      * Creates a buttons wrapper with one button child from an anchor.
@@ -1584,7 +1700,7 @@ class HTML_To_Blocks_Transform_Registry
                 return \false;
             }
             foreach ($child->get_child_elements() as $inline_child) {
-                if (!\in_array($inline_child->get_tag_name(), array('SPAN', 'BR', 'CODE', 'STRONG', 'B', 'EM', 'I'), \true)) {
+                if (!\in_array($inline_child->get_tag_name(), array('SPAN', 'BR', 'CODE', 'STRONG', 'B', 'EM', 'I', 'SMALL'), \true)) {
                     return \false;
                 }
             }
@@ -2362,19 +2478,6 @@ class HTML_To_Blocks_Transform_Registry
         return \preg_match('/^[0-9.]+(?:px|em|rem|%|vw|vh|vmin|vmax|ch|ex)?$/i', $value) === 1 || \preg_match('/^calc\(\s*[0-9.]+(?:px|em|rem|%|vw|vh|vmin|vmax|ch|ex)?\s*[-+]\s*[0-9.]+(?:px|em|rem|%|vw|vh|vmin|vmax|ch|ex)?\s*\)$/i', $value) === 1;
     }
     /**
-     * Checks whether a section is a high-confidence full-bleed hero wrapper.
-     *
-     * @param HTML_To_Blocks_HTML_Element $element The source element.
-     * @return bool True when a default flow group would lose hero centering intent.
-     */
-    private static function is_hero_like_section($element): bool
-    {
-        if ($element->get_tag_name() !== 'SECTION' || !$element->has_attribute('class')) {
-            return \false;
-        }
-        return self::class_matches($element, '/(?:^|[-_\s])(?:hero|cover|banner|masthead)(?:$|[-_\s])/i');
-    }
-    /**
      * Applies direct border declarations to block support attributes.
      *
      * @param array  $attributes Block attributes.
@@ -2810,6 +2913,9 @@ class HTML_To_Blocks_Transform_Registry
         if (\in_array($tag, array('OL', 'UL'), \true)) {
             return self::create_list_block_from_element($child);
         }
+        if (self::is_numbered_card_label_span($child)) {
+            return HTML_To_Blocks_Block_Factory::create_block('core/html', array('content' => $child->get_outer_html()));
+        }
         if ('P' === $tag || 'SPAN' === $tag) {
             return HTML_To_Blocks_Block_Factory::create_block('core/paragraph', \array_merge(self::get_block_support_attributes($child, array('anchor' => \true, 'class_name' => \true)), array('content' => $child->get_inner_html())));
         }
@@ -2817,6 +2923,22 @@ class HTML_To_Blocks_Transform_Registry
             return HTML_To_Blocks_Block_Factory::create_block('core/buttons', array(), array(self::create_button_block_from_anchor($child)));
         }
         return null;
+    }
+    /**
+     * Checks whether a card child span is a numbered label that should keep its tag.
+     *
+     * @param HTML_To_Blocks_HTML_Element $child Card child element.
+     * @return bool True when the span should remain source HTML.
+     */
+    private static function is_numbered_card_label_span($child): bool
+    {
+        if ('SPAN' !== $child->get_tag_name() || !$child->has_attribute('class')) {
+            return \false;
+        }
+        if (!self::class_matches($child, '/(?:^|[-_\s])(?:card[-_\s]?number|item[-_\s]?number|service[-_\s]?number)(?:$|[-_\s])/i')) {
+            return \false;
+        }
+        return \preg_match('/^\s*\d{1,3}\s*$/', $child->get_text_content()) === 1;
     }
     /**
      * Gets a single whole-card anchor child when it is the card's only content.
@@ -2990,7 +3112,26 @@ class HTML_To_Blocks_Transform_Registry
         if ('FIGCAPTION' !== $caption->get_tag_name() || \trim(wp_strip_all_tags($caption->get_inner_html())) === '') {
             return \false;
         }
-        return \count($children) === 1 || self::is_empty_decorative_element($children[0]);
+        return \count($children) === 1 || self::is_empty_decorative_element($children[0]) || self::is_nested_empty_decorative_element($children[0]);
+    }
+    /**
+     * Checks whether an element and its descendants are inert decorative chrome.
+     *
+     * @param HTML_To_Blocks_HTML_Element $element Source element.
+     * @return bool True when the subtree has no meaningful content or controls.
+     */
+    private static function is_nested_empty_decorative_element($element): bool
+    {
+        if (!$element->has_attribute('aria-hidden') || 'true' !== \strtolower($element->get_attribute('aria-hidden'))) {
+            return \false;
+        }
+        if (\trim(wp_strip_all_tags($element->get_inner_html())) !== '') {
+            return \false;
+        }
+        foreach ($element->query_selector_all('a, button, input, select, textarea, img, video, audio, iframe, object, embed, svg') as $functional_child) {
+            return \false;
+        }
+        return !empty($element->get_child_elements());
     }
     /**
      * Checks whether an empty element carries visual background styling.
@@ -3153,6 +3294,9 @@ class HTML_To_Blocks_Transform_Registry
             }
             if (self::is_static_visual_label($element)) {
                 return \true;
+            }
+            if ('SPAN' === $element->get_tag_name() && $element->has_attribute('class')) {
+                return \false;
             }
             return \in_array($element->get_tag_name(), array('DIV', 'SPAN'), \true) && array() === $element->get_child_elements() && \trim($element->get_text_content()) !== '';
         }, 'transform' => function ($element) {

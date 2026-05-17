@@ -187,6 +187,18 @@ $assert(\in_array('core/paragraph', $caption_only_figure_names, \true), 'caption
 $assert(\str_contains($caption_only_figure_serialized, 'gallery-tile tile-script'), 'caption-only-figure-class-survives', $caption_only_figure_serialized);
 $assert(\str_contains($caption_only_figure_serialized, 'Marked scripts at the table'), 'caption-only-figure-caption-survives', $caption_only_figure_serialized);
 $assert(!\in_array('core/html', $caption_only_figure_names, \true), 'caption-only-figure-has-no-html-fallback', $caption_only_figure_serialized);
+$nested_decorative_figure_html = <<<'HTML'
+<figure role="listitem" class="gallery-card"><div class="paper-illustration" aria-hidden="true"><span></span><span></span><span></span></div><figcaption>Deep fiction shelves with handwritten shelf talkers.</figcaption></figure>
+HTML;
+$nested_decorative_figure_blocks = html_to_blocks_raw_handler(['HTML' => $nested_decorative_figure_html]);
+$nested_decorative_figure_serialized = serialize_blocks($nested_decorative_figure_blocks);
+$nested_decorative_figure_names = $flatten_block_names($nested_decorative_figure_blocks);
+$assert(\in_array('core/group', $nested_decorative_figure_names, \true), 'nested-decorative-figure-becomes-group', $nested_decorative_figure_serialized);
+$assert(\in_array('core/paragraph', $nested_decorative_figure_names, \true), 'nested-decorative-figure-caption-becomes-paragraph', $nested_decorative_figure_serialized);
+$assert(\str_contains($nested_decorative_figure_serialized, 'gallery-card'), 'nested-decorative-figure-class-survives', $nested_decorative_figure_serialized);
+$assert(\str_contains($nested_decorative_figure_serialized, 'paper-illustration'), 'nested-decorative-placeholder-class-survives', $nested_decorative_figure_serialized);
+$assert(\str_contains($nested_decorative_figure_serialized, 'Deep fiction shelves with handwritten shelf talkers.'), 'nested-decorative-caption-survives', $nested_decorative_figure_serialized);
+$assert(!\in_array('core/html', $nested_decorative_figure_names, \true), 'nested-decorative-figure-has-no-html-fallback', $nested_decorative_figure_serialized);
 $linked_figure_html = <<<'HTML'
 <figure class="product-card"><a href="/menu">View menu</a><figcaption>Menu tile</figcaption></figure>
 HTML;
