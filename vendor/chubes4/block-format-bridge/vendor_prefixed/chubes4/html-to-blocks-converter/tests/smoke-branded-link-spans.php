@@ -137,6 +137,7 @@ $aria_hidden_span_ruler = serialize_blocks(html_to_blocks_raw_handler(['HTML' =>
 $assert(!\str_contains($aria_hidden_span_ruler, '<!-- wp:html -->'), 'aria-hidden-span-ruler-avoids-core-html', $aria_hidden_span_ruler);
 $assert(\str_contains($aria_hidden_span_ruler, '<!-- wp:paragraph'), 'aria-hidden-span-ruler-uses-paragraph', $aria_hidden_span_ruler);
 $assert(\str_contains($aria_hidden_span_ruler, 'class="ruler"'), 'aria-hidden-span-ruler-preserves-class', $aria_hidden_span_ruler);
+$assert(\str_contains($aria_hidden_span_ruler, 'margin-top:0'), 'aria-hidden-span-ruler-resets-wrapper-margin', $aria_hidden_span_ruler);
 $assert(\str_contains($aria_hidden_span_ruler, '<span>0</span><span>6</span><span>12</span><span>18</span><span>24</span>'), 'aria-hidden-span-ruler-preserves-direct-spans', $aria_hidden_span_ruler);
 $assert(!\str_contains($aria_hidden_span_ruler, '<div class="wp-block-group ruler'), 'aria-hidden-span-ruler-does-not-add-group-wrapper', $aria_hidden_span_ruler);
 $visible_span_group = serialize_blocks(html_to_blocks_raw_handler(['HTML' => '<div class="ruler"><span>0</span><span>6</span></div>']));
@@ -146,6 +147,7 @@ $visible_diagram_span_group = serialize_blocks(html_to_blocks_raw_handler(['HTML
 $assert(!\str_contains($visible_diagram_span_group, '<!-- wp:html -->'), 'visible-diagram-span-container-avoids-core-html', $visible_diagram_span_group);
 $assert(\str_contains($visible_diagram_span_group, '<!-- wp:paragraph'), 'visible-diagram-span-container-uses-paragraph', $visible_diagram_span_group);
 $assert(\str_contains($visible_diagram_span_group, 'class="cushion-diagram"'), 'visible-diagram-span-container-preserves-class', $visible_diagram_span_group);
+$assert(\str_contains($visible_diagram_span_group, 'margin-top:0'), 'visible-diagram-span-container-resets-wrapper-margin', $visible_diagram_span_group);
 $assert(\str_contains($visible_diagram_span_group, '<span class="diagram-label fabric">performance fabric</span> <span class="diagram-label wrap">dacron wrap</span>'), 'visible-diagram-span-container-preserves-direct-spans', $visible_diagram_span_group);
 $visible_diagram_mixed_group = serialize_blocks(html_to_blocks_raw_handler(['HTML' => '<div class="cushion-diagram"><span class="diagram-label fabric">performance fabric</span><em>caption</em></div>']));
 $assert(!\str_contains($visible_diagram_mixed_group, '<!-- wp:paragraph'), 'visible-diagram-mixed-container-does-not-use-span-only-transform', $visible_diagram_mixed_group);
