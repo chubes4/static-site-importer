@@ -211,6 +211,20 @@ $assert(\strpos($wrapped_serialized, 'article-grid') !== \false, 'generic-wrappe
 $assert(\strpos($wrapped_serialized, 'First story') !== \false && \strpos($wrapped_serialized, 'Second story') !== \false, 'generic-wrapper-preserves-card-content', $wrapped_serialized);
 $assert(!\in_array('core/html', $wrapped_names, \true), 'generic-wrapper-does-not-fallback-to-core-html', 'Blocks: ' . \implode(', ', $wrapped_names));
 $assert(\count($unsupported_fallback_events) === 0, 'generic-wrapper-emits-no-unsupported-fallback-events', (string) \count($unsupported_fallback_events));
+$service_card_grid = <<<'HTML'
+<div class="service-grid">
+  <article class="service-card"><span class="service-number">01</span><h3>Heels &amp; soles</h3><p>Heel lifts and sole patching.</p></article>
+  <article class="service-card"><span class="service-number">02</span><h3>Boot work</h3><p>Waterproofing and zipper repair.</p></article>
+</div>
+HTML;
+$service_card_blocks = html_to_blocks_raw_handler(['HTML' => $service_card_grid]);
+$service_card_serialized = serialize_blocks($service_card_blocks);
+$service_card_names = $flatten_block_names($service_card_blocks);
+$assert(\in_array('core/html', $service_card_names, \true), 'service-card-classed-span-uses-local-html-island', 'Blocks: ' . \implode(', ', $service_card_names));
+$assert(\strpos($service_card_serialized, '<span class="service-number">01</span>') !== \false, 'service-card-classed-span-preserved', $service_card_serialized);
+$assert(\strpos($service_card_serialized, '<p class="service-number">01</p>') === \false, 'service-card-classed-span-not-rewritten-to-paragraph', $service_card_serialized);
+$assert(\strpos($service_card_serialized, '<h3 class="wp-block-heading">Heels &amp; soles</h3>') !== \false, 'service-card-heading-remains-editable', $service_card_serialized);
+$assert(\strpos($service_card_serialized, '<p>Heel lifts and sole patching.</p>') !== \false, 'service-card-copy-remains-editable', $service_card_serialized);
 $extrachill_shell_grid = <<<'HTML'
 <div class="full-width-breakout ec-edge-shell">
   <div class="home-3x3-grid">

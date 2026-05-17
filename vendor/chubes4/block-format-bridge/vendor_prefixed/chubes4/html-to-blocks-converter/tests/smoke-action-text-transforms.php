@@ -26,7 +26,7 @@ if (!\function_exists('BlockFormatBridge\Vendor\esc_url')) {
 if (!\function_exists('BlockFormatBridge\Vendor\wp_strip_all_tags')) {
     function wp_strip_all_tags($value)
     {
-        return wp_strip_all_tags((string) $value);
+        return \strip_tags((string) $value);
     }
 }
 class WP_Block_Type_Registry
@@ -154,6 +154,9 @@ $smoke_assert(\strpos($class_sensitive_cta_block['attrs']['content'], 'wp-block-
 $class_sensitive_cta_row = new HTML_To_Blocks_HTML_Element('div', ['class' => 'cta-actions'], '<div class="cta-actions"><a class="cta-link" href="#commands">Browse the docs</a></div>', '<a class="cta-link" href="#commands">Browse the docs</a>');
 $class_sensitive_cta_row_transform = $find_transform($class_sensitive_cta_row);
 $smoke_assert('core/buttons' !== $class_sensitive_cta_row_transform['blockName'], 'class-sensitive-cta-row-avoids-buttons');
+$button_variant_row = new HTML_To_Blocks_HTML_Element('div', ['class' => 'hero-actions cta'], '<div class="hero-actions cta"><a class="button primary" href="#classes">Find a class</a><a class="button secondary" href="#first-visit">Plan your first visit</a></div>', '<a class="button primary" href="#classes">Find a class</a><a class="button secondary" href="#first-visit">Plan your first visit</a>');
+$button_variant_row_transform = $find_transform($button_variant_row);
+$smoke_assert('core/buttons' !== $button_variant_row_transform['blockName'], 'class-sensitive-button-variant-row-avoids-buttons');
 $ordinary_link = new HTML_To_Blocks_HTML_Element('p', [], '<p>Read <a href="/more">more</a>.</p>', 'Read <a href="/more">more</a>.');
 $ordinary_link_transform = $find_transform($ordinary_link);
 $smoke_assert('core/paragraph' === $ordinary_link_transform['blockName'], 'ordinary-link-stays-paragraph');
@@ -226,6 +229,11 @@ $smoke_assert(\strpos($onmouseover_chip_block['innerHTML'], 'onmouseover') === \
 // because dropping the handler would silently change behavior for real controls.
 $onclick_submit_button = new HTML_To_Blocks_HTML_Element('button', ['class' => 'tab-btn', 'type' => 'submit', 'onclick' => 'submitForm()'], '<button class="tab-btn" type="submit" onclick="submitForm()">Submit</button>', 'Submit');
 $smoke_assert($find_transform($onclick_submit_button) === null, 'onclick-submit-button-falls-through');
+// -------------------------------------------------------------------------
+// Spans: classed leaf spans preserve source display semantics as fallback HTML.
+// -------------------------------------------------------------------------
+$classed_leaf_span = new HTML_To_Blocks_HTML_Element('span', ['class' => 'service-number'], '<span class="service-number">01</span>', '01');
+$smoke_assert($find_transform($classed_leaf_span) === null, 'classed-leaf-span-falls-through');
 // -------------------------------------------------------------------------
 // Labels: static visual UI labels become text, real form labels fall through.
 // -------------------------------------------------------------------------
