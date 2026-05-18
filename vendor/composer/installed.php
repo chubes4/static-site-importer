@@ -3,7 +3,7 @@
         'name' => 'chubes4/static-site-importer',
         'pretty_version' => 'dev-main',
         'version' => 'dev-main',
-        'reference' => '688bb427f83e8f2354d596c45c1559f2fb60341f',
+        'reference' => 'a26a9d36c884fb194f660c3488327a80a79ef9cb',
         'type' => 'wordpress-plugin',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -24,7 +24,7 @@
         'chubes4/static-site-importer' => array(
             'pretty_version' => 'dev-main',
             'version' => 'dev-main',
-            'reference' => '688bb427f83e8f2354d596c45c1559f2fb60341f',
+            'reference' => 'a26a9d36c884fb194f660c3488327a80a79ef9cb',
             'type' => 'wordpress-plugin',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),
