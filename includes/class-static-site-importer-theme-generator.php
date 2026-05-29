@@ -1470,16 +1470,6 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Build an editable Classic block that preserves exact source element HTML.
-	 *
-	 * @param string $html Source HTML.
-	 * @return string
-	 */
-	private static function freeform_block( string $html ): string {
-		return '<!-- wp:freeform -->' . $html . '<!-- /wp:freeform -->';
-	}
-
-	/**
 	 * Build a paragraph block.
 	 *
 	 * @param string $inner_html  Paragraph inner HTML.
@@ -3069,7 +3059,7 @@ class Static_Site_Importer_Theme_Generator {
 			),
 			'generated_theme'         => array(
 				'block_documents' => array(),
-				'freeform_blocks'  => array(),
+				'freeform_blocks' => array(),
 			),
 			'visual_fidelity'         => array(
 				'status'             => 'requires_external_render_check',
@@ -5089,7 +5079,7 @@ class Static_Site_Importer_Theme_Generator {
 			$emitted = $html;
 		}
 
-		$entry = self::fallback_diagnostic_entry(
+		$entry                          = self::fallback_diagnostic_entry(
 			'freeform_block',
 			$source,
 			$html,
@@ -5103,7 +5093,7 @@ class Static_Site_Importer_Theme_Generator {
 		$entry['emitted_block_preview'] = self::diagnostic_excerpt( $emitted );
 		$entry['malformed']             = $malformed;
 
-		self::$conversion_report['diagnostics'][]                         = $entry;
+		self::$conversion_report['diagnostics'][]                        = $entry;
 		self::$conversion_report['generated_theme']['freeform_blocks'][] = $entry;
 	}
 
