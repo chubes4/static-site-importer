@@ -9,6 +9,7 @@ class ComposerStaticInit277b67919cab65478171e2e4820012bd
     public static $files = array (
         '6e3fae29631ef280660b3cdad06f25a8' => __DIR__ . '/..' . '/symfony/deprecation-contracts/function.php',
         'a4a119a56e50fbb293281d9a48007e0e' => __DIR__ . '/..' . '/symfony/polyfill-php80/bootstrap.php',
+        '235f04e1fc26929b57f3570ad8a9aa80' => __DIR__ . '/..' . '/chubes4/block-artifact-compiler/library.php',
         '14de8177b733e3832e5f50c619a21b40' => __DIR__ . '/..' . '/chubes4/block-format-bridge/library.php',
     );
 

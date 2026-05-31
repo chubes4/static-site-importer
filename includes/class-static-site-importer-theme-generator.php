@@ -2603,8 +2603,7 @@ class Static_Site_Importer_Theme_Generator {
 				continue;
 			}
 
-			$style_dimensions = $svg->hasAttribute( 'style' ) ? self::safe_svg_dimension_style( $svg->getAttribute( 'style' ) ) : array();
-			$sprite_use_svg   = self::svg_from_sprite_use_reference( $doc, $svg );
+			$sprite_use_svg = self::svg_from_sprite_use_reference( $doc, $svg );
 			if ( null !== $sprite_use_svg ) {
 				$asset = self::write_svg_icon_asset( $sprite_use_svg, $source, $sequence, 'svg_symbol_use' );
 				if ( is_wp_error( $asset ) ) {
@@ -2612,7 +2611,7 @@ class Static_Site_Importer_Theme_Generator {
 					continue;
 				}
 
-				$img = self::image_node_for_svg_asset( $doc, $svg, $asset, $style_dimensions );
+				$img = self::image_node_for_svg_asset( $doc, $svg, $asset );
 				$svg->parentNode->replaceChild( $img, $svg );
 				$changed = true;
 				continue;
@@ -2635,7 +2634,7 @@ class Static_Site_Importer_Theme_Generator {
 				continue;
 			}
 
-			$img = self::image_node_for_svg_asset( $doc, $svg, $asset, $style_dimensions );
+			$img = self::image_node_for_svg_asset( $doc, $svg, $asset );
 			$svg->parentNode->replaceChild( $img, $svg );
 			$changed = true;
 		}
@@ -2714,27 +2713,18 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param DOMDocument                $doc              Fragment document.
 	 * @param DOMElement                 $svg              Source SVG element.
 	 * @param array<string, string>      $asset            Materialized asset metadata.
-	 * @param array{width?:string,height?:string}|null $style_dimensions Safe dimensions parsed from style.
 	 * @return DOMElement
 	 */
-	private static function image_node_for_svg_asset( DOMDocument $doc, DOMElement $svg, array $asset, ?array $style_dimensions ): DOMElement {
+	private static function image_node_for_svg_asset( DOMDocument $doc, DOMElement $svg, array $asset ): DOMElement {
 		$img = $doc->createElement( 'img' );
 		$img->setAttribute( 'src', $asset['url'] );
 		$img->setAttribute( 'alt', self::svg_accessible_label( $svg ) );
-		$img->setAttribute( 'decoding', 'async' );
 		if ( $svg->hasAttribute( 'class' ) ) {
 			$img->setAttribute( 'class', $svg->getAttribute( 'class' ) );
 		}
-		foreach ( array( 'width', 'height', 'aria-hidden', 'role' ) as $attribute ) {
+		foreach ( array( 'aria-hidden', 'role' ) as $attribute ) {
 			if ( $svg->hasAttribute( $attribute ) ) {
 				$img->setAttribute( $attribute, $svg->getAttribute( $attribute ) );
-			}
-		}
-		if ( is_array( $style_dimensions ) ) {
-			foreach ( array( 'width', 'height' ) as $attribute ) {
-				if ( ! $img->hasAttribute( $attribute ) && isset( $style_dimensions[ $attribute ] ) ) {
-					$img->setAttribute( $attribute, $style_dimensions[ $attribute ] );
-				}
 			}
 		}
 
@@ -3275,8 +3265,8 @@ class Static_Site_Importer_Theme_Generator {
 		add_action( 'html_to_blocks_conversion_aborted_content_loss', $content_loss_listener, 10, 2 );
 		add_action( 'bfb_conversion_metadata', $commerce_metadata_listener, 10, 1 );
 		add_action( 'bfb_materialization_request', $commerce_request_listener, 10, 1 );
-		// @phpstan-ignore-next-line function.notFound -- Loaded by the bundled Block Format Bridge runtime.
-		$blocks = empty( self::$active_commerce_context ) ? bfb_convert( $html, $format, 'blocks' ) : bfb_convert( $html, $format, 'blocks', self::conversion_options( $source ) );
+		$conversion_options = empty( self::$active_commerce_context ) ? array() : self::conversion_options( $source );
+		$blocks             = self::compile_fragment_to_blocks( $html, $source, $format, $conversion_options );
 		remove_action( 'html_to_blocks_unsupported_html_fallback', $fallback_listener, 10 );
 		remove_action( 'html_to_blocks_conversion_aborted_content_loss', $content_loss_listener, 10 );
 		remove_action( 'bfb_conversion_metadata', $commerce_metadata_listener, 10 );
@@ -3289,6 +3279,51 @@ class Static_Site_Importer_Theme_Generator {
 		self::finish_conversion_fragment( $source, $blocks );
 
 		return '' === $blocks ? '<!-- wp:html -->' . "\n" . $html . "\n" . '<!-- /wp:html -->' : $blocks;
+	}
+
+	/**
+	 * Compile one source fragment into serialized block markup.
+	 *
+	 * Block Artifact Compiler owns the semantic artifact envelope. SSI remains the
+	 * materializer that writes the compiler result into WordPress theme artifacts.
+	 *
+	 * @param string               $html    Source fragment.
+	 * @param string               $source  Source label.
+	 * @param string               $format  Source format.
+	 * @param array<string, mixed> $options Conversion options.
+	 * @return string Serialized block markup.
+	 */
+	private static function compile_fragment_to_blocks( string $html, string $source, string $format, array $options ): string {
+		if ( 'html' !== $format ) {
+			// @phpstan-ignore-next-line function.notFound -- Loaded by the bundled Block Format Bridge runtime.
+			return (string) bfb_convert( $html, $format, 'blocks', $options );
+		}
+
+		$compiled = bac_compile_fragment( $html, $source, $format, $options );
+		self::record_block_artifact_compiler_result( $source, $compiled );
+
+		$artifacts = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
+		return isset( $artifacts['block_markup'] ) ? (string) $artifacts['block_markup'] : '';
+	}
+
+	/**
+	 * Record a compact Block Artifact Compiler summary on the import report.
+	 *
+	 * @param string              $source   Source label.
+	 * @param array<string,mixed> $compiled Compiler result envelope.
+	 * @return void
+	 */
+	private static function record_block_artifact_compiler_result( string $source, array $compiled ): void {
+		$summary           = bac_summarize_result( $compiled );
+		$summary['source'] = '' !== (string) ( $summary['source'] ?? '' ) ? (string) $summary['source'] : $source;
+
+		self::$conversion_report['block_artifact_compiler']['available']      = true;
+		self::$conversion_report['block_artifact_compiler']['fragments'][]    = $summary;
+		self::$conversion_report['block_artifact_compiler']['fragment_count'] = count( self::$conversion_report['block_artifact_compiler']['fragments'] );
+
+		if ( isset( self::$conversion_report['conversion_fragments'][ $source ] ) ) {
+			self::$conversion_report['conversion_fragments'][ $source ]['compiler'] = $summary;
+		}
 	}
 
 	/**
@@ -3815,6 +3850,11 @@ class Static_Site_Importer_Theme_Generator {
 				'resolved'         => array(),
 				'unresolved'       => array(),
 			),
+			'block_artifact_compiler' => array(
+				'available'      => true,
+				'fragment_count' => 0,
+				'fragments'      => array(),
+			),
 			'generated_theme'         => array(
 				'block_documents' => array(),
 				'freeform_blocks' => array(),
@@ -3837,6 +3877,7 @@ class Static_Site_Importer_Theme_Generator {
 			),
 			'diagnostics'             => array(),
 			'notes'                   => array(
+				'Block Artifact Compiler owns the website-artifact to WordPress-artifact envelope; Static Site Importer materializes the result and records compiler summaries.',
 				'Block Format Bridge owns HTML-to-block transform fidelity; Static Site Importer records converter diagnostics and quality gates the generated theme.',
 				'Generated-theme block validation uses WordPress server-side block parsing and serialization checks; editor-runtime validation remains the exact Gutenberg authority.',
 				'Visual fidelity requires browser rendering; use visual_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',

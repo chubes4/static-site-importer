@@ -5,9 +5,15 @@
   "license": "GPL-2.0-or-later",
   "require": {
     "php": "^8.1",
+    "chubes4/block-artifact-compiler": "dev-main",
     "chubes4/block-format-bridge": "dev-main"
   },
   "repositories": [
+    {
+      "name": "block-artifact-compiler",
+      "type": "vcs",
+      "url": "https://github.com/chubes4/block-artifact-compiler"
+    },
     {
       "type": "vcs",
       "url": "https://github.com/chubes4/block-format-bridge"
