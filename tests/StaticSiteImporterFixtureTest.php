@@ -267,6 +267,94 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * BAC document artifacts materialize directly without SSI owning MDX semantics.
+	 */
+	public function test_bac_document_artifacts_materialize_pages_and_posts_directly(): void {
+		$fixture_dir = trailingslashit( get_temp_dir() ) . 'static-site-importer-bac-documents-' . wp_generate_uuid4();
+		$this->assertTrue( wp_mkdir_p( $fixture_dir ) );
+		$this->assertNotFalse(
+			file_put_contents(
+				$fixture_dir . '/index.html',
+				'<!doctype html><html><head><title>BAC Documents</title></head><body><main></main></body></html>'
+			)
+		);
+		$this->assertNotFalse( file_put_contents( $fixture_dir . '/content.mdx', '# SSI should not parse this MDX on the BAC path' ) );
+
+		$compiled = array(
+			'schema'              => 'chubes4/block-artifact-compiler-result/v1',
+			'status'              => 'success',
+			'input'               => array(
+				'entry_path' => 'index.html',
+			),
+			'provenance'          => array(
+				'source'      => 'artifact.json',
+				'source_hash' => hash( 'sha256', 'bac-documents' ),
+			),
+			'diagnostics'         => array(),
+			'wordpress_artifacts' => array(
+				'documents' => array(
+					array(
+						'source_path'  => 'content.mdx',
+						'post_type'    => 'post',
+						'slug'         => 'compiled-bac-post',
+						'title'        => 'Compiled BAC Post',
+						'status'       => 'publish',
+						'block_markup' => '<!-- wp:paragraph --><p>Compiled MDX artifact from BAC.</p><!-- /wp:paragraph -->',
+						'diagnostics'  => array(
+							array(
+								'type'     => 'mdx_component_skipped',
+								'severity' => 'warning',
+								'message'  => 'BAC normalized an MDX component before SSI materialization.',
+							),
+						),
+					),
+				),
+			),
+		);
+
+		$normalize = new ReflectionMethod( Static_Site_Importer_Theme_Generator::class, 'bac_document_pages' );
+		$normalize->setAccessible( true );
+		$document_pages = $normalize->invoke( null, $compiled );
+		$this->assertNotWPError( $document_pages );
+		$this->assertIsArray( $document_pages );
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$fixture_dir . '/index.html',
+			array(
+				'name'                    => 'BAC Document Materialization',
+				'slug'                    => 'bac-document-materialization',
+				'overwrite'               => true,
+				'activate'                => false,
+				'keep_source'             => true,
+				'block_artifact_compiler' => $compiled,
+				'bac_document_pages'      => $document_pages,
+				'bac_documents'           => $compiled['wordpress_artifacts']['documents'],
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'content.mdx', $result['pages'] );
+
+		$post = get_post( $result['pages']['content.mdx'] );
+		$this->assertInstanceOf( WP_Post::class, $post );
+		$this->assertSame( 'post', $post->post_type );
+		$this->assertSame( 'compiled-bac-post', $post->post_name );
+		$this->assertStringContainsString( 'Compiled MDX artifact from BAC', $post->post_content );
+
+		$report = json_decode( $this->read_file( $result['report_path'] ), true );
+		$this->assertIsArray( $report );
+		$this->assertSame( 'block_artifact_compiler', $report['source_documents']['source'] ?? '' );
+		$this->assertSame( 1, (int) ( $report['source_documents']['bac_document_count'] ?? 0 ) );
+		$this->assertSame( 0, (int) ( $report['source_documents']['skipped_mdx_count'] ?? 0 ) );
+		$this->assertSame( 'content.mdx', $report['source_documents']['bac_documents'][0]['source_path'] ?? '' );
+		$this->assertSame( $post->ID, (int) ( $report['source_documents']['bac_documents'][0]['post_id'] ?? 0 ) );
+		$this->assertSame( 'post', $report['source_documents']['bac_documents'][0]['post_type'] ?? '' );
+		$this->assertSame( 'mdx_component_skipped', $report['source_documents']['bac_documents'][0]['diagnostics'][0]['type'] ?? '' );
+		$this->assertSame( 'mdx_component_skipped', $report['diagnostics'][0]['type'] ?? '' );
+	}
+
+	/**
 	 * Recursive HTML discovery includes nested pages while skipping dependency and hidden directories.
 	 */
 	public function test_collect_pages_discovers_nested_html_sources(): void {
