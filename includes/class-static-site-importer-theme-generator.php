@@ -2603,8 +2603,7 @@ class Static_Site_Importer_Theme_Generator {
 				continue;
 			}
 
-			$style_dimensions = $svg->hasAttribute( 'style' ) ? self::safe_svg_dimension_style( $svg->getAttribute( 'style' ) ) : array();
-			$sprite_use_svg   = self::svg_from_sprite_use_reference( $doc, $svg );
+			$sprite_use_svg = self::svg_from_sprite_use_reference( $doc, $svg );
 			if ( null !== $sprite_use_svg ) {
 				$asset = self::write_svg_icon_asset( $sprite_use_svg, $source, $sequence, 'svg_symbol_use' );
 				if ( is_wp_error( $asset ) ) {
@@ -2612,7 +2611,7 @@ class Static_Site_Importer_Theme_Generator {
 					continue;
 				}
 
-				$img = self::image_node_for_svg_asset( $doc, $svg, $asset, $style_dimensions );
+				$img = self::image_node_for_svg_asset( $doc, $svg, $asset );
 				$svg->parentNode->replaceChild( $img, $svg );
 				$changed = true;
 				continue;
@@ -2635,7 +2634,7 @@ class Static_Site_Importer_Theme_Generator {
 				continue;
 			}
 
-			$img = self::image_node_for_svg_asset( $doc, $svg, $asset, $style_dimensions );
+			$img = self::image_node_for_svg_asset( $doc, $svg, $asset );
 			$svg->parentNode->replaceChild( $img, $svg );
 			$changed = true;
 		}
@@ -2714,27 +2713,18 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param DOMDocument                $doc              Fragment document.
 	 * @param DOMElement                 $svg              Source SVG element.
 	 * @param array<string, string>      $asset            Materialized asset metadata.
-	 * @param array{width?:string,height?:string}|null $style_dimensions Safe dimensions parsed from style.
 	 * @return DOMElement
 	 */
-	private static function image_node_for_svg_asset( DOMDocument $doc, DOMElement $svg, array $asset, ?array $style_dimensions ): DOMElement {
+	private static function image_node_for_svg_asset( DOMDocument $doc, DOMElement $svg, array $asset ): DOMElement {
 		$img = $doc->createElement( 'img' );
 		$img->setAttribute( 'src', $asset['url'] );
 		$img->setAttribute( 'alt', self::svg_accessible_label( $svg ) );
-		$img->setAttribute( 'decoding', 'async' );
 		if ( $svg->hasAttribute( 'class' ) ) {
 			$img->setAttribute( 'class', $svg->getAttribute( 'class' ) );
 		}
-		foreach ( array( 'width', 'height', 'aria-hidden', 'role' ) as $attribute ) {
+		foreach ( array( 'aria-hidden', 'role' ) as $attribute ) {
 			if ( $svg->hasAttribute( $attribute ) ) {
 				$img->setAttribute( $attribute, $svg->getAttribute( $attribute ) );
-			}
-		}
-		if ( is_array( $style_dimensions ) ) {
-			foreach ( array( 'width', 'height' ) as $attribute ) {
-				if ( ! $img->hasAttribute( $attribute ) && isset( $style_dimensions[ $attribute ] ) ) {
-					$img->setAttribute( $attribute, $style_dimensions[ $attribute ] );
-				}
 			}
 		}
 
