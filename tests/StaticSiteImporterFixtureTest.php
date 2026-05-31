@@ -134,6 +134,9 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'semantic_fidelity', $report );
 		$this->assertArrayHasKey( 'product_seeding', $report );
 		$this->assertArrayHasKey( 'diagnostics', $report );
+		$this->assertArrayHasKey( 'artifact_diagnostics', $report );
+		$this->assertSame( 'wp-codebox/artifact-diagnostics/v1', $report['artifact_diagnostics']['schema'] ?? '' );
+		$this->assertSame( count( $report['diagnostics'] ?? array() ), $report['artifact_diagnostics']['summary']['total'] ?? null );
 		$this->assertArrayNotHasKey( 'commerce', $report );
 		$this->assertSame( 0, $report['quality']['invalid_block_count'] ?? null );
 		$this->assertSame( 0, $report['quality']['invalid_block_document_count'] ?? null );
@@ -359,6 +362,25 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertSame( 'post', $report['source_documents']['bac_documents'][0]['post_type'] ?? '' );
 		$this->assertSame( 'mdx_component_skipped', $report['source_documents']['bac_documents'][0]['diagnostics'][0]['type'] ?? '' );
 		$this->assertSame( 'mdx_component_skipped', $report['diagnostics'][0]['type'] ?? '' );
+		$this->assertSame( 'wp-codebox/artifact-diagnostics/v1', $report['artifact_diagnostics']['schema'] ?? '' );
+		$this->assertSame( 'reported', $report['artifact_diagnostics']['status'] ?? '' );
+		$this->assertSame( count( $report['diagnostics'] ?? array() ), $report['artifact_diagnostics']['summary']['total'] ?? null );
+		$this->assertGreaterThanOrEqual( 1, $report['artifact_diagnostics']['summary']['warning'] ?? 0 );
+		$artifact_diagnostics = array_values(
+			array_filter(
+				$report['artifact_diagnostics']['diagnostics'] ?? array(),
+				static fn ( $diagnostic ): bool => is_array( $diagnostic ) && 'mdx_component_skipped' === ( $diagnostic['type'] ?? '' )
+			)
+		);
+		$this->assertNotEmpty( $artifact_diagnostics );
+		$artifact_diagnostic = $artifact_diagnostics[0];
+		$this->assertSame( 'mdx_component_skipped', $artifact_diagnostic['type'] ?? '' );
+		$this->assertSame( 'warning', $artifact_diagnostic['severity'] ?? '' );
+		$this->assertSame( 'BAC normalized an MDX component before SSI materialization.', $artifact_diagnostic['message'] ?? '' );
+		$this->assertSame( 'static-site-importer', $artifact_diagnostic['source'] ?? '' );
+		$this->assertSame( 'content.mdx', $artifact_diagnostic['path'] ?? '' );
+		$this->assertSame( 'mdx_component_skipped', $artifact_diagnostic['code'] ?? '' );
+		$this->assertSame( 'import-report.json', $artifact_diagnostic['refs'][0]['path'] ?? '' );
 	}
 
 	/**
