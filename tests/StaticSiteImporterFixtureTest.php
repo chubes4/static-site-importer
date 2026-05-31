@@ -143,7 +143,14 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertTrue( $report['block_artifact_compiler']['available'] ?? false );
 		$this->assertGreaterThan( 0, $report['block_artifact_compiler']['fragment_count'] ?? 0 );
 		$this->assertNotEmpty( $report['block_artifact_compiler']['fragments'] ?? array() );
-		$this->assertArrayHasKey( 'component_count', $report['block_artifact_compiler']['fragments'][0] ?? array() );
+		$compiler_fragment = $report['block_artifact_compiler']['fragments'][0] ?? array();
+		$this->assertArrayHasKey( 'component_count', $compiler_fragment );
+		$this->assertArrayHasKey( 'input', $compiler_fragment );
+		$this->assertArrayHasKey( 'provenance', $compiler_fragment );
+		$this->assertArrayHasKey( 'diagnostics', $compiler_fragment );
+		$this->assertArrayHasKey( 'bfb_report', $compiler_fragment );
+		$this->assertArrayHasKey( 'wordpress_artifacts', $compiler_fragment );
+		$this->assertArrayHasKey( 'block_markup_hash', $compiler_fragment['wordpress_artifacts'] );
 		$this->assertNotEmpty( $report['generated_theme']['block_documents'] ?? array() );
 		$this->assertSame( 'requires_external_render_check', $report['semantic_fidelity']['status'] ?? '' );
 		$this->assertSame( 'benchmark_harness', $report['semantic_fidelity']['gate_owner'] ?? '' );

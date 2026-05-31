@@ -4513,14 +4513,48 @@ class Static_Site_Importer_Theme_Generator {
 	private static function record_block_artifact_compiler_result( string $source, array $compiled ): void {
 		$summary           = bac_summarize_result( $compiled );
 		$summary['source'] = '' !== (string) ( $summary['source'] ?? '' ) ? (string) $summary['source'] : $source;
+		$payload           = self::compiler_report_payload( $compiled, $summary );
 
 		self::$conversion_report['block_artifact_compiler']['available']      = true;
-		self::$conversion_report['block_artifact_compiler']['fragments'][]    = $summary;
+		self::$conversion_report['block_artifact_compiler']['fragments'][]    = $payload;
 		self::$conversion_report['block_artifact_compiler']['fragment_count'] = count( self::$conversion_report['block_artifact_compiler']['fragments'] );
 
 		if ( isset( self::$conversion_report['conversion_fragments'][ $source ] ) ) {
-			self::$conversion_report['conversion_fragments'][ $source ]['compiler'] = $summary;
+			self::$conversion_report['conversion_fragments'][ $source ]['compiler'] = $payload;
 		}
+	}
+
+	/**
+	 * Preserve upstream compiler evidence without embedding full block markup bodies.
+	 *
+	 * @param array<string,mixed> $compiled Compiler result envelope.
+	 * @param array<string,mixed> $summary  Compact compiler summary.
+	 * @return array<string,mixed>
+	 */
+	private static function compiler_report_payload( array $compiled, array $summary ): array {
+		$artifacts = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
+		$payload   = array_merge( $summary, array(
+			'summary'     => $summary,
+			'input'       => isset( $compiled['input'] ) && is_array( $compiled['input'] ) ? $compiled['input'] : array(),
+			'provenance'  => isset( $compiled['provenance'] ) && is_array( $compiled['provenance'] ) ? $compiled['provenance'] : array(),
+			'diagnostics' => isset( $compiled['diagnostics'] ) && is_array( $compiled['diagnostics'] ) ? $compiled['diagnostics'] : array(),
+			'bfb_report'  => isset( $compiled['bfb_report'] ) && is_array( $compiled['bfb_report'] ) ? $compiled['bfb_report'] : array(),
+			'wordpress_artifacts' => array(
+				'block_tree'  => isset( $artifacts['block_tree'] ) && is_array( $artifacts['block_tree'] ) ? $artifacts['block_tree'] : array(),
+				'block_types' => isset( $artifacts['block_types'] ) && is_array( $artifacts['block_types'] ) ? $artifacts['block_types'] : array(),
+				'components'  => isset( $artifacts['components'] ) && is_array( $artifacts['components'] ) ? $artifacts['components'] : array(),
+				'documents'   => isset( $artifacts['documents'] ) && is_array( $artifacts['documents'] ) ? $artifacts['documents'] : array(),
+				'files'       => isset( $artifacts['files'] ) && is_array( $artifacts['files'] ) ? $artifacts['files'] : array(),
+			),
+		) );
+
+		if ( isset( $artifacts['block_markup'] ) && is_scalar( $artifacts['block_markup'] ) ) {
+			$block_markup = (string) $artifacts['block_markup'];
+			$payload['wordpress_artifacts']['block_markup_length'] = strlen( $block_markup );
+			$payload['wordpress_artifacts']['block_markup_hash']   = hash( 'sha256', $block_markup );
+		}
+
+		return $payload;
 	}
 
 	/**
@@ -6180,6 +6214,7 @@ class Static_Site_Importer_Theme_Generator {
 
 		if ( empty( $context ) ) {
 			return array(
+				'include_bfb_report' => true,
 				'source' => array(
 					'fragment' => $source,
 				),
@@ -6187,6 +6222,7 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return array(
+			'include_bfb_report' => true,
 			'context' => $context,
 			'source'  => array(
 				'fragment' => $source,
