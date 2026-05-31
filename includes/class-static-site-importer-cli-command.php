@@ -54,6 +54,9 @@ class Static_Site_Importer_CLI_Command {
 	 * [--report=<path>]
 	 * : Copy the generated import report JSON to an external archive path.
 	 *
+	 * [--asset-policy=<policy>]
+	 * : Local asset handling policy. Use media-library to import supported resolved assets as WordPress attachments; defaults to theme-file materialization.
+	 *
 	 * [--format=<format>]
 	 * : Output format. Use json for machine-readable command output.
 	 *
@@ -104,6 +107,7 @@ class Static_Site_Importer_CLI_Command {
 			'fail_on_quality'           => isset( $assoc_args['fail-on-quality'] ),
 			'allow_missing_woocommerce' => isset( $assoc_args['allow-missing-woocommerce'] ),
 			'report'                    => isset( $assoc_args['report'] ) ? (string) $assoc_args['report'] : '',
+			'asset_policy'              => isset( $assoc_args['asset-policy'] ) ? (string) $assoc_args['asset-policy'] : '',
 			'source_metadata'           => $source_metadata,
 		);
 
@@ -235,6 +239,9 @@ class Static_Site_Importer_CLI_Command {
 	 * [--report=<path>]
 	 * : Copy the generated import report JSON to an external archive path.
 	 *
+	 * [--asset-policy=<policy>]
+	 * : Local asset handling policy. Use media-library to import supported resolved assets as WordPress attachments; defaults to theme-file materialization.
+	 *
 	 * [--format=<format>]
 	 * : Output format. Use json for machine-readable command output.
 	 *
@@ -273,6 +280,7 @@ class Static_Site_Importer_CLI_Command {
 			'fail_on_quality'           => isset( $assoc_args['fail-on-quality'] ),
 			'allow_missing_woocommerce' => isset( $assoc_args['allow-missing-woocommerce'] ),
 			'report'                    => isset( $assoc_args['report'] ) ? (string) $assoc_args['report'] : '',
+			'asset_policy'              => isset( $assoc_args['asset-policy'] ) ? (string) $assoc_args['asset-policy'] : '',
 			'source_metadata'           => array( 'artifact_file' => $artifact_file ),
 		);
 
