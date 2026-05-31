@@ -914,7 +914,7 @@ class Static_Site_Importer_Theme_Generator {
 		$id           = 'website-artifact-' . $theme_slug . '-' . substr( hash( 'sha256', self::json_encode_pretty( array( $entrypoint, $files ) ) ), 0, 12 );
 
 		return array(
-			'schema'        => 'chubes4/website-artifact/v1',
+			'schema'        => 'block-artifact-compiler/website-artifact/v1',
 			'artifact_type' => 'website',
 			'version'       => 1,
 			'id'            => $id,

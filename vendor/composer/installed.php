@@ -3,7 +3,7 @@
         'name' => 'chubes4/static-site-importer',
         'pretty_version' => 'dev-main',
         'version' => 'dev-main',
-        'reference' => '7c5f2340014356df3bfd9014c283a9f85df1d2de',
+        'reference' => 'c345b9ef391d648d6d1d318a4c8b8837ac413d96',
         'type' => 'wordpress-plugin',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -13,7 +13,7 @@
         'chubes4/block-artifact-compiler' => array(
             'pretty_version' => 'dev-main',
             'version' => 'dev-main',
-            'reference' => '098b74f84b458b1bc75c89fa333291dc186e5fa1',
+            'reference' => '50d98fd20eeee9e965d2b7e5fd4c334c92c19bd1',
             'type' => 'wordpress-plugin',
             'install_path' => __DIR__ . '/../chubes4/block-artifact-compiler',
             'aliases' => array(
@@ -35,7 +35,7 @@
         'chubes4/static-site-importer' => array(
             'pretty_version' => 'dev-main',
             'version' => 'dev-main',
-            'reference' => '7c5f2340014356df3bfd9014c283a9f85df1d2de',
+            'reference' => 'c345b9ef391d648d6d1d318a4c8b8837ac413d96',
             'type' => 'wordpress-plugin',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),

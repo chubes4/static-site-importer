@@ -174,7 +174,7 @@ $artifact = $result['website_artifact'] ?? array();
 $assert( ! isset( $result['artifact_set'] ), 'legacy-artifact-set-removed' );
 $assert( ! isset( $result['files'] ), 'legacy-top-level-files-removed' );
 $assert( ! isset( $result['report'] ), 'legacy-top-level-report-removed' );
-$assert( 'chubes4/website-artifact/v1' === ( $artifact['schema'] ?? '' ), 'website-artifact-schema' );
+$assert( 'block-artifact-compiler/website-artifact/v1' === ( $artifact['schema'] ?? '' ), 'website-artifact-schema' );
 $assert( 'website' === ( $artifact['artifact_type'] ?? '' ), 'artifact-type' );
 $assert( 1 === ( $artifact['version'] ?? 0 ), 'artifact-version' );
 $assert( 'website' === ( $artifact['root'] ?? '' ), 'artifact-root' );

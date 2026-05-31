@@ -126,7 +126,7 @@ class Static_Site_Importer_Theme_Generator {
 
 		return array(
 			'website_artifact' => array(
-				'schema'     => 'chubes4/website-artifact/v1',
+				'schema'     => 'block-artifact-compiler/website-artifact/v1',
 				'entrypoint' => $args['entrypoint'],
 				'files'      => array(
 					array(

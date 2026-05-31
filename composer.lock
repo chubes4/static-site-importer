@@ -12,12 +12,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/chubes4/block-artifact-compiler.git",
-                "reference": "098b74f84b458b1bc75c89fa333291dc186e5fa1"
+                "reference": "50d98fd20eeee9e965d2b7e5fd4c334c92c19bd1"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/chubes4/block-artifact-compiler/zipball/098b74f84b458b1bc75c89fa333291dc186e5fa1",
-                "reference": "098b74f84b458b1bc75c89fa333291dc186e5fa1",
+                "url": "https://api.github.com/repos/chubes4/block-artifact-compiler/zipball/50d98fd20eeee9e965d2b7e5fd4c334c92c19bd1",
+                "reference": "50d98fd20eeee9e965d2b7e5fd4c334c92c19bd1",
                 "shasum": ""
             },
             "require": {
@@ -43,7 +43,7 @@
                 "source": "https://github.com/chubes4/block-artifact-compiler/tree/main",
                 "issues": "https://github.com/chubes4/block-artifact-compiler/issues"
             },
-            "time": "2026-05-31T02:58:07+00:00"
+            "time": "2026-05-31T18:29:55+00:00"
         },
         {
             "name": "chubes4/block-format-bridge",

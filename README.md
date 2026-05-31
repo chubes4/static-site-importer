@@ -180,7 +180,7 @@ Important behavior:
 
 The export envelope includes:
 
-- `schema: "chubes4/website-artifact/v1"`, `artifact_type: "website"`, `version`, `id`, `generated_at`, `root`, and `entrypoint`.
+- `schema: "block-artifact-compiler/website-artifact/v1"`, `artifact_type: "website"`, `version`, `id`, `generated_at`, `root`, and `entrypoint`.
 - `files[]` entries with safe artifact-relative paths, `role`, `kind`, `mime_type`, `encoding`, `bytes`, `sha256`, and inline `content`.
 - UTF-8 text content by default; binary content is transported as Base64 with `encoding: "base64"`.
 - source/materialization provenance under `provenance`.

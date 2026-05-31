@@ -1,0 +1,8 @@
+{
+  "auto_cleanup": false,
+  "extensions": {
+    "wordpress": {}
+  },
+  "id": "block-artifact-compiler",
+  "remote_path": "wp-content/plugins/block-artifact-compiler"
+}
