@@ -22,7 +22,8 @@ if ( ! function_exists( 'wp_json_encode' ) ) {
 	 * @return string|false Encoded JSON or false.
 	 */
 	function wp_json_encode( mixed $value, int $flags = 0, int $depth = 512 ): string|false {
-		return json_encode( $value, $flags, $depth );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.json_encode_json_encode -- This is the non-WordPress fallback for wp_json_encode().
+		return json_encode( $value, $flags, max( 1, $depth ) );
 	}
 }
 
