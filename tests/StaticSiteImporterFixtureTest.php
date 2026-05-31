@@ -224,6 +224,46 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Website artifact bundles compile through BAC before SSI materializes the theme.
+	 */
+	public function test_website_artifact_bundle_imports_through_block_artifact_compiler(): void {
+		$artifact_json = file_get_contents( dirname( __DIR__ ) . '/tests/fixtures/website-artifact-bundle/artifact.json' );
+		$artifact      = is_string( $artifact_json ) ? json_decode( $artifact_json, true ) : null;
+		$this->assertIsArray( $artifact );
+
+		$result = Static_Site_Importer_Theme_Generator::import_website_artifact(
+			$artifact,
+			array(
+				'name'        => 'Website Artifact Fixture',
+				'slug'        => 'website-artifact-fixture',
+				'overwrite'   => true,
+				'activate'    => false,
+				'keep_source' => true,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'index.html', $result['pages'] );
+
+		$theme_dir = $result['theme_dir'];
+		$style     = $this->read_file( $theme_dir . '/style.css' );
+		$script    = $this->read_file( $theme_dir . '/assets/site.js' );
+		$report    = json_decode( $this->read_file( $result['report_path'] ), true );
+		$post      = get_post( $result['pages']['index.html'] );
+
+		$this->assertStringContainsString( '.hero{padding:4rem', $style );
+		$this->assertStringContainsString( "website-artifact", $script );
+		$this->assertInstanceOf( WP_Post::class, $post );
+		$this->assertStringContainsString( 'Website Artifact Fixture', $post->post_content );
+		$this->assertIsArray( $report );
+		$this->assertArrayHasKey( 'website_artifact', $report['block_artifact_compiler'] ?? array() );
+		$this->assertSame( 'success', $report['block_artifact_compiler']['website_artifact']['summary']['status'] ?? '' );
+		$this->assertSame( 'index.html', $report['block_artifact_compiler']['website_artifact']['provenance']['source'] ?? '' );
+		$this->assertNotEmpty( $report['block_artifact_compiler']['website_artifact']['provenance']['source_hash'] ?? '' );
+	}
+
+	/**
 	 * Recursive HTML discovery includes nested pages while skipping dependency and hidden directories.
 	 */
 	public function test_collect_pages_discovers_nested_html_sources(): void {

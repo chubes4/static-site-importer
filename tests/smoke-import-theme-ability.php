@@ -107,6 +107,20 @@ class Static_Site_Importer_Theme_Generator {
 		);
 	}
 
+	public static function import_website_artifact( array $artifact, array $args = array() ): array|WP_Error {
+		self::$last_call = array( 'website-artifact', $artifact, $args );
+
+		return array(
+			'theme_slug'            => $args['slug'],
+			'theme_name'            => $args['name'],
+			'report_path'           => '/tmp/import-report.json',
+			'import_report_summary' => array(
+				'status'       => 'completed',
+				'quality_pass' => true,
+			),
+		);
+	}
+
 	public static function export_theme( array $args = array() ): array|WP_Error {
 		self::$last_call = array( 'export', $args );
 
@@ -152,6 +166,7 @@ $assert = static function ( bool $condition, string $label, string $detail = '' 
 $assert( isset( $registered_categories['static-site-importer'] ), 'category-registers-after-api-init' );
 $assert( isset( $registered_abilities['static-site-importer/import-theme'] ), 'ability-registers-after-api-init' );
 $assert( isset( $registered_abilities['static-site-importer/export-theme'] ), 'export-ability-registers-after-api-init' );
+$assert( isset( $registered_abilities['static-site-importer/import-website-artifact'] ), 'website-artifact-ability-registers-after-api-init' );
 
 static_site_importer_register_ability_category();
 static_site_importer_register_abilities();
@@ -159,6 +174,7 @@ static_site_importer_register_abilities();
 $assert( isset( $registered_categories['static-site-importer'] ), 'category-registered' );
 $assert( isset( $registered_abilities['static-site-importer/import-theme'] ), 'import-theme-ability-registered' );
 $assert( isset( $registered_abilities['static-site-importer/export-theme'] ), 'export-theme-ability-registered' );
+$assert( isset( $registered_abilities['static-site-importer/import-website-artifact'] ), 'import-website-artifact-ability-registered' );
 
 $ability = $registered_abilities['static-site-importer/import-theme'] ?? array();
 $assert( 'static_site_importer_ability_import_theme' === ( $ability['execute_callback'] ?? '' ), 'execute-callback' );
@@ -208,6 +224,36 @@ $assert( 0 === ( $args['max_fallbacks'] ?? null ), 'max-fallbacks-forwarded' );
 $assert( true === ( $args['allow_missing_woocommerce'] ?? false ), 'allow-missing-woocommerce-forwarded' );
 $assert( 123 === ( $args['asset_map']['assets/hero.jpg']['attachment_id'] ?? null ), 'asset-map-forwarded' );
 $assert( 'https://example.com/' === ( $args['source_metadata']['final_url'] ?? '' ), 'source-metadata-forwarded' );
+
+$website_artifact_ability = $registered_abilities['static-site-importer/import-website-artifact'] ?? array();
+$assert( 'static_site_importer_ability_import_website_artifact' === ( $website_artifact_ability['execute_callback'] ?? '' ), 'website-artifact-execute-callback' );
+
+$missing_artifact = static_site_importer_ability_import_website_artifact( array() );
+$assert( empty( $missing_artifact['success'] ), 'missing-website-artifact-fails' );
+$assert( 'static_site_importer_missing_website_artifact' === ( $missing_artifact['error']['code'] ?? '' ), 'missing-website-artifact-error-code' );
+
+$artifact_fixture = file_get_contents( __DIR__ . '/fixtures/website-artifact-bundle/artifact.json' );
+$artifact         = is_string( $artifact_fixture ) ? json_decode( $artifact_fixture, true ) : null;
+$assert( is_array( $artifact ), 'website-artifact-fixture-decodes' );
+$artifact_result = static_site_importer_ability_import_website_artifact(
+	array(
+		'artifact'                  => is_array( $artifact ) ? $artifact : array(),
+		'slug'                      => 'artifact-theme',
+		'name'                      => 'Artifact Theme',
+		'overwrite'                 => true,
+		'keep_source'               => true,
+		'allow_missing_woocommerce' => true,
+		'compiler_options'          => array( 'include_bfb_report' => true ),
+		'source_metadata'           => array( 'source' => 'fixture' ),
+	)
+);
+$assert( ! empty( $artifact_result['success'] ), 'website-artifact-ability-succeeds' );
+$assert( 'website-artifact' === ( Static_Site_Importer_Theme_Generator::$last_call[0] ?? '' ), 'website-artifact-forwarded' );
+$assert( str_contains( Static_Site_Importer_Theme_Generator::$last_call[1]['html'] ?? '', 'Website Artifact Fixture' ), 'website-artifact-html-forwarded' );
+$artifact_args = Static_Site_Importer_Theme_Generator::$last_call[2] ?? array();
+$assert( 'artifact-theme' === ( $artifact_args['slug'] ?? '' ), 'website-artifact-slug-forwarded' );
+$assert( true === ( $artifact_args['compiler_options']['include_bfb_report'] ?? false ), 'website-artifact-compiler-options-forwarded' );
+$assert( 'fixture' === ( $artifact_args['source_metadata']['source'] ?? '' ), 'website-artifact-source-metadata-forwarded' );
 
 $export_ability = $registered_abilities['static-site-importer/export-theme'] ?? array();
 $assert( 'static_site_importer_ability_export_theme' === ( $export_ability['execute_callback'] ?? '' ), 'export-execute-callback' );

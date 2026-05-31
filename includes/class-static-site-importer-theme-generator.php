@@ -153,6 +153,9 @@ class Static_Site_Importer_Theme_Generator {
 		$route_map               = self::source_route_map( $pages, $permalinks );
 		$fragments               = $document->fragments();
 		self::$conversion_report = self::new_conversion_report( $html_path, isset( $args['source_metadata'] ) && is_array( $args['source_metadata'] ) ? $args['source_metadata'] : array() );
+		if ( isset( $args['block_artifact_compiler'] ) && is_array( $args['block_artifact_compiler'] ) ) {
+			self::record_website_artifact_compiler_result( $args['block_artifact_compiler'] );
+		}
 		self::record_source_region_selection( $document, $html_path );
 		self::record_source_documents_summary( $site_dir, $pages, $permalinks );
 		self::record_products_manifest( $site_dir );
@@ -300,6 +303,40 @@ class Static_Site_Importer_Theme_Generator {
 			'quality'               => $quality,
 			'source_documents'      => self::$conversion_report['source_documents'],
 		);
+	}
+
+	/**
+	 * Import a website artifact bundle as a block theme.
+	 *
+	 * @param array<string,mixed> $artifact Website artifact bundle.
+	 * @param array<string,mixed> $args     Import args.
+	 * @return array<string,mixed>|WP_Error
+	 */
+	public static function import_website_artifact( array $artifact, array $args = array() ) {
+		if ( ! function_exists( 'bac_compile_website_artifact' ) || ! function_exists( 'bac_summarize_result' ) ) {
+			return new WP_Error( 'static_site_importer_missing_bac', 'Block Artifact Compiler is required to import a website artifact.' );
+		}
+
+		$compiler_options = isset( $args['compiler_options'] ) && is_array( $args['compiler_options'] ) ? $args['compiler_options'] : array();
+		$compiled         = bac_compile_website_artifact( $artifact, array_merge( array( 'include_bfb_report' => true ), $compiler_options ) );
+		$artifacts        = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
+		$block_markup     = isset( $artifacts['block_markup'] ) ? (string) $artifacts['block_markup'] : '';
+
+		if ( 'failed' === (string) ( $compiled['status'] ?? '' ) || '' === trim( $block_markup ) ) {
+			return new WP_Error( 'static_site_importer_artifact_compile_failed', 'Website artifact compilation did not produce block markup.', $compiled );
+		}
+
+		$source = self::materialize_website_artifact_source( $compiled, $args );
+		if ( is_wp_error( $source ) ) {
+			return $source;
+		}
+
+		$import_args                              = $args;
+		$import_args['block_artifact_compiler']   = $compiled;
+		$import_args['source_metadata']           = isset( $import_args['source_metadata'] ) && is_array( $import_args['source_metadata'] ) ? $import_args['source_metadata'] : array();
+		$import_args['source_metadata']['source'] = 'website_artifact';
+
+		return self::import_theme( $source['html_path'], $import_args );
 	}
 
 	/**
@@ -3324,6 +3361,22 @@ class Static_Site_Importer_Theme_Generator {
 		if ( isset( self::$conversion_report['conversion_fragments'][ $source ] ) ) {
 			self::$conversion_report['conversion_fragments'][ $source ]['compiler'] = $summary;
 		}
+	}
+
+	/**
+	 * Record the bundle-level compiler result used by import_website_artifact().
+	 *
+	 * @param array<string,mixed> $compiled Compiler result envelope.
+	 * @return void
+	 */
+	private static function record_website_artifact_compiler_result( array $compiled ): void {
+		self::$conversion_report['block_artifact_compiler']['available']        = true;
+		self::$conversion_report['block_artifact_compiler']['website_artifact'] = array(
+			'summary'     => bac_summarize_result( $compiled ),
+			'provenance'  => isset( $compiled['provenance'] ) && is_array( $compiled['provenance'] ) ? $compiled['provenance'] : array(),
+			'input'       => isset( $compiled['input'] ) && is_array( $compiled['input'] ) ? $compiled['input'] : array(),
+			'diagnostics' => isset( $compiled['diagnostics'] ) && is_array( $compiled['diagnostics'] ) ? $compiled['diagnostics'] : array(),
+		);
 	}
 
 	/**
@@ -6551,6 +6604,124 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Materialize a compiled website artifact into an SSI source directory.
+	 *
+	 * @param array<string,mixed> $compiled Compiler result envelope.
+	 * @param array<string,mixed> $args     Import args.
+	 * @return array{source_dir:string,html_path:string}|WP_Error
+	 */
+	private static function materialize_website_artifact_source( array $compiled, array $args ) {
+		$uploads = wp_upload_dir();
+		$base    = trailingslashit( (string) $uploads['basedir'] ) . 'static-site-importer/website-artifacts/' . wp_generate_uuid4();
+		if ( ! wp_mkdir_p( $base ) ) {
+			return new WP_Error( 'static_site_importer_artifact_source_mkdir_failed', sprintf( 'Failed to create website artifact source directory: %s', $base ) );
+		}
+
+		$artifacts    = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
+		$files        = isset( $artifacts['files'] ) && is_array( $artifacts['files'] ) ? $artifacts['files'] : array();
+		$stylesheets  = array();
+		$scripts      = array();
+		$inline_js    = array();
+		$block_markup = isset( $artifacts['block_markup'] ) ? (string) $artifacts['block_markup'] : '';
+
+		foreach ( $files as $file ) {
+			if ( ! is_array( $file ) ) {
+				continue;
+			}
+
+			$relative = self::normalize_artifact_materialization_path( isset( $file['path'] ) ? (string) $file['path'] : '' );
+			if ( '' === $relative ) {
+				continue;
+			}
+
+			$content = isset( $file['content'] ) && is_scalar( $file['content'] ) ? (string) $file['content'] : '';
+			$dir     = dirname( $base . '/' . $relative );
+			if ( ! wp_mkdir_p( $dir ) ) {
+				return new WP_Error( 'static_site_importer_artifact_file_mkdir_failed', sprintf( 'Failed to create website artifact source directory: %s', $dir ) );
+			}
+
+			$result = self::write_file( $base . '/' . $relative, $content );
+			if ( is_wp_error( $result ) ) {
+				return $result;
+			}
+
+			$kind = isset( $file['kind'] ) ? (string) $file['kind'] : '';
+			if ( 'css' === $kind || str_ends_with( strtolower( $relative ), '.css' ) ) {
+				$stylesheets[] = $relative;
+			} elseif ( 'js' === $kind || str_ends_with( strtolower( $relative ), '.js' ) ) {
+				$scripts[]   = $relative;
+				$inline_js[] = $content;
+			}
+		}
+
+		$title = isset( $args['name'] ) && '' !== trim( (string) $args['name'] ) ? (string) $args['name'] : 'Imported Website Artifact';
+		$html  = self::website_artifact_html_document( $title, $block_markup, $stylesheets, $scripts, $inline_js );
+		$result = self::write_file( $base . '/index.html', $html );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		return array(
+			'source_dir' => $base,
+			'html_path'  => $base . '/index.html',
+		);
+	}
+
+	/**
+	 * Normalize compiler file paths before writing them to a temporary source tree.
+	 *
+	 * @param string $path Artifact file path.
+	 * @return string Safe relative path, or empty string when unsafe.
+	 */
+	private static function normalize_artifact_materialization_path( string $path ): string {
+		$path = str_replace( '\\', '/', trim( $path ) );
+		$path = preg_replace( '/\0+/', '', $path );
+		if ( ! is_string( $path ) || '' === $path || str_starts_with( $path, '/' ) || preg_match( '#^[a-z][a-z0-9+.-]*:#i', $path ) ) {
+			return '';
+		}
+
+		$segments = array();
+		foreach ( explode( '/', $path ) as $segment ) {
+			if ( '' === $segment || '.' === $segment ) {
+				continue;
+			}
+			if ( '..' === $segment ) {
+				return '';
+			}
+			$segments[] = preg_replace( '/[^A-Za-z0-9._-]/', '-', $segment );
+		}
+
+		return implode( '/', array_filter( $segments ) );
+	}
+
+	/**
+	 * Build the temporary HTML entry consumed by import_theme().
+	 *
+	 * @param string            $title       Document title.
+	 * @param string            $block_markup Compiled block markup.
+	 * @param array<int,string> $stylesheets Local stylesheet paths.
+	 * @param array<int,string> $scripts     Local script paths.
+	 * @param array<int,string> $inline_js   Script contents to preserve through SSI's inline JS path.
+	 * @return string HTML document.
+	 */
+	private static function website_artifact_html_document( string $title, string $block_markup, array $stylesheets, array $scripts, array $inline_js ): string {
+		$head = '<title>' . esc_html( $title ) . '</title>';
+		foreach ( array_values( array_unique( $stylesheets ) ) as $path ) {
+			$head .= "\n" . '<link rel="stylesheet" href="' . esc_attr( $path ) . '">';
+		}
+
+		$script_tags = '';
+		foreach ( array_values( array_unique( $scripts ) ) as $path ) {
+			$script_tags .= "\n" . '<script src="' . esc_attr( $path ) . '"></script>';
+		}
+		if ( ! empty( $inline_js ) ) {
+			$script_tags .= "\n" . '<script>' . implode( "\n", $inline_js ) . '</script>';
+		}
+
+		return '<!doctype html>' . "\n" . '<html><head>' . $head . '</head><body><main>' . "\n" . $block_markup . "\n" . '</main>' . $script_tags . '</body></html>' . "\n";
 	}
 
 	/**
