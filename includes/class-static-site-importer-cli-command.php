@@ -199,6 +199,125 @@ class Static_Site_Importer_CLI_Command {
 	}
 
 	/**
+	 * Import a website artifact bundle as a block theme.
+	 *
+	 * @subcommand import-website-artifact
+	 *
+	 * ## OPTIONS
+	 *
+	 * <artifact-json-file>
+	 * : Path to a JSON website artifact bundle accepted by Block Artifact Compiler.
+	 *
+	 * [--slug=<slug>]
+	 * : Theme slug.
+	 *
+	 * [--name=<name>]
+	 * : Theme name.
+	 *
+	 * [--activate]
+	 * : Activate the generated theme.
+	 *
+	 * [--overwrite]
+	 * : Overwrite an existing theme directory.
+	 *
+	 * [--keep-source]
+	 * : Preserve the temporary artifact source directory after a successful clean import.
+	 *
+	 * [--fail-on-quality]
+	 * : Exit non-zero when conversion quality checks report fallbacks, invalid blocks, or content loss.
+	 *
+	 * [--max-fallbacks=<count>]
+	 * : Exit non-zero when unsupported HTML fallback count exceeds this threshold.
+	 *
+	 * [--allow-missing-woocommerce]
+	 * : Allow commerce-bearing imports to proceed when WooCommerce is not active.
+	 *
+	 * [--report=<path>]
+	 * : Copy the generated import report JSON to an external archive path.
+	 *
+	 * [--format=<format>]
+	 * : Output format. Use json for machine-readable command output.
+	 *
+	 * @param array<int, string>   $args       Positional args.
+	 * @param array<string, mixed> $assoc_args Associative args.
+	 * @return void
+	 */
+	public function import_website_artifact( array $args, array $assoc_args ): void {
+		$artifact_file = $args[0] ?? '';
+		if ( '' === $artifact_file || ! is_file( $artifact_file ) ) {
+			$this->error_or_json( 'static_site_importer_missing_artifact_file', 'Missing readable <artifact-json-file> argument.', $assoc_args );
+			return;
+		}
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads a local artifact JSON file selected for import.
+		$artifact_json = file_get_contents( $artifact_file );
+		$artifact      = is_string( $artifact_json ) ? json_decode( $artifact_json, true ) : null;
+		if ( ! is_array( $artifact ) ) {
+			$this->error_or_json( 'static_site_importer_invalid_artifact_json', 'Artifact file must contain a JSON object.', $assoc_args );
+			return;
+		}
+
+		$ability = wp_get_ability( 'static-site-importer/import-website-artifact' );
+		if ( ! $ability ) {
+			$this->error_or_json( 'static_site_importer_ability_missing', 'Static Site Importer website artifact ability is not registered.', $assoc_args );
+			return;
+		}
+
+		$ability_args = array(
+			'artifact'                  => $artifact,
+			'slug'                      => isset( $assoc_args['slug'] ) ? (string) $assoc_args['slug'] : '',
+			'name'                      => isset( $assoc_args['name'] ) ? (string) $assoc_args['name'] : '',
+			'activate'                  => isset( $assoc_args['activate'] ),
+			'overwrite'                 => isset( $assoc_args['overwrite'] ),
+			'keep_source'               => isset( $assoc_args['keep-source'] ),
+			'fail_on_quality'           => isset( $assoc_args['fail-on-quality'] ),
+			'allow_missing_woocommerce' => isset( $assoc_args['allow-missing-woocommerce'] ),
+			'report'                    => isset( $assoc_args['report'] ) ? (string) $assoc_args['report'] : '',
+			'source_metadata'           => array( 'artifact_file' => $artifact_file ),
+		);
+
+		if ( isset( $assoc_args['max-fallbacks'] ) ) {
+			$ability_args['max_fallbacks'] = (int) $assoc_args['max-fallbacks'];
+		}
+
+		$ability_result = $ability->execute( $ability_args );
+		if ( is_wp_error( $ability_result ) ) {
+			$this->error_or_json( (string) $ability_result->get_error_code(), $ability_result->get_error_message(), $assoc_args );
+			return;
+		}
+
+		if ( empty( $ability_result['success'] ) ) {
+			$error = isset( $ability_result['error'] ) && is_array( $ability_result['error'] ) ? $ability_result['error'] : array();
+			$this->error_or_json(
+				isset( $error['code'] ) ? (string) $error['code'] : 'static_site_importer_failed',
+				isset( $error['message'] ) ? (string) $error['message'] : 'Website artifact import failed.',
+				$assoc_args,
+				isset( $ability_result['import_report_summary'] ) && is_array( $ability_result['import_report_summary'] ) ? $ability_result['import_report_summary'] : array()
+			);
+			return;
+		}
+
+		$result  = isset( $ability_result['result'] ) && is_array( $ability_result['result'] ) ? $ability_result['result'] : array();
+		$is_json = isset( $assoc_args['format'] ) && 'json' === (string) $assoc_args['format'];
+		if ( $is_json ) {
+			WP_CLI::line( (string) wp_json_encode( $result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
+			if ( ! empty( $result['quality']['fail_import'] ) ) {
+				WP_CLI::halt( 1 );
+			}
+			return;
+		}
+
+		if ( ! empty( $result['quality']['fail_import'] ) ) {
+			WP_CLI::error( sprintf( "Conversion quality gate failed. Theme files were written for inspection at: %s\nImport report: %s", $result['theme_dir'], $result['report_path'] ) );
+			return;
+		}
+
+		WP_CLI::success( sprintf( 'Imported website artifact as block theme "%s" (%s).', $result['theme_name'], $result['theme_slug'] ) );
+		WP_CLI::line( sprintf( 'Theme directory: %s', $result['theme_dir'] ) );
+		WP_CLI::line( sprintf( 'Import report: %s', $result['report_path'] ) );
+	}
+
+	/**
 	 * Emit a human WP-CLI error or a machine-readable JSON failure payload.
 	 *
 	 * @param string               $code           Error code.

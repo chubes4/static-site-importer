@@ -105,6 +105,37 @@ if ( ! function_exists( 'static_site_importer_register_abilities' ) ) {
 				'meta'                => array( 'show_in_rest' => true ),
 			)
 		);
+
+		wp_register_ability(
+			'static-site-importer/import-website-artifact',
+			array(
+				'label'               => __( 'Import Website Artifact', 'static-site-importer' ),
+				'description'         => __( 'Compile a website artifact bundle through Block Artifact Compiler and import it as a WordPress block theme.', 'static-site-importer' ),
+				'category'            => STATIC_SITE_IMPORTER_ABILITY_CATEGORY,
+				'input_schema'        => array(
+					'type'       => 'object',
+					'properties' => array(
+						'artifact'                  => array( 'type' => 'object' ),
+						'slug'                      => array( 'type' => 'string' ),
+						'name'                      => array( 'type' => 'string' ),
+						'activate'                  => array( 'type' => 'boolean' ),
+						'overwrite'                 => array( 'type' => 'boolean' ),
+						'keep_source'               => array( 'type' => 'boolean' ),
+						'fail_on_quality'           => array( 'type' => 'boolean' ),
+						'max_fallbacks'             => array( 'type' => 'integer' ),
+						'allow_missing_woocommerce' => array( 'type' => 'boolean' ),
+						'report'                    => array( 'type' => 'string' ),
+						'compiler_options'          => array( 'type' => 'object' ),
+						'source_metadata'           => array( 'type' => 'object' ),
+					),
+					'required'   => array( 'artifact' ),
+				),
+				'output_schema'       => array( 'type' => 'object' ),
+				'execute_callback'    => 'static_site_importer_ability_import_website_artifact',
+				'permission_callback' => 'static_site_importer_ability_permission_callback',
+				'meta'                => array( 'show_in_rest' => true ),
+			)
+		);
 	}
 }
 
@@ -147,6 +178,46 @@ if ( ! function_exists( 'static_site_importer_ability_export_theme' ) ) {
 		return array_merge(
 			array( 'success' => true ),
 			$result
+		);
+	}
+}
+
+if ( ! function_exists( 'static_site_importer_ability_import_website_artifact' ) ) {
+	/**
+	 * Ability callback for website artifact imports.
+	 *
+	 * @param array<string, mixed> $input Ability input.
+	 * @return array<string, mixed>
+	 */
+	function static_site_importer_ability_import_website_artifact( array $input ): array {
+		$artifact = isset( $input['artifact'] ) && is_array( $input['artifact'] ) ? $input['artifact'] : array();
+		if ( empty( $artifact ) ) {
+			return static_site_importer_ability_error( 'static_site_importer_missing_website_artifact', 'The artifact input is required.' );
+		}
+
+		$args = array(
+			'slug'                      => isset( $input['slug'] ) ? (string) $input['slug'] : '',
+			'name'                      => isset( $input['name'] ) ? (string) $input['name'] : '',
+			'activate'                  => ! empty( $input['activate'] ),
+			'overwrite'                 => ! empty( $input['overwrite'] ),
+			'keep_source'               => ! empty( $input['keep_source'] ),
+			'fail_on_quality'           => ! empty( $input['fail_on_quality'] ),
+			'max_fallbacks'             => isset( $input['max_fallbacks'] ) ? (int) $input['max_fallbacks'] : null,
+			'allow_missing_woocommerce' => ! empty( $input['allow_missing_woocommerce'] ),
+			'report'                    => isset( $input['report'] ) ? (string) $input['report'] : '',
+			'compiler_options'          => isset( $input['compiler_options'] ) && is_array( $input['compiler_options'] ) ? $input['compiler_options'] : array(),
+			'source_metadata'           => isset( $input['source_metadata'] ) && is_array( $input['source_metadata'] ) ? $input['source_metadata'] : array(),
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_website_artifact( $artifact, $args );
+		if ( is_wp_error( $result ) ) {
+			/** @var WP_Error $result */
+			return static_site_importer_ability_error( (string) $result->get_error_code(), $result->get_error_message(), $result->get_error_data() );
+		}
+
+		return array(
+			'success' => true,
+			'result'  => $result,
 		);
 	}
 }
