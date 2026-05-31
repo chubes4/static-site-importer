@@ -176,7 +176,7 @@ Important behavior:
 
 ## Static-Site Export Artifact Set
 
-`static-site-importer/export-theme` exports an imported or active block theme back to a static-site artifact set for Studio Web / WP Codebox round trips. Existing callers can continue reading the top-level `files` and `report` fields. New callers should prefer `artifact_set`, or `codebox_artifact_set` when they want the Studio Web-compatible alias directly.
+`static-site-importer/export-theme` exports an imported or active block theme back to a static-site artifact set. Existing callers can continue reading the top-level `files` and `report` fields. New callers should prefer `artifact_set` for the complete export envelope.
 
 The export envelope includes:
 
@@ -187,7 +187,7 @@ The export envelope includes:
 - import/validation summaries and `reports[]` references for repair loops.
 - `import-report.json` and `source-documents.json` metadata files when the exported theme has SSI import provenance.
 
-The default root remains `static-site` for backwards compatibility. Callers that need Studio Web's `website/` artifact root can pass `root: "website"` with `entrypoint: "website/index.html"`.
+The default root remains `static-site` for backwards compatibility. Callers that need another artifact root can pass `root` with a matching `entrypoint`, such as `root: "website"` and `entrypoint: "website/index.html"`.
 
 ## Validation
 

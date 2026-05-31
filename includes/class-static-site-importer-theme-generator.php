@@ -637,10 +637,9 @@ class Static_Site_Importer_Theme_Generator {
 		$artifact_set = self::export_artifact_set( $theme_slug, $root, $entrypoint, $files, $report, $source_metadata );
 
 		return array(
-			'artifact_set'         => $artifact_set,
-			'codebox_artifact_set' => self::export_codebox_artifact_set( $artifact_set ),
-			'files'                => $files,
-			'report'               => $report,
+			'artifact_set' => $artifact_set,
+			'files'        => $files,
+			'report'       => $report,
 		);
 	}
 
@@ -948,36 +947,12 @@ class Static_Site_Importer_Theme_Generator {
 			),
 			'provenance'    => array(
 				'producer'          => 'static-site-importer',
-				'contract'          => 'studio-web/static-site-artifact/v1-compatible',
 				'source_metadata'   => $source_metadata,
 				'materialized_from' => array(
 					'type'       => 'wordpress-block-theme',
 					'theme_slug' => $theme_slug,
 				),
 			),
-		);
-	}
-
-	/**
-	 * Build a Studio Web / Codebox-compatible alias for direct consumers.
-	 *
-	 * @param array<string,mixed> $artifact_set SSI artifact set.
-	 * @return array<string,mixed>
-	 */
-	private static function export_codebox_artifact_set( array $artifact_set ): array {
-		return array(
-			'schema'        => 'studio-web/static-site-artifact/v1',
-			'artifact_type' => 'static-site',
-			'version'       => 1,
-			'id'            => (string) ( $artifact_set['id'] ?? '' ),
-			'generated_at'  => (string) ( $artifact_set['generated_at'] ?? '' ),
-			'root'          => (string) ( $artifact_set['root'] ?? '' ),
-			'entrypoint'    => (string) ( $artifact_set['entrypoint'] ?? '' ),
-			'files'         => isset( $artifact_set['files'] ) && is_array( $artifact_set['files'] ) ? $artifact_set['files'] : array(),
-			'import'        => isset( $artifact_set['import'] ) && is_array( $artifact_set['import'] ) ? $artifact_set['import'] : array(),
-			'validation'    => isset( $artifact_set['validation'] ) && is_array( $artifact_set['validation'] ) ? $artifact_set['validation'] : array(),
-			'provenance'    => isset( $artifact_set['provenance'] ) && is_array( $artifact_set['provenance'] ) ? $artifact_set['provenance'] : array(),
-			'reports'       => isset( $artifact_set['reports'] ) && is_array( $artifact_set['reports'] ) ? $artifact_set['reports'] : array(),
 		);
 	}
 
@@ -997,7 +972,7 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Export browser assets that can be replayed by Codebox.
+	 * Export browser assets that can be replayed with the static artifact.
 	 *
 	 * @param string                    $theme_dir   Theme directory.
 	 * @param string                    $root        Artifact root.
@@ -1148,7 +1123,7 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Infer a Codebox/Studio Web file role from path.
+	 * Infer a static artifact file role from path.
 	 *
 	 * @param string $path Artifact path.
 	 * @return string

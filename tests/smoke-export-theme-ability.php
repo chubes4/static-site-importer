@@ -166,7 +166,6 @@ $assert     = static function ( bool $condition, string $label, string $detail =
 
 $assert( ! is_wp_error( $result ), 'export-succeeds', is_wp_error( $result ) ? $result->get_error_message() : '' );
 $assert( 'static-site-importer/static-site-artifact-set/v1' === ( $result['artifact_set']['schema'] ?? '' ), 'artifact-set-schema' );
-$assert( 'studio-web/static-site-artifact/v1' === ( $result['codebox_artifact_set']['schema'] ?? '' ), 'codebox-artifact-set-schema' );
 $assert( 'static-site' === ( $result['artifact_set']['artifact_type'] ?? '' ), 'artifact-type' );
 $assert( 1 === ( $result['artifact_set']['version'] ?? 0 ), 'artifact-version' );
 $assert( 'static-site' === ( $result['artifact_set']['root'] ?? '' ), 'artifact-root' );
