@@ -69,6 +69,27 @@ class Static_Site_Importer_Theme_Generator {
 	private static array $active_asset_metadata = array();
 
 	/**
+	 * Import-scoped local asset handling policy.
+	 *
+	 * @var string
+	 */
+	private static string $active_asset_policy = 'theme';
+
+	/**
+	 * Media-library imports keyed by normalized source-relative asset path.
+	 *
+	 * @var array<string, array<string, mixed>>
+	 */
+	private static array $active_imported_media_assets = array();
+
+	/**
+	 * Local asset report rows already recorded for this import.
+	 *
+	 * @var array<string, true>
+	 */
+	private static array $recorded_local_asset_keys = array();
+
+	/**
 	 * Materialized inline SVG assets keyed by SVG content hash.
 	 *
 	 * @var array<string, array<string, string>>
@@ -182,6 +203,10 @@ class Static_Site_Importer_Theme_Generator {
 		self::$active_source_dir        = $site_dir;
 		self::$active_asset_map         = self::normalize_asset_map( isset( $args['asset_map'] ) && is_array( $args['asset_map'] ) ? $args['asset_map'] : array() );
 		self::$active_asset_metadata    = array();
+		self::$active_asset_policy      = self::normalize_asset_policy( isset( $args['asset_policy'] ) ? (string) $args['asset_policy'] : '' );
+		self::$active_imported_media_assets = array();
+		self::$recorded_local_asset_keys    = array();
+		self::$conversion_report['assets']['policy']         = self::$active_asset_policy;
 		self::$conversion_report['asset_map']['supplied']    = ! empty( self::$active_asset_map );
 		self::$conversion_report['asset_map']['entry_count'] = count( self::$active_asset_map );
 		self::$materialized_svg_assets  = array();
@@ -386,6 +411,10 @@ class Static_Site_Importer_Theme_Generator {
 		self::$active_source_dir        = '';
 		self::$active_asset_map         = self::normalize_asset_map( isset( $args['asset_map'] ) && is_array( $args['asset_map'] ) ? $args['asset_map'] : array() );
 		self::$active_asset_metadata    = array();
+		self::$active_asset_policy      = self::normalize_asset_policy( isset( $args['asset_policy'] ) ? (string) $args['asset_policy'] : '' );
+		self::$active_imported_media_assets = array();
+		self::$recorded_local_asset_keys    = array();
+		self::$conversion_report['assets']['policy']         = self::$active_asset_policy;
 		self::$conversion_report['asset_map']['supplied']    = ! empty( self::$active_asset_map );
 		self::$conversion_report['asset_map']['entry_count'] = count( self::$active_asset_map );
 		self::$materialized_svg_assets  = array();
@@ -1822,6 +1851,10 @@ class Static_Site_Importer_Theme_Generator {
 					continue;
 				}
 
+				if ( 0 === strcasecmp( $element->tagName, 'img' ) && '' !== trim( $element->getAttribute( 'alt' ) ) ) {
+					$asset = self::add_local_asset_alt_metadata( $value, $asset, $element->getAttribute( 'alt' ) );
+				}
+
 				$element->setAttribute( $attribute, $asset['url'] );
 				self::apply_asset_metadata_to_media_element( $element, $asset );
 				$changed = true;
@@ -1880,8 +1913,8 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return void
 	 */
 	private static function apply_asset_metadata_to_media_element( DOMElement $element, array $asset ): void {
-		if ( isset( $asset['attachment_id'] ) && (int) $asset['attachment_id'] > 0 ) {
-			$attachment_id = (int) $asset['attachment_id'];
+		$attachment_id = isset( $asset['attachment_id'] ) ? (int) $asset['attachment_id'] : (int) ( $asset['id'] ?? 0 );
+		if ( $attachment_id > 0 ) {
 			$element->setAttribute( 'data-id', (string) $attachment_id );
 			$element->setAttribute( 'class', self::append_class_token( $element->getAttribute( 'class' ), 'wp-image-' . $attachment_id ) );
 		}
@@ -2567,6 +2600,18 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Normalize the optional local asset handling policy.
+	 *
+	 * @param string $policy Raw policy value.
+	 * @return string
+	 */
+	private static function normalize_asset_policy( string $policy ): string {
+		$policy = sanitize_key( $policy );
+
+		return 'media-library' === $policy ? 'media-library' : 'theme';
+	}
+
+	/**
 	 * Resolve a local source URL through the active asset map and record the lookup.
 	 *
 	 * @param string $url         Source URL or path.
@@ -2742,9 +2787,21 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		$extension = strtolower( pathinfo( $real_source, PATHINFO_EXTENSION ) );
-		if ( ! in_array( $extension, array( 'svg', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'woff', 'woff2' ), true ) ) {
+		if ( ! self::is_local_asset_supported( $extension ) ) {
 			self::record_local_asset_diagnostic( 'local_asset_unsupported_type', $source, $source_path, $url, $key, 'Local asset reference uses an unsupported file type for theme materialization; leaving it unchanged.' );
 			return null;
+		}
+
+		if ( 'media-library' === self::$active_asset_policy ) {
+			$asset = self::import_local_asset_to_media_library( $real_source, $key, $url, $source_path, $source );
+			if ( null === $asset ) {
+				return null;
+			}
+
+			self::record_local_asset_materialized( $source, $source_path, $url, $key, $asset );
+			self::remember_asset_metadata( $url, $key, $asset );
+
+			return $asset;
 		}
 
 		$target_relative = self::materialized_asset_relative_path( $key, $real_source );
@@ -2774,8 +2831,10 @@ class Static_Site_Importer_Theme_Generator {
 			'source_path' => $source_path,
 			'path'        => $key,
 			'url'         => trailingslashit( self::$active_theme_uri ) . $target_relative,
+			'final_url'   => trailingslashit( self::$active_theme_uri ) . $target_relative,
 			'mime_type'   => self::export_mime_type( $real_source ),
 			'theme_path'  => $target_relative,
+			'policy'      => 'theme',
 		);
 
 		$dimensions = self::image_dimensions( $real_source );
@@ -2838,6 +2897,162 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Check whether a local asset extension is supported by SSI materialization.
+	 *
+	 * @param string $extension File extension without dot.
+	 * @return bool
+	 */
+	private static function is_local_asset_supported( string $extension ): bool {
+		return in_array( $extension, array( 'svg', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'woff', 'woff2' ), true );
+	}
+
+	/**
+	 * Check whether a local asset can become a WordPress media attachment.
+	 *
+	 * @param string $path Absolute file path.
+	 * @return bool
+	 */
+	private static function is_media_library_asset_supported( string $path ): bool {
+		$extension = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
+		if ( ! in_array( $extension, array( 'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'svg' ), true ) ) {
+			return false;
+		}
+
+		if ( function_exists( 'wp_check_filetype' ) ) {
+			$type = wp_check_filetype( basename( $path ) );
+			return ! empty( $type['type'] );
+		}
+
+		return true;
+	}
+
+	/**
+	 * Import a resolved local asset into the WordPress media library.
+	 *
+	 * @param string $real_source Absolute source file path.
+	 * @param string $key         Source-relative key.
+	 * @param string $url         Original source URL.
+	 * @param string $source_path Source-relative document path.
+	 * @param string $source      Diagnostic source label.
+	 * @return array<string,mixed>|null
+	 */
+	private static function import_local_asset_to_media_library( string $real_source, string $key, string $url, string $source_path, string $source ): ?array {
+		if ( isset( self::$active_imported_media_assets[ $key ] ) ) {
+			return self::$active_imported_media_assets[ $key ];
+		}
+
+		if ( ! self::is_media_library_asset_supported( $real_source ) ) {
+			self::record_local_asset_diagnostic( 'local_asset_unsupported_type', $source, $source_path, $url, $key, 'Local asset reference uses a file type unsupported by the media-library asset policy; leaving it unchanged.' );
+			return null;
+		}
+
+		if ( ! function_exists( 'wp_upload_bits' ) || ! function_exists( 'wp_insert_attachment' ) ) {
+			self::record_local_asset_diagnostic( 'local_asset_upload_failed', $source, $source_path, $url, $key, 'Local asset reference could not be imported because WordPress media upload functions are unavailable; leaving it unchanged.' );
+			return null;
+		}
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads a validated local source asset for media upload.
+		$contents = file_get_contents( $real_source );
+		if ( false === $contents ) {
+			self::record_local_asset_diagnostic( 'local_asset_read_failed', $source, $source_path, $url, $key, 'Local asset reference could not be read; leaving it unchanged.' );
+			return null;
+		}
+
+		$filename = sanitize_file_name( basename( $real_source ) );
+		if ( '' === $filename ) {
+			self::record_local_asset_diagnostic( 'local_asset_unsafe_path', $source, $source_path, $url, $key, 'Local asset reference could not be converted to a safe media filename; leaving it unchanged.' );
+			return null;
+		}
+
+		$upload = wp_upload_bits( $filename, null, $contents );
+		if ( ! is_array( $upload ) || ! empty( $upload['error'] ) || empty( $upload['file'] ) || empty( $upload['url'] ) ) {
+			$error = is_array( $upload ) && isset( $upload['error'] ) ? (string) $upload['error'] : 'Unknown upload error.';
+			self::record_local_asset_diagnostic( 'local_asset_upload_failed', $source, $source_path, $url, $key, 'Local asset reference could not be uploaded to the media library: ' . $error );
+			return null;
+		}
+
+		$file = (string) $upload['file'];
+		$type = function_exists( 'wp_check_filetype' ) ? wp_check_filetype( $file ) : array( 'type' => self::export_mime_type( $file ) );
+		$mime = isset( $type['type'] ) ? (string) $type['type'] : self::export_mime_type( $file );
+		$id   = wp_insert_attachment(
+			array(
+				'post_mime_type' => $mime,
+				'post_title'     => preg_replace( '/\.[^.]+$/', '', $filename ),
+				'post_content'   => '',
+				'post_status'    => 'inherit',
+			),
+			$file
+		);
+		if ( is_wp_error( $id ) || (int) $id <= 0 ) {
+			$message = is_wp_error( $id ) ? $id->get_error_message() : 'WordPress did not return an attachment ID.';
+			self::record_local_asset_diagnostic( 'local_asset_upload_failed', $source, $source_path, $url, $key, 'Local asset reference uploaded but attachment creation failed: ' . $message );
+			return null;
+		}
+
+		if ( function_exists( 'wp_generate_attachment_metadata' ) && function_exists( 'wp_update_attachment_metadata' ) ) {
+			$metadata = wp_generate_attachment_metadata( (int) $id, $file );
+			if ( is_array( $metadata ) ) {
+				wp_update_attachment_metadata( (int) $id, $metadata );
+			}
+		}
+
+		$asset = array(
+			'id'            => (int) $id,
+			'attachment_id' => (int) $id,
+			'source'        => $url,
+			'source_path'   => $source_path,
+			'path'          => $key,
+			'url'           => function_exists( 'wp_get_attachment_url' ) ? (string) wp_get_attachment_url( (int) $id ) : (string) $upload['url'],
+			'final_url'     => function_exists( 'wp_get_attachment_url' ) ? (string) wp_get_attachment_url( (int) $id ) : (string) $upload['url'],
+			'mime_type'     => $mime,
+			'file'          => $file,
+			'policy'        => 'media-library',
+		);
+
+		$dimensions = self::image_dimensions( $file );
+		if ( ! empty( $dimensions ) ) {
+			$asset = array_merge( $asset, $dimensions );
+		}
+
+		self::$active_imported_media_assets[ $key ] = $asset;
+
+		return $asset;
+	}
+
+	/**
+	 * Add available alt text to cached asset metadata.
+	 *
+	 * @param string              $url   Original source reference.
+	 * @param array<string,mixed> $asset Asset metadata.
+	 * @param string              $alt   Alt text.
+	 * @return array<string,mixed>
+	 */
+	private static function add_local_asset_alt_metadata( string $url, array $asset, string $alt ): array {
+		$alt = trim( $alt );
+		$key = isset( $asset['path'] ) ? (string) $asset['path'] : '';
+		if ( '' === $alt || '' === $key ) {
+			return $asset;
+		}
+
+		if ( isset( $asset['alt'] ) && '' !== trim( (string) $asset['alt'] ) ) {
+			return $asset;
+		}
+
+		$asset['alt'] = $alt;
+		if ( isset( $asset['attachment_id'] ) && (int) $asset['attachment_id'] > 0 && function_exists( 'update_post_meta' ) ) {
+			update_post_meta( (int) $asset['attachment_id'], '_wp_attachment_image_alt', $alt );
+		}
+
+		if ( isset( self::$active_imported_media_assets[ $key ] ) ) {
+			self::$active_imported_media_assets[ $key ] = $asset;
+		}
+
+		self::remember_asset_metadata( $url, $key, $asset );
+
+		return $asset;
+	}
+
+	/**
 	 * Store metadata under all keys H2BC/BFB may see during conversion.
 	 *
 	 * @param string              $url   Original source reference.
@@ -2869,14 +3084,30 @@ class Static_Site_Importer_Theme_Generator {
 			self::$conversion_report['assets']['local'] = array();
 		}
 
-		self::$conversion_report['assets']['local'][] = array(
+		$report_key = (string) ( $asset['policy'] ?? self::$active_asset_policy ) . ':' . $key;
+		if ( isset( self::$recorded_local_asset_keys[ $report_key ] ) ) {
+			return;
+		}
+		self::$recorded_local_asset_keys[ $report_key ] = true;
+
+		$row = array(
 			'source'      => $source,
 			'source_path' => $source_path,
 			'url'         => $url,
 			'key'         => $key,
+			'policy'      => $asset['policy'] ?? self::$active_asset_policy,
 			'theme_path'  => $asset['theme_path'] ?? '',
+			'final_url'   => $asset['url'] ?? '',
 			'mime_type'   => $asset['mime_type'] ?? '',
 		);
+
+		foreach ( array( 'id', 'attachment_id', 'width', 'height', 'alt' ) as $field ) {
+			if ( isset( $asset[ $field ] ) ) {
+				$row[ $field ] = $asset[ $field ];
+			}
+		}
+
+		self::$conversion_report['assets']['local'][] = $row;
 	}
 
 	/**
@@ -3271,6 +3502,9 @@ class Static_Site_Importer_Theme_Generator {
 				if ( '!' === $prefix ) {
 					$asset = self::resolve_local_asset_reference( $destination, $source_path, $source );
 					if ( null !== $asset ) {
+						if ( '' !== trim( $label ) ) {
+							$asset = self::add_local_asset_alt_metadata( $destination, $asset, $label );
+						}
 						return '![' . $label . '](' . $asset['url'] . ')';
 					}
 					return $matches[0];
@@ -4915,6 +5149,7 @@ class Static_Site_Importer_Theme_Generator {
 				'diagnostics'    => array(),
 			),
 			'assets'                  => array(
+				'policy'      => 'theme',
 				'svg_icons'   => array(),
 				'svg_sprites' => array(),
 				'local'       => array(),
