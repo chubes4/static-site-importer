@@ -130,7 +130,7 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		$site_dir = dirname( $html_path );
-		$pages    = self::collect_pages( $site_dir );
+		$pages    = isset( $args['bac_document_pages'] ) && is_array( $args['bac_document_pages'] ) ? $args['bac_document_pages'] : self::collect_pages( $site_dir );
 		if ( is_wp_error( $pages ) ) {
 			return $pages;
 		}
@@ -157,7 +157,11 @@ class Static_Site_Importer_Theme_Generator {
 			self::record_website_artifact_compiler_result( $args['block_artifact_compiler'] );
 		}
 		self::record_source_region_selection( $document, $html_path );
-		self::record_source_documents_summary( $site_dir, $pages, $permalinks );
+		if ( isset( $args['bac_documents'] ) && is_array( $args['bac_documents'] ) ) {
+			self::record_bac_source_documents_summary( $args['bac_documents'], $pages, $page_ids, $permalinks );
+		} else {
+			self::record_source_documents_summary( $site_dir, $pages, $permalinks );
+		}
 		self::record_products_manifest( $site_dir );
 		$inferred_commerce_context     = self::should_infer_commerce_context( $args ) ? self::infer_commerce_context_from_pages( $pages ) : array();
 		self::$active_commerce_context = self::commerce_context_from_args( $args, $inferred_commerce_context );
@@ -321,8 +325,12 @@ class Static_Site_Importer_Theme_Generator {
 		$compiled         = bac_compile_website_artifact( $artifact, array_merge( array( 'include_bfb_report' => true ), $compiler_options ) );
 		$artifacts        = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
 		$block_markup     = isset( $artifacts['block_markup'] ) ? (string) $artifacts['block_markup'] : '';
+		$document_pages   = self::bac_document_pages( $compiled );
+		if ( is_wp_error( $document_pages ) ) {
+			return $document_pages;
+		}
 
-		if ( 'failed' === (string) ( $compiled['status'] ?? '' ) || '' === trim( $block_markup ) ) {
+		if ( 'failed' === (string) ( $compiled['status'] ?? '' ) || ( '' === trim( $block_markup ) && empty( $document_pages ) ) ) {
 			return new WP_Error( 'static_site_importer_artifact_compile_failed', 'Website artifact compilation did not produce block markup.', $compiled );
 		}
 
@@ -335,6 +343,10 @@ class Static_Site_Importer_Theme_Generator {
 		$import_args['block_artifact_compiler']   = $compiled;
 		$import_args['source_metadata']           = isset( $import_args['source_metadata'] ) && is_array( $import_args['source_metadata'] ) ? $import_args['source_metadata'] : array();
 		$import_args['source_metadata']['source'] = 'website_artifact';
+		if ( ! empty( $document_pages ) ) {
+			$import_args['bac_document_pages'] = $document_pages;
+			$import_args['bac_documents']      = $artifacts['documents'];
+		}
 
 		return self::import_theme( $source['html_path'], $import_args );
 	}
@@ -814,6 +826,38 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Normalize BAC WordPress document artifacts into source pages.
+	 *
+	 * SSI intentionally supports one narrow BAC-backed document shape during the
+	 * migration: `wordpress_artifacts.documents[]` entries with `source_path`,
+	 * `post_type`, `slug`, `title`, `status`, `block_markup`, and optional
+	 * `metadata`/`diagnostics`.
+	 *
+	 * @param array<string,mixed> $compiled Compiler result envelope.
+	 * @return array<string, Static_Site_Importer_Source_Page>|WP_Error
+	 */
+	private static function bac_document_pages( array $compiled ) {
+		$artifacts = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
+		$documents = isset( $artifacts['documents'] ) && is_array( $artifacts['documents'] ) ? $artifacts['documents'] : array();
+		$pages     = array();
+
+		foreach ( $documents as $document ) {
+			if ( ! is_array( $document ) ) {
+				continue;
+			}
+
+			$page = Static_Site_Importer_Source_Page::from_wordpress_document_artifact( $document );
+			if ( is_wp_error( $page ) ) {
+				return $page;
+			}
+
+			$pages[ $page->source_key() ] = $page;
+		}
+
+		return $pages;
+	}
+
+	/**
 	 * Collect HTML source files anywhere under the static site root.
 	 *
 	 * @param string $site_dir Site directory.
@@ -961,13 +1005,14 @@ class Static_Site_Importer_Theme_Generator {
 			$title  = self::page_title( $filename, $page );
 			$slug   = self::page_slug( $filename, $page );
 			$status = self::page_status( $page );
+			$type   = self::page_post_type( $page );
 
-			$existing = get_page_by_path( $slug, OBJECT, 'page' );
+			$existing = get_page_by_path( $slug, OBJECT, $type );
 			$postarr  = array(
 				'post_title'   => $title,
 				'post_name'    => $slug,
 				'post_status'  => $status,
-				'post_type'    => 'page',
+				'post_type'    => $type,
 				'post_content' => '',
 			);
 
@@ -2361,6 +2406,9 @@ class Static_Site_Importer_Theme_Generator {
 		$source_path = $page->source_key();
 		$source      = 'main:' . $source_path;
 		$body        = $page->body();
+		if ( 'blocks' === $page->body_format() ) {
+			return trim( $body );
+		}
 
 		if ( 'markdown' === $page->body_format() ) {
 			$body = self::rewrite_markdown_links( $body, $route_map, $source_path, $source );
@@ -2480,6 +2528,22 @@ class Static_Site_Importer_Theme_Generator {
 		$status = sanitize_key( $page->metadata_value( 'status' ) );
 
 		return in_array( $status, array( 'publish', 'draft', 'pending', 'private' ), true ) ? $status : 'publish';
+	}
+
+	/**
+	 * Build a safe WordPress post type from source metadata.
+	 *
+	 * @param Static_Site_Importer_Source_Page $page Source page.
+	 * @return string
+	 */
+	private static function page_post_type( Static_Site_Importer_Source_Page $page ): string {
+		$post_type = sanitize_key( $page->metadata_value( 'post_type' ) );
+		if ( '' === $post_type ) {
+			return 'page';
+		}
+
+		$post_type_object = get_post_type_object( $post_type );
+		return $post_type_object instanceof WP_Post_Type ? $post_type : 'page';
 	}
 
 	/**
@@ -4018,6 +4082,71 @@ class Static_Site_Importer_Theme_Generator {
 				'skipped_mdx_count'     => count( $mdx_files ),
 				'unresolved_links'      => $unresolved,
 				'unresolved_link_count' => count( $unresolved ),
+			)
+		);
+	}
+
+	/**
+	 * Record BAC-owned source document materialization details.
+	 *
+	 * @param array<int,mixed>                                   $documents  BAC document artifacts.
+	 * @param array<string, Static_Site_Importer_Source_Page> $pages      Imported pages/posts.
+	 * @param array<string,int>                                $page_ids   Imported post IDs keyed by source path.
+	 * @param array<string,string>                             $permalinks Imported permalinks keyed by source path.
+	 * @return void
+	 */
+	private static function record_bac_source_documents_summary( array $documents, array $pages, array $page_ids, array $permalinks ): void {
+		$records = array();
+		foreach ( $documents as $document ) {
+			if ( ! is_array( $document ) ) {
+				continue;
+			}
+
+			$source_path = self::normalize_route_path( isset( $document['source_path'] ) ? (string) $document['source_path'] : (string) ( $document['path'] ?? '' ) );
+			if ( '' === $source_path ) {
+				$source_path = self::normalize_route_path( isset( $document['slug'] ) ? (string) $document['slug'] : '' );
+			}
+			if ( '' === $source_path || ! isset( $pages[ $source_path ] ) ) {
+				continue;
+			}
+
+			$page        = $pages[ $source_path ];
+			$post_id     = (int) ( $page_ids[ $source_path ] ?? 0 );
+			$post_type   = self::page_post_type( $page );
+			$diagnostics = isset( $document['diagnostics'] ) && is_array( $document['diagnostics'] ) ? array_values( $document['diagnostics'] ) : array();
+
+			$record = array(
+				'source_path'  => $source_path,
+				'post_id'      => $post_id,
+				'post_type'    => $post_type,
+				'slug'         => self::page_slug( $source_path, $page ),
+				'title'        => self::page_title( $source_path, $page ),
+				'status'       => self::page_status( $page ),
+				'permalink'    => $permalinks[ $source_path ] ?? '',
+				'diagnostics'  => $diagnostics,
+				'materialized' => $post_id > 0,
+			);
+
+			$records[] = $record;
+			foreach ( $diagnostics as $diagnostic ) {
+				if ( is_array( $diagnostic ) ) {
+					$diagnostic['source']                     = isset( $diagnostic['source'] ) && '' !== trim( (string) $diagnostic['source'] ) ? (string) $diagnostic['source'] : $source_path;
+					self::$conversion_report['diagnostics'][] = $diagnostic;
+				}
+			}
+		}
+
+		self::$conversion_report['source_documents'] = array_merge(
+			self::$conversion_report['source_documents'],
+			array(
+				'source'             => 'block_artifact_compiler',
+				'total_count'        => count( $records ),
+				'counts_by_format'   => array_merge(
+					self::$conversion_report['source_documents']['counts_by_format'] ?? array(),
+					array( 'bac_document' => count( $records ) )
+				),
+				'bac_documents'      => $records,
+				'bac_document_count' => count( $records ),
 			)
 		);
 	}

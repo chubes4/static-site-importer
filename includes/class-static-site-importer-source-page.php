@@ -145,6 +145,52 @@ class Static_Site_Importer_Source_Page {
 	}
 
 	/**
+	 * Create a source page from a BAC WordPress document artifact.
+	 *
+	 * @param array<string,mixed> $artifact WordPress document artifact.
+	 * @return self|WP_Error
+	 */
+	public static function from_wordpress_document_artifact( array $artifact ) {
+		$source_key = self::normalize_artifact_source_key( isset( $artifact['source_path'] ) ? (string) $artifact['source_path'] : (string) ( $artifact['path'] ?? '' ) );
+		if ( '' === $source_key ) {
+			$source_key = self::normalize_artifact_source_key( isset( $artifact['slug'] ) ? (string) $artifact['slug'] : '' );
+		}
+		if ( '' === $source_key ) {
+			return new WP_Error( 'static_site_importer_bac_document_missing_source', 'BAC document artifact is missing a source_path/path/slug.' );
+		}
+
+		$content = '';
+		foreach ( array( 'block_markup', 'content', 'post_content' ) as $key ) {
+			if ( isset( $artifact[ $key ] ) && is_scalar( $artifact[ $key ] ) && '' !== trim( (string) $artifact[ $key ] ) ) {
+				$content = (string) $artifact[ $key ];
+				break;
+			}
+		}
+		if ( '' === trim( $content ) ) {
+			return new WP_Error( 'static_site_importer_bac_document_empty_content', sprintf( 'BAC document artifact is missing block markup: %s', $source_key ) );
+		}
+
+		$metadata = array();
+		foreach ( array( 'title', 'slug', 'status', 'post_type' ) as $key ) {
+			if ( isset( $artifact[ $key ] ) && is_scalar( $artifact[ $key ] ) && '' !== trim( (string) $artifact[ $key ] ) ) {
+				$metadata[ $key ] = (string) $artifact[ $key ];
+			}
+		}
+		if ( isset( $artifact['metadata'] ) && is_array( $artifact['metadata'] ) ) {
+			foreach ( $artifact['metadata'] as $key => $value ) {
+				if ( is_string( $key ) && is_scalar( $value ) ) {
+					$metadata[ strtolower( str_replace( '-', '_', $key ) ) ] = (string) $value;
+				}
+			}
+		}
+
+		$title    = $metadata['title'] ?? '';
+		$document = new Static_Site_Importer_Document( '<!doctype html><html><head><title>' . esc_html( $title ) . '</title></head><body><main>' . $content . '</main></body></html>' );
+
+		return new self( $source_key, $source_key, 'bac_document', $document, $content, 'blocks', '', $metadata );
+	}
+
+	/**
 	 * Source key used by result maps and reports.
 	 *
 	 * @return string
@@ -243,6 +289,33 @@ class Static_Site_Importer_Source_Page {
 		}
 
 		return basename( $path );
+	}
+
+	/**
+	 * Normalize a BAC document source key for report/result maps.
+	 *
+	 * @param string $source Source path or slug.
+	 * @return string
+	 */
+	private static function normalize_artifact_source_key( string $source ): string {
+		$source = str_replace( '\\', '/', trim( $source ) );
+		$source = preg_replace( '/\0+/', '', $source );
+		if ( ! is_string( $source ) || '' === $source || str_starts_with( $source, '/' ) || preg_match( '#^[a-z][a-z0-9+.-]*:#i', $source ) ) {
+			return '';
+		}
+
+		$segments = array();
+		foreach ( explode( '/', $source ) as $segment ) {
+			if ( '' === $segment || '.' === $segment ) {
+				continue;
+			}
+			if ( '..' === $segment ) {
+				return '';
+			}
+			$segments[] = preg_replace( '/[^A-Za-z0-9._-]/', '-', $segment );
+		}
+
+		return implode( '/', array_filter( $segments ) );
 	}
 
 	/**
