@@ -129,6 +129,7 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $report['version'] ?? 0 );
 		$this->assertArrayHasKey( 'quality', $report );
 		$this->assertArrayHasKey( 'conversion_fragments', $report );
+		$this->assertArrayHasKey( 'block_artifact_compiler', $report );
 		$this->assertArrayHasKey( 'generated_theme', $report );
 		$this->assertArrayHasKey( 'semantic_fidelity', $report );
 		$this->assertArrayHasKey( 'product_seeding', $report );
@@ -139,6 +140,9 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertSame( 'skipped', $report['product_seeding']['status'] ?? '' );
 		$this->assertSame( 'no_validated_manifest', $report['product_seeding']['reason'] ?? '' );
 		$this->assertSame( array( 'created' => 0, 'updated' => 0, 'skipped' => 0, 'error' => 0 ), $report['product_seeding']['counts'] ?? array() );
+		$this->assertTrue( $report['block_artifact_compiler']['available'] ?? false );
+		$this->assertGreaterThan( 0, $report['block_artifact_compiler']['fragment_count'] ?? 0 );
+		$this->assertNotEmpty( $report['block_artifact_compiler']['fragments'] ?? array() );
 		$this->assertNotEmpty( $report['generated_theme']['block_documents'] ?? array() );
 		$this->assertSame( 'requires_external_render_check', $report['semantic_fidelity']['status'] ?? '' );
 		$this->assertSame( 'benchmark_harness', $report['semantic_fidelity']['gate_owner'] ?? '' );

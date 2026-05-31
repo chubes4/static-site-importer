@@ -3275,8 +3275,8 @@ class Static_Site_Importer_Theme_Generator {
 		add_action( 'html_to_blocks_conversion_aborted_content_loss', $content_loss_listener, 10, 2 );
 		add_action( 'bfb_conversion_metadata', $commerce_metadata_listener, 10, 1 );
 		add_action( 'bfb_materialization_request', $commerce_request_listener, 10, 1 );
-		// @phpstan-ignore-next-line function.notFound -- Loaded by the bundled Block Format Bridge runtime.
-		$blocks = empty( self::$active_commerce_context ) ? bfb_convert( $html, $format, 'blocks' ) : bfb_convert( $html, $format, 'blocks', self::conversion_options( $source ) );
+		$conversion_options = empty( self::$active_commerce_context ) ? array() : self::conversion_options( $source );
+		$blocks             = self::compile_fragment_to_blocks( $html, $source, $format, $conversion_options );
 		remove_action( 'html_to_blocks_unsupported_html_fallback', $fallback_listener, 10 );
 		remove_action( 'html_to_blocks_conversion_aborted_content_loss', $content_loss_listener, 10 );
 		remove_action( 'bfb_conversion_metadata', $commerce_metadata_listener, 10 );
@@ -3289,6 +3289,86 @@ class Static_Site_Importer_Theme_Generator {
 		self::finish_conversion_fragment( $source, $blocks );
 
 		return '' === $blocks ? '<!-- wp:html -->' . "\n" . $html . "\n" . '<!-- /wp:html -->' : $blocks;
+	}
+
+	/**
+	 * Compile one source fragment into serialized block markup.
+	 *
+	 * Block Artifact Compiler owns the semantic artifact envelope. SSI remains the
+	 * materializer and falls back to BFB directly when the compiler is unavailable.
+	 *
+	 * @param string               $html    Source fragment.
+	 * @param string               $source  Source label.
+	 * @param string               $format  Source format.
+	 * @param array<string, mixed> $options Conversion options.
+	 * @return string Serialized block markup.
+	 */
+	private static function compile_fragment_to_blocks( string $html, string $source, string $format, array $options ): string {
+		if ( 'html' === $format && function_exists( 'bac_compile_website_artifact' ) ) {
+			$compiled = bac_compile_website_artifact(
+				array(
+					'files' => array(
+						array(
+							'path'    => self::compiler_fragment_path( $source ),
+							'kind'    => 'html',
+							'content' => $html,
+						),
+					),
+				),
+				$options
+			);
+			self::record_block_artifact_compiler_result( $source, $compiled );
+
+			$artifacts = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
+			$markup    = isset( $artifacts['block_markup'] ) ? (string) $artifacts['block_markup'] : '';
+			if ( '' !== trim( $markup ) || 'failed' !== (string) ( $compiled['status'] ?? '' ) ) {
+				return $markup;
+			}
+		}
+
+		// @phpstan-ignore-next-line function.notFound -- Loaded by the bundled Block Format Bridge runtime.
+		return (string) bfb_convert( $html, $format, 'blocks', $options );
+	}
+
+	/**
+	 * Build a stable virtual source path for compiler fragment input.
+	 *
+	 * @param string $source Source label.
+	 * @return string Virtual path.
+	 */
+	private static function compiler_fragment_path( string $source ): string {
+		$path = sanitize_title( str_replace( array( ':', '/', '\\' ), '-', $source ) );
+		return ( '' === $path ? 'fragment' : $path ) . '.html';
+	}
+
+	/**
+	 * Record a compact Block Artifact Compiler summary on the import report.
+	 *
+	 * @param string              $source   Source label.
+	 * @param array<string,mixed> $compiled Compiler result envelope.
+	 * @return void
+	 */
+	private static function record_block_artifact_compiler_result( string $source, array $compiled ): void {
+		$artifacts   = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
+		$block_types = isset( $artifacts['block_types'] ) && is_array( $artifacts['block_types'] ) ? $artifacts['block_types'] : array();
+		$files       = isset( $artifacts['files'] ) && is_array( $artifacts['files'] ) ? $artifacts['files'] : array();
+		$diagnostics = isset( $compiled['diagnostics'] ) && is_array( $compiled['diagnostics'] ) ? $compiled['diagnostics'] : array();
+		$summary     = array(
+			'source'           => $source,
+			'schema'           => isset( $compiled['schema'] ) ? (string) $compiled['schema'] : '',
+			'status'           => isset( $compiled['status'] ) ? (string) $compiled['status'] : '',
+			'block_type_count' => count( $block_types ),
+			'file_count'       => count( $files ),
+			'diagnostic_count' => count( $diagnostics ),
+		);
+
+		self::$conversion_report['block_artifact_compiler']['available']      = true;
+		self::$conversion_report['block_artifact_compiler']['fragments'][]    = $summary;
+		self::$conversion_report['block_artifact_compiler']['fragment_count'] = count( self::$conversion_report['block_artifact_compiler']['fragments'] );
+
+		if ( isset( self::$conversion_report['conversion_fragments'][ $source ] ) ) {
+			self::$conversion_report['conversion_fragments'][ $source ]['compiler'] = $summary;
+		}
 	}
 
 	/**
@@ -3815,6 +3895,11 @@ class Static_Site_Importer_Theme_Generator {
 				'resolved'         => array(),
 				'unresolved'       => array(),
 			),
+			'block_artifact_compiler' => array(
+				'available'      => function_exists( 'bac_compile_website_artifact' ),
+				'fragment_count' => 0,
+				'fragments'      => array(),
+			),
 			'generated_theme'         => array(
 				'block_documents' => array(),
 				'freeform_blocks' => array(),
@@ -3837,6 +3922,7 @@ class Static_Site_Importer_Theme_Generator {
 			),
 			'diagnostics'             => array(),
 			'notes'                   => array(
+				'Block Artifact Compiler owns the website-artifact to WordPress-artifact envelope; Static Site Importer materializes the result and records compiler summaries.',
 				'Block Format Bridge owns HTML-to-block transform fidelity; Static Site Importer records converter diagnostics and quality gates the generated theme.',
 				'Generated-theme block validation uses WordPress server-side block parsing and serialization checks; editor-runtime validation remains the exact Gutenberg authority.',
 				'Visual fidelity requires browser rendering; use visual_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',

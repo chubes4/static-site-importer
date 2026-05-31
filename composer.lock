@@ -4,8 +4,47 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "bcd56b6003628ff42dd20f417bba9b7f",
+    "content-hash": "a31209c0c6954ef362d0b085e0385e70",
     "packages": [
+        {
+            "name": "chubes4/block-artifact-compiler",
+            "version": "dev-main",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/chubes4/block-artifact-compiler.git",
+                "reference": "6c946d56e7615ee2ac1b46c8595e63438f461ee0"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/chubes4/block-artifact-compiler/zipball/6c946d56e7615ee2ac1b46c8595e63438f461ee0",
+                "reference": "6c946d56e7615ee2ac1b46c8595e63438f461ee0",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.1"
+            },
+            "default-branch": true,
+            "type": "wordpress-plugin",
+            "autoload": {
+                "files": [
+                    "library.php"
+                ]
+            },
+            "scripts": {
+                "test": [
+                    "php tests/contract-smoke.php"
+                ]
+            },
+            "license": [
+                "GPL-2.0-or-later"
+            ],
+            "description": "Compile website artifacts into WordPress-native block artifact bundles.",
+            "support": {
+                "source": "https://github.com/chubes4/block-artifact-compiler/tree/main",
+                "issues": "https://github.com/chubes4/block-artifact-compiler/issues"
+            },
+            "time": "2026-05-31T02:36:31+00:00"
+        },
         {
             "name": "chubes4/block-format-bridge",
             "version": "dev-main",
@@ -779,6 +818,7 @@
     "aliases": [],
     "minimum-stability": "stable",
     "stability-flags": {
+        "chubes4/block-artifact-compiler": 20,
         "chubes4/block-format-bridge": 20
     },
     "prefer-stable": false,
