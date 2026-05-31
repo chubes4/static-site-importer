@@ -42,6 +42,7 @@ class Block_Artifact_Compiler {
 			'diagnostics'       => array(),
 			'report'            => array(),
 		);
+		$source_report = $this->source_report( $normalized, $entry_path, $html );
 
 		$diagnostics = array_merge( $diagnostics, $conversion['diagnostics'] );
 		$components  = $this->detect_components( $normalized, $entry_path, $documents['components'] );
@@ -66,10 +67,12 @@ class Block_Artifact_Compiler {
 				'files_by_role'   => $this->count_files_by_field( $normalized['files'], 'role' ),
 				'files_by_mime'   => $this->count_files_by_field( $normalized['files'], 'mime_type' ),
 				'original_schema' => (string) ( $artifact['schema'] ?? '' ),
+				'source_report'    => $source_report,
 			),
 			'wordpress_artifacts' => array(
 				'block_markup' => $conversion['serialized_blocks'],
 				'blocks'       => $conversion['blocks'],
+				'block_tree'   => $this->block_tree_report( $conversion['blocks'], $conversion['serialized_blocks'] ),
 				'block_types'  => $block_types,
 				'components'   => $components,
 				'documents'    => $documents['documents'],
@@ -122,11 +125,18 @@ class Block_Artifact_Compiler {
 		$components  = isset( $artifacts['components'] ) && is_array( $artifacts['components'] ) ? $artifacts['components'] : array();
 		$files       = isset( $artifacts['files'] ) && is_array( $artifacts['files'] ) ? $artifacts['files'] : array();
 		$diagnostics = isset( $compiled['diagnostics'] ) && is_array( $compiled['diagnostics'] ) ? $compiled['diagnostics'] : array();
+		$source      = isset( $compiled['input']['source_report'] ) && is_array( $compiled['input']['source_report'] ) ? $compiled['input']['source_report'] : array();
+		$block_tree  = isset( $artifacts['block_tree'] ) && is_array( $artifacts['block_tree'] ) ? $artifacts['block_tree'] : array();
 
 		return array(
 			'schema'           => isset( $compiled['schema'] ) ? (string) $compiled['schema'] : '',
 			'status'           => isset( $compiled['status'] ) ? (string) $compiled['status'] : '',
 			'source'           => isset( $compiled['provenance']['source'] ) ? (string) $compiled['provenance']['source'] : '',
+			'source_element_count' => (int) ( $source['html']['element_count'] ?? 0 ),
+			'source_class_count'   => (int) ( $source['html']['class_count'] ?? 0 ),
+			'source_css_selector_count' => (int) ( $source['css']['selector_count'] ?? 0 ),
+			'block_count'      => (int) ( $block_tree['block_count'] ?? 0 ),
+			'block_depth'      => (int) ( $block_tree['max_depth'] ?? 0 ),
 			'block_type_count' => count( $block_types ),
 			'component_count'  => count( $components ),
 			'file_count'       => count( $files ),
@@ -457,6 +467,222 @@ class Block_Artifact_Compiler {
 			),
 			'report'            => array( 'status' => 'success_with_fallbacks' ),
 		);
+	}
+
+	/**
+	 * Build source-side structural evidence before conversion mutates the document.
+	 *
+	 * @param array{files:array<int,array<string,mixed>>} $artifact Normalized artifact.
+	 * @return array<string,mixed>
+	 */
+	private function source_report( array $artifact, string $entry_path, string $html ): array {
+		return array(
+			'entry_path' => $entry_path,
+			'html'       => $this->html_structure_report( $html ),
+			'css'        => $this->css_structure_report( $artifact['files'] ),
+		);
+	}
+
+	/**
+	 * Summarize source HTML structure and selector-critical tokens.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private function html_structure_report( string $html ): array {
+		$report = array(
+			'bytes'                  => strlen( $html ),
+			'text_length'            => $this->plain_text_length( $html ),
+			'element_count'          => 0,
+			'id_count'               => 0,
+			'class_count'            => 0,
+			'unique_class_count'     => 0,
+			'tag_counts'             => array(),
+			'top_classes'            => array(),
+			'landmark_counts'        => array(),
+			'max_depth'              => 0,
+		);
+
+		if ( '' === trim( $html ) || ! class_exists( 'DOMDocument' ) ) {
+			return $report;
+		}
+
+		$doc = new DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$loaded = $doc->loadHTML( '<!doctype html><html><body>' . $html . '</body></html>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+		if ( ! $loaded ) {
+			return $report;
+		}
+
+		$classes = array();
+		$walk = function ( $node, int $depth ) use ( &$walk, &$report, &$classes ): void {
+			if ( $node instanceof DOMElement ) {
+				$tag = strtolower( $node->tagName );
+				if ( ! in_array( $tag, array( 'html', 'body' ), true ) ) {
+					++$report['element_count'];
+					$report['max_depth'] = max( (int) $report['max_depth'], max( 0, $depth - 2 ) );
+					$report['tag_counts'][ $tag ] = (int) ( $report['tag_counts'][ $tag ] ?? 0 ) + 1;
+					if ( in_array( $tag, array( 'header', 'nav', 'main', 'section', 'article', 'aside', 'footer' ), true ) ) {
+						$report['landmark_counts'][ $tag ] = (int) ( $report['landmark_counts'][ $tag ] ?? 0 ) + 1;
+					}
+					if ( '' !== trim( $node->getAttribute( 'id' ) ) ) {
+						++$report['id_count'];
+					}
+					$class_attr = trim( $node->getAttribute( 'class' ) );
+					if ( '' !== $class_attr ) {
+						foreach ( preg_split( '/\s+/', $class_attr ) ?: array() as $class ) {
+							if ( '' === $class ) {
+								continue;
+							}
+							++$report['class_count'];
+							$classes[ $class ] = (int) ( $classes[ $class ] ?? 0 ) + 1;
+						}
+					}
+				}
+			}
+
+			foreach ( $node->childNodes as $child ) {
+				$walk( $child, $depth + 1 );
+			}
+		};
+		$walk( $doc, 0 );
+
+		arsort( $classes );
+		arsort( $report['tag_counts'] );
+		$report['unique_class_count'] = count( $classes );
+		$report['top_classes'] = array_slice( $classes, 0, 40, true );
+
+		return $report;
+	}
+
+	/**
+	 * Summarize source CSS selectors that can be sensitive to DOM wrapper changes.
+	 *
+	 * @param array<int,array<string,mixed>> $files Normalized files.
+	 * @return array<string,mixed>
+	 */
+	private function css_structure_report( array $files ): array {
+		$report = array(
+			'file_count'                    => 0,
+			'bytes'                         => 0,
+			'selector_count'                => 0,
+			'direct_child_selector_count'   => 0,
+			'sibling_selector_count'        => 0,
+			'pseudo_selector_count'         => 0,
+			'class_selector_count'          => 0,
+			'id_selector_count'             => 0,
+			'layout_sensitive_selectors'    => array(),
+		);
+
+		foreach ( $files as $file ) {
+			if ( 'css' !== ( $file['kind'] ?? '' ) || ! empty( $file['binary'] ) ) {
+				continue;
+			}
+			$css = (string) ( $file['content'] ?? '' );
+			if ( '' === trim( $css ) ) {
+				continue;
+			}
+			++$report['file_count'];
+			$report['bytes'] += strlen( $css );
+			$css = preg_replace( '/\/\*.*?\*\//s', '', $css ) ?? $css;
+			if ( preg_match_all( '/([^{}@][^{}]*)\{[^{}]*\}/', $css, $matches ) ) {
+				foreach ( $matches[1] as $selector_list ) {
+					foreach ( explode( ',', (string) $selector_list ) as $selector ) {
+						$selector = trim( preg_replace( '/\s+/', ' ', $selector ) ?? $selector );
+						if ( '' === $selector ) {
+							continue;
+						}
+						++$report['selector_count'];
+						$direct = str_contains( $selector, '>' );
+						$sibling = str_contains( $selector, '+' ) || str_contains( $selector, '~' );
+						$pseudo = str_contains( $selector, ':' );
+						$report['class_selector_count'] += substr_count( $selector, '.' );
+						$report['id_selector_count'] += substr_count( $selector, '#' );
+						if ( $direct ) {
+							++$report['direct_child_selector_count'];
+						}
+						if ( $sibling ) {
+							++$report['sibling_selector_count'];
+						}
+						if ( $pseudo ) {
+							++$report['pseudo_selector_count'];
+						}
+						if ( $direct || $sibling || $pseudo ) {
+							$report['layout_sensitive_selectors'][] = $selector;
+						}
+					}
+				}
+			}
+		}
+
+		$report['layout_sensitive_selectors'] = array_slice( array_values( array_unique( $report['layout_sensitive_selectors'] ) ), 0, 80 );
+
+		return $report;
+	}
+
+	/**
+	 * Summarize the generated block tree without embedding the full serialized body.
+	 *
+	 * @param array<int,array<string,mixed>> $blocks Parsed blocks.
+	 * @return array<string,mixed>
+	 */
+	private function block_tree_report( array $blocks, string $serialized_blocks ): array {
+		$report = array(
+			'bytes'              => strlen( $serialized_blocks ),
+			'text_length'        => $this->plain_text_length( $serialized_blocks ),
+			'block_count'        => 0,
+			'max_depth'          => 0,
+			'block_name_counts'  => array(),
+			'class_count'        => 0,
+			'unique_class_count' => 0,
+			'top_classes'        => array(),
+		);
+
+		$classes = array();
+		$walk = function ( array $items, int $depth ) use ( &$walk, &$report, &$classes ): void {
+			foreach ( $items as $block ) {
+				if ( ! is_array( $block ) ) {
+					continue;
+				}
+				$name = (string) ( $block['blockName'] ?? '' );
+				if ( '' !== $name ) {
+					++$report['block_count'];
+					$report['max_depth'] = max( (int) $report['max_depth'], $depth );
+					$report['block_name_counts'][ $name ] = (int) ( $report['block_name_counts'][ $name ] ?? 0 ) + 1;
+				}
+				$class_attr = isset( $block['attrs']['className'] ) ? (string) $block['attrs']['className'] : '';
+				foreach ( preg_split( '/\s+/', trim( $class_attr ) ) ?: array() as $class ) {
+					if ( '' === $class ) {
+						continue;
+					}
+					++$report['class_count'];
+					$classes[ $class ] = (int) ( $classes[ $class ] ?? 0 ) + 1;
+				}
+				if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+					$walk( $block['innerBlocks'], $depth + 1 );
+				}
+			}
+		};
+		$walk( $blocks, 1 );
+
+		arsort( $classes );
+		arsort( $report['block_name_counts'] );
+		$report['unique_class_count'] = count( $classes );
+		$report['top_classes'] = array_slice( $classes, 0, 40, true );
+
+		return $report;
+	}
+
+	/**
+	 * Return a WordPress-compatible plain-text length in and out of WordPress.
+	 */
+	private function plain_text_length( string $html ): int {
+		if ( function_exists( 'wp_strip_all_tags' ) ) {
+			return strlen( trim( wp_strip_all_tags( $html ) ) );
+		}
+
+		return strlen( trim( strip_tags( $html ) ) );
 	}
 
 	/**

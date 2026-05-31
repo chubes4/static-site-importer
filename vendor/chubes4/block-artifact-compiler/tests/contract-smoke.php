@@ -31,7 +31,10 @@ $assert( 'block-artifact-compiler/result/v1' === ( $result['schema'] ?? '' ), 'r
 $assert( 'block-artifact-compiler/website-artifact/v1' === ( $result['input']['schema'] ?? '' ), 'input metadata exposes canonical website artifact schema' );
 $assert( 'success_with_warnings' === ( $result['status'] ?? '' ), 'fallback status reflects missing BFB in smoke test', (string) ( $result['status'] ?? '' ) );
 $assert( 'index.html' === ( $result['input']['entry_path'] ?? '' ), 'entry path is captured' );
+$assert( 3 === ( $result['input']['source_report']['html']['element_count'] ?? null ), 'source HTML element count is reported before conversion' );
+$assert( 1 === ( $result['input']['source_report']['html']['landmark_counts']['main'] ?? null ), 'source landmark counts are reported before conversion' );
 $assert( str_contains( (string) ( $result['wordpress_artifacts']['block_markup'] ?? '' ), '<!-- wp:html -->' ), 'fallback block markup is produced' );
+$assert( isset( $result['wordpress_artifacts']['block_tree'] ) && is_array( $result['wordpress_artifacts']['block_tree'] ), 'generated block tree report is exposed' );
 $assert( array() === ( $result['wordpress_artifacts']['block_types'] ?? null ), 'initial contract exposes empty block type list' );
 $assert( isset( $result['wordpress_artifacts']['components'] ) && is_array( $result['wordpress_artifacts']['components'] ), 'component candidates are exposed' );
 
@@ -92,6 +95,8 @@ $assert( 2 === ( $messy['input']['rejected_count'] ?? null ), 'unsafe paths are 
 $assert( 'index.html' === ( $messy['input']['entry_path'] ?? '' ), 'generated_html becomes index entry' );
 $assert( 1 === ( $messy['input']['files_by_kind']['css'] ?? 0 ), 'css shorthand is normalized' );
 $assert( 1 === ( $messy['input']['files_by_kind']['js'] ?? 0 ), 'js file is normalized' );
+$assert( ( $messy['input']['source_report']['html']['unique_class_count'] ?? 0 ) >= 3, 'source class inventory is reported' );
+$assert( 1 === ( $messy['input']['source_report']['css']['selector_count'] ?? null ), 'source CSS selector inventory is reported' );
 $assert( ! empty( $messy['wordpress_artifacts']['components'] ?? array() ), 'component candidates are detected' );
 
 $markdown = bac_compile_website_artifact(
@@ -135,6 +140,8 @@ $assert( 'main-index.html' === ( $fragment['input']['entry_path'] ?? '' ), 'frag
 
 $summary = bac_summarize_result( $messy );
 $assert( ( $summary['component_count'] ?? 0 ) > 0, 'summary exposes component count' );
+$assert( ( $summary['source_element_count'] ?? 0 ) > 0, 'summary exposes source element count' );
+$assert( ( $summary['source_css_selector_count'] ?? 0 ) > 0, 'summary exposes source CSS selector count' );
 
 $rich = bac_compile_website_artifact(
 	array(
