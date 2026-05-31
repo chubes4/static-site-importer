@@ -245,6 +245,7 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertNotWPError( $result );
 		$this->assertIsArray( $result );
 		$this->assertArrayHasKey( 'index.html', $result['pages'] );
+		$this->assertSame( '', $result['source_dir'] );
 
 		$theme_dir = $result['theme_dir'];
 		$style     = $this->read_file( $theme_dir . '/style.css' );
@@ -258,9 +259,11 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'Website Artifact Fixture', $post->post_content );
 		$this->assertIsArray( $report );
 		$this->assertArrayHasKey( 'website_artifact', $report['block_artifact_compiler'] ?? array() );
+		$this->assertSame( 0, $report['block_artifact_compiler']['fragment_count'] ?? null );
 		$this->assertSame( 'success', $report['block_artifact_compiler']['website_artifact']['summary']['status'] ?? '' );
 		$this->assertSame( 'index.html', $report['block_artifact_compiler']['website_artifact']['provenance']['source'] ?? '' );
 		$this->assertNotEmpty( $report['block_artifact_compiler']['website_artifact']['provenance']['source_hash'] ?? '' );
+		$this->assertContains( 'website_artifact_materialization_contract_note', wp_list_pluck( $report['diagnostics'] ?? array(), 'type' ) );
 	}
 
 	/**
