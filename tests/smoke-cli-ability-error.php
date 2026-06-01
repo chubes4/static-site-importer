@@ -45,6 +45,14 @@ function wp_get_ability( string $name ): object|null {
 				throw new RuntimeException( 'max_fallbacks should be omitted when --max-fallbacks is absent.' );
 			}
 
+			if ( array_key_exists( 'asset_policy', $args ) ) {
+				throw new RuntimeException( 'asset_policy should be omitted when --asset-policy is absent.' );
+			}
+
+			if ( array_key_exists( 'asset_materialization_policy', $args ) ) {
+				throw new RuntimeException( 'asset_materialization_policy should be omitted when --asset-materialization-policy is absent.' );
+			}
+
 			return new WP_Error( 'fixture_error', 'Fixture ability failure.' );
 		}
 	};
