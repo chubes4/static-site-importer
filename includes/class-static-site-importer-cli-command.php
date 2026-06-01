@@ -110,10 +110,16 @@ class Static_Site_Importer_CLI_Command {
 			'fail_on_quality'           => isset( $assoc_args['fail-on-quality'] ),
 			'allow_missing_woocommerce' => isset( $assoc_args['allow-missing-woocommerce'] ),
 			'report'                    => isset( $assoc_args['report'] ) ? (string) $assoc_args['report'] : '',
-			'asset_policy'              => isset( $assoc_args['asset-policy'] ) ? (string) $assoc_args['asset-policy'] : '',
-			'asset_materialization_policy' => isset( $assoc_args['asset-materialization-policy'] ) ? (string) $assoc_args['asset-materialization-policy'] : 'copy_to_theme',
 			'source_metadata'           => $source_metadata,
 		);
+
+		if ( isset( $assoc_args['asset-policy'] ) ) {
+			$ability_args['asset_policy'] = (string) $assoc_args['asset-policy'];
+		}
+
+		if ( isset( $assoc_args['asset-materialization-policy'] ) ) {
+			$ability_args['asset_materialization_policy'] = (string) $assoc_args['asset-materialization-policy'];
+		}
 
 		if ( isset( $assoc_args['max-fallbacks'] ) ) {
 			$ability_args['max_fallbacks'] = (int) $assoc_args['max-fallbacks'];
@@ -287,10 +293,16 @@ class Static_Site_Importer_CLI_Command {
 			'fail_on_quality'           => isset( $assoc_args['fail-on-quality'] ),
 			'allow_missing_woocommerce' => isset( $assoc_args['allow-missing-woocommerce'] ),
 			'report'                    => isset( $assoc_args['report'] ) ? (string) $assoc_args['report'] : '',
-			'asset_policy'              => isset( $assoc_args['asset-policy'] ) ? (string) $assoc_args['asset-policy'] : '',
-			'asset_materialization_policy' => isset( $assoc_args['asset-materialization-policy'] ) ? (string) $assoc_args['asset-materialization-policy'] : 'copy_to_theme',
 			'source_metadata'           => array( 'artifact_file' => $artifact_file ),
 		);
+
+		if ( isset( $assoc_args['asset-policy'] ) ) {
+			$ability_args['asset_policy'] = (string) $assoc_args['asset-policy'];
+		}
+
+		if ( isset( $assoc_args['asset-materialization-policy'] ) ) {
+			$ability_args['asset_materialization_policy'] = (string) $assoc_args['asset-materialization-policy'];
+		}
 
 		if ( isset( $assoc_args['max-fallbacks'] ) ) {
 			$ability_args['max_fallbacks'] = (int) $assoc_args['max-fallbacks'];
