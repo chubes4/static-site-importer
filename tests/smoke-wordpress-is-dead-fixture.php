@@ -119,6 +119,16 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( ! str_contains( $front_page, 'wp:pattern' ), 'front-page-does-not-embed-page-pattern' );
 	$assert( is_array( $report ), 'import-report-is-valid-json' );
 	$assert( isset( $report['quality']['fallback_count'] ), 'import-report-includes-fallback-count' );
+	$assert( 'static-site-importer/import-metrics/v1' === ( $result['import_report_summary']['schema'] ?? '' ), 'import-result-summary-has-schema' );
+	$assert( 1 === ( $result['import_report_summary']['version'] ?? 0 ), 'import-result-summary-has-version' );
+	$assert( 1 === ( $result['import_report_summary']['report_version'] ?? 0 ), 'import-result-summary-has-report-version' );
+	$assert( 'wordpress-is-dead-fixture' === ( $result['import_report_summary']['theme_slug'] ?? '' ), 'import-result-summary-has-theme-slug' );
+	$assert( is_array( $report['compact_summary'] ?? null ), 'import-report-includes-compact-summary' );
+	$assert( ( $report['compact_summary']['diagnostic_count'] ?? -1 ) === count( $report['diagnostics'] ?? array() ), 'compact-summary-counts-diagnostics' );
+	$assert( ( $report['compact_summary']['source_document_count'] ?? -1 ) === ( $report['source_documents']['total_count'] ?? -2 ), 'compact-summary-counts-source-documents' );
+	$assert( array_key_exists( 'unresolved_link_count', $report['compact_summary'] ?? array() ), 'compact-summary-includes-unresolved-link-count' );
+	$assert( array_key_exists( 'empty_conversion_count', $report['compact_summary'] ?? array() ), 'compact-summary-includes-empty-conversion-count' );
+	$assert( array_key_exists( 'invalid_block_document_count', $report['compact_summary'] ?? array() ), 'compact-summary-includes-invalid-block-document-count' );
 	$assert( isset( $report['conversion_fragments']['main:index.html'] ), 'import-report-groups-fragments-by-source' );
 	$assert( 'requires_external_render_check' === ( $report['visual_fidelity']['status'] ?? '' ), 'import-report-declares-visual-fidelity-render-check' );
 	$assert( 'benchmark_harness' === ( $report['visual_fidelity']['gate_owner'] ?? '' ), 'import-report-delegates-visual-gate-to-benchmark-harness' );
@@ -757,6 +767,11 @@ if ( false !== $wrote_quality ) {
 		$assert( 1 === ( $quality_result['quality']['fallback_count'] ?? 0 ), 'quality-result-counts-fallbacks' );
 		$assert( false === ( $quality_result['quality']['pass'] ?? true ), 'quality-result-fails-when-fallbacks-exist' );
 		$assert( true === ( $quality_result['quality']['fail_import'] ?? false ), 'quality-gate-fails-when-max-fallbacks-exceeded' );
+		$assert( 'static-site-importer/import-metrics/v1' === ( $quality_result['import_report_summary']['schema'] ?? '' ), 'quality-summary-has-schema' );
+		$assert( 1 === ( $quality_report['compact_summary']['fallback_count'] ?? 0 ), 'quality-compact-summary-counts-fallbacks' );
+		$assert( false === ( $quality_report['compact_summary']['quality_pass'] ?? true ), 'quality-compact-summary-fails' );
+		$assert( in_array( 'unsupported_html_fallback', $quality_report['compact_summary']['failure_reasons'] ?? array(), true ), 'quality-compact-summary-includes-failure-reason' );
+		$assert( ! empty( $quality_report['compact_summary']['warning_summaries'] ?? array() ), 'quality-compact-summary-includes-warning-summaries' );
 		$fallback_diagnostics = is_array( $quality_report ) ? array_values(
 			array_filter(
 				$quality_report['diagnostics'] ?? array(),

@@ -273,6 +273,17 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertSame( 'success', $report['block_artifact_compiler']['website_artifact']['summary']['status'] ?? '' );
 		$this->assertSame( 'index.html', $report['block_artifact_compiler']['website_artifact']['provenance']['source'] ?? '' );
 		$this->assertNotEmpty( $report['block_artifact_compiler']['website_artifact']['provenance']['source_hash'] ?? '' );
+		$this->assertSame( 'static-site-importer/import-metrics/v1', $result['import_report_summary']['schema'] ?? '' );
+		$this->assertSame( 1, $result['import_report_summary']['version'] ?? null );
+		$this->assertSame( 1, $result['import_report_summary']['report_version'] ?? null );
+		$this->assertSame( 'website-artifact-fixture', $result['import_report_summary']['theme_slug'] ?? '' );
+		$this->assertSame( 'block-artifact-compiler/result/v1', $result['import_report_summary']['compiler']['schema'] ?? '' );
+		$this->assertSame( 'success', $result['import_report_summary']['compiler']['status'] ?? '' );
+		$this->assertSame( $result['import_report_summary'], $report['compact_summary'] ?? null );
+		$this->assertSame( $report['source_documents']['total_count'] ?? null, $result['import_report_summary']['source_document_count'] ?? null );
+		$this->assertArrayHasKey( 'empty_conversion_count', $result['import_report_summary'] );
+		$this->assertArrayHasKey( 'invalid_block_document_count', $result['import_report_summary'] );
+		$this->assertArrayHasKey( 'unresolved_link_count', $result['import_report_summary'] );
 		$this->assertContains( 'website_artifact_materialization_contract_note', wp_list_pluck( $report['diagnostics'] ?? array(), 'type' ) );
 	}
 
