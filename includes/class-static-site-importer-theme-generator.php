@@ -8169,10 +8169,6 @@ class Static_Site_Importer_Theme_Generator {
 	private static function compact_import_report_diagnostic_summaries_by_severity( array $diagnostics, string $severity ): array {
 		$summaries = array();
 		foreach ( $diagnostics as $diagnostic ) {
-			if ( ! is_array( $diagnostic ) ) {
-				continue;
-			}
-
 			$diagnostic_severity = isset( $diagnostic['severity'] ) && is_scalar( $diagnostic['severity'] ) ? (string) $diagnostic['severity'] : 'warning';
 			if ( $severity !== $diagnostic_severity ) {
 				continue;
@@ -8258,10 +8254,6 @@ class Static_Site_Importer_Theme_Generator {
 
 		$compact = array();
 		foreach ( array_slice( $diagnostics, 0, 50 ) as $diagnostic ) {
-			if ( ! is_array( $diagnostic ) ) {
-				continue;
-			}
-
 			$row = array();
 			foreach ( $fields as $field ) {
 				if ( ! array_key_exists( $field, $diagnostic ) || null === $diagnostic[ $field ] || '' === $diagnostic[ $field ] || array() === $diagnostic[ $field ] ) {
