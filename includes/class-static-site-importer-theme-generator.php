@@ -287,9 +287,12 @@ class Static_Site_Importer_Theme_Generator {
 		self::analyze_generated_theme_block_documents( $writes, $theme_dir );
 		self::record_visual_fidelity_targets( $pages, $page_ids, $permalinks, $writes, $theme_dir );
 		self::record_semantic_fidelity_targets( $pages, $page_ids, $permalinks, $writes, $theme_dir );
+		self::$conversion_report['theme_slug'] = $theme_slug;
 		self::record_product_seeding_report( $args );
 		self::record_commerce_dependency_check( $args );
 		$quality     = self::finalize_quality_report( $args );
+		$summary     = self::import_report_summary( self::$conversion_report, $quality );
+		self::$conversion_report['compact_summary'] = $summary;
 		$report_json = wp_json_encode( self::$conversion_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 		if ( false === $report_json ) {
 			return new WP_Error( 'static_site_importer_report_encode_failed', 'Failed to encode import report JSON.' );
@@ -348,7 +351,7 @@ class Static_Site_Importer_Theme_Generator {
 			'theme_dir'             => $theme_dir,
 			'report_path'           => $theme_dir . '/import-report.json',
 			'external_report_path'  => $external_report_path,
-			'import_report_summary' => self::import_report_summary( self::$conversion_report, $quality ),
+			'import_report_summary' => $summary,
 			'source_dir'            => $site_dir,
 			'source_deleted'        => $source_deleted,
 			'source_cleanup_error'  => $source_cleanup_error,
@@ -521,9 +524,12 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		self::analyze_generated_theme_block_documents( $writes, $theme_dir );
+		self::$conversion_report['theme_slug'] = $theme_slug;
 		self::record_product_seeding_report( $args );
 		self::record_commerce_dependency_check( $args );
 		$quality     = self::finalize_quality_report( $args );
+		$summary     = self::import_report_summary( self::$conversion_report, $quality );
+		self::$conversion_report['compact_summary'] = $summary;
 		$report_json = wp_json_encode( self::$conversion_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 		if ( false === $report_json ) {
 			return new WP_Error( 'static_site_importer_report_encode_failed', 'Failed to encode import report JSON.' );
@@ -565,7 +571,7 @@ class Static_Site_Importer_Theme_Generator {
 			'theme_dir'             => $theme_dir,
 			'report_path'           => $theme_dir . '/import-report.json',
 			'external_report_path'  => $external_report_path,
-			'import_report_summary' => self::import_report_summary( self::$conversion_report, $quality ),
+			'import_report_summary' => $summary,
 			'source_dir'            => '',
 			'source_deleted'        => false,
 			'source_cleanup_error'  => '',
@@ -8058,22 +8064,165 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return array<string, mixed>
 	 */
 	private static function import_report_summary( array $report, array $quality ): array {
-		$diagnostics = isset( $report['diagnostics'] ) && is_array( $report['diagnostics'] ) ? $report['diagnostics'] : array();
+		$diagnostics      = isset( $report['diagnostics'] ) && is_array( $report['diagnostics'] ) ? $report['diagnostics'] : array();
+		$source_documents = isset( $report['source_documents'] ) && is_array( $report['source_documents'] ) ? $report['source_documents'] : array();
 
 		return array(
-			'status'                => ! empty( $quality['fail_import'] ) ? 'failed' : 'completed',
-			'entry_file'            => isset( $report['entry_file'] ) ? (string) $report['entry_file'] : '',
-			'quality_pass'          => ! empty( $quality['pass'] ),
-			'fail_import'           => ! empty( $quality['fail_import'] ),
-			'failure_reasons'       => isset( $quality['failure_reasons'] ) && is_array( $quality['failure_reasons'] ) ? array_values( $quality['failure_reasons'] ) : array(),
-			'fallback_count'        => (int) ( $quality['fallback_count'] ?? 0 ),
-			'core_html_block_count' => (int) ( $quality['core_html_block_count'] ?? 0 ),
-			'freeform_block_count'  => (int) ( $quality['freeform_block_count'] ?? 0 ),
-			'invalid_block_count'   => (int) ( $quality['invalid_block_count'] ?? 0 ),
-			'content_loss_count'    => (int) ( $quality['content_loss_count'] ?? 0 ),
-			'diagnostic_count'      => count( $diagnostics ),
-			'diagnostics'           => self::compact_import_report_diagnostics( $diagnostics ),
+			'schema'                       => 'static-site-importer/import-metrics/v1',
+			'version'                      => 1,
+			'report_version'               => (int) ( $report['version'] ?? 0 ),
+			'status'                       => ! empty( $quality['fail_import'] ) ? 'failed' : 'completed',
+			'theme_slug'                   => isset( $report['theme_slug'] ) ? (string) $report['theme_slug'] : '',
+			'entry_file'                   => isset( $report['entry_file'] ) ? (string) $report['entry_file'] : '',
+			'compiler'                     => self::compact_import_report_compiler_summary( $report ),
+			'quality_pass'                 => ! empty( $quality['pass'] ),
+			'fail_import'                  => ! empty( $quality['fail_import'] ),
+			'failure_reasons'              => isset( $quality['failure_reasons'] ) && is_array( $quality['failure_reasons'] ) ? array_values( $quality['failure_reasons'] ) : array(),
+			'fallback_count'               => (int) ( $quality['fallback_count'] ?? 0 ),
+			'content_loss_count'           => (int) ( $quality['content_loss_count'] ?? 0 ),
+			'empty_conversion_count'       => (int) ( $quality['empty_conversion_count'] ?? 0 ),
+			'core_html_block_count'        => (int) ( $quality['core_html_block_count'] ?? 0 ),
+			'freeform_block_count'         => (int) ( $quality['freeform_block_count'] ?? 0 ),
+			'invalid_block_count'          => (int) ( $quality['invalid_block_count'] ?? 0 ),
+			'invalid_block_document_count' => (int) ( $quality['invalid_block_document_count'] ?? 0 ),
+			'source_document_count'        => (int) ( $source_documents['total_count'] ?? 0 ),
+			'unresolved_link_count'        => (int) ( $source_documents['unresolved_link_count'] ?? 0 ),
+			'diagnostic_count'             => count( $diagnostics ),
+			'diagnostic_summary'           => self::compact_import_report_diagnostic_summary( $diagnostics ),
+			'warning_summaries'            => self::compact_import_report_diagnostic_summaries_by_severity( $diagnostics, 'warning' ),
+			'error_summaries'              => self::compact_import_report_diagnostic_summaries_by_severity( $diagnostics, 'error' ),
+			'diagnostics'                  => self::compact_import_report_diagnostics( $diagnostics ),
 		);
+	}
+
+	/**
+	 * Summarize compiler evidence for compact import metrics.
+	 *
+	 * @param array<string,mixed> $report Full conversion report.
+	 * @return array<string,mixed>
+	 */
+	private static function compact_import_report_compiler_summary( array $report ): array {
+		$compiler = isset( $report['block_artifact_compiler'] ) && is_array( $report['block_artifact_compiler'] ) ? $report['block_artifact_compiler'] : array();
+		$summary  = array(
+			'available'      => ! empty( $compiler['available'] ),
+			'fragment_count' => (int) ( $compiler['fragment_count'] ?? 0 ),
+		);
+
+		$website_artifact = isset( $compiler['website_artifact'] ) && is_array( $compiler['website_artifact'] ) ? $compiler['website_artifact'] : array();
+		$compiler_summary = isset( $website_artifact['summary'] ) && is_array( $website_artifact['summary'] ) ? $website_artifact['summary'] : array();
+		if ( empty( $compiler_summary ) && ! empty( $compiler['fragments'][0]['summary'] ) && is_array( $compiler['fragments'][0]['summary'] ) ) {
+			$compiler_summary = $compiler['fragments'][0]['summary'];
+		}
+
+		foreach ( array( 'schema', 'status', 'source' ) as $field ) {
+			if ( isset( $compiler_summary[ $field ] ) && is_scalar( $compiler_summary[ $field ] ) ) {
+				$summary[ $field ] = (string) $compiler_summary[ $field ];
+			}
+		}
+
+		if ( isset( $compiler_summary['diagnostic_count'] ) ) {
+			$summary['diagnostic_count'] = (int) $compiler_summary['diagnostic_count'];
+		}
+
+		return $summary;
+	}
+
+	/**
+	 * Summarize compact diagnostics by severity.
+	 *
+	 * @param array<int,array<string,mixed>> $diagnostics Normalized diagnostics.
+	 * @return array<string,int>
+	 */
+	private static function compact_import_report_diagnostic_summary( array $diagnostics ): array {
+		$summary = array(
+			'total'   => 0,
+			'error'   => 0,
+			'warning' => 0,
+			'notice'  => 0,
+			'info'    => 0,
+		);
+
+		foreach ( $diagnostics as $diagnostic ) {
+			if ( ! is_array( $diagnostic ) ) {
+				continue;
+			}
+
+			++$summary['total'];
+			$severity = isset( $diagnostic['severity'] ) && is_scalar( $diagnostic['severity'] ) ? (string) $diagnostic['severity'] : 'warning';
+			if ( ! array_key_exists( $severity, $summary ) ) {
+				$severity = 'warning';
+			}
+
+			++$summary[ $severity ];
+		}
+
+		return $summary;
+	}
+
+	/**
+	 * Build concise diagnostic summaries for a severity bucket.
+	 *
+	 * @param array<int,array<string,mixed>> $diagnostics Normalized diagnostics.
+	 * @param string                         $severity    Severity to include.
+	 * @return array<int,array<string,string>>
+	 */
+	private static function compact_import_report_diagnostic_summaries_by_severity( array $diagnostics, string $severity ): array {
+		$summaries = array();
+		foreach ( $diagnostics as $diagnostic ) {
+			if ( ! is_array( $diagnostic ) ) {
+				continue;
+			}
+
+			$diagnostic_severity = isset( $diagnostic['severity'] ) && is_scalar( $diagnostic['severity'] ) ? (string) $diagnostic['severity'] : 'warning';
+			if ( $severity !== $diagnostic_severity ) {
+				continue;
+			}
+
+			$summaries[] = array(
+				'id'      => isset( $diagnostic['id'] ) && is_scalar( $diagnostic['id'] ) ? (string) $diagnostic['id'] : '',
+				'type'    => isset( $diagnostic['type'] ) && is_scalar( $diagnostic['type'] ) ? (string) $diagnostic['type'] : 'static_site_importer_diagnostic',
+				'source'  => self::diagnostic_summary_source( $diagnostic ),
+				'message' => self::diagnostic_summary_message( $diagnostic ),
+			);
+
+			if ( count( $summaries ) >= 10 ) {
+				break;
+			}
+		}
+
+		return $summaries;
+	}
+
+	/**
+	 * Resolve a concise diagnostic source label.
+	 *
+	 * @param array<string,mixed> $diagnostic Normalized diagnostic.
+	 * @return string
+	 */
+	private static function diagnostic_summary_source( array $diagnostic ): string {
+		foreach ( array( 'source_path', 'source' ) as $field ) {
+			if ( isset( $diagnostic[ $field ] ) && is_scalar( $diagnostic[ $field ] ) ) {
+				return (string) $diagnostic[ $field ];
+			}
+		}
+
+		return '';
+	}
+
+	/**
+	 * Resolve a concise diagnostic message.
+	 *
+	 * @param array<string,mixed> $diagnostic Normalized diagnostic.
+	 * @return string
+	 */
+	private static function diagnostic_summary_message( array $diagnostic ): string {
+		foreach ( array( 'message', 'reason', 'excerpt', 'error_message', 'html_excerpt' ) as $field ) {
+			if ( isset( $diagnostic[ $field ] ) && is_scalar( $diagnostic[ $field ] ) && '' !== trim( (string) $diagnostic[ $field ] ) ) {
+				return self::diagnostic_excerpt( (string) $diagnostic[ $field ] );
+			}
+		}
+
+		return isset( $diagnostic['type'] ) && is_scalar( $diagnostic['type'] ) ? (string) $diagnostic['type'] : 'static_site_importer_diagnostic';
 	}
 
 	/**

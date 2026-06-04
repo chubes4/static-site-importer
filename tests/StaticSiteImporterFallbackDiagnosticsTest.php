@@ -54,8 +54,26 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 		$result = $summary->invoke(
 			null,
 			array(
-				'entry_file'  => '/tmp/source/index.html',
-				'diagnostics' => array(
+				'entry_file'              => '/tmp/source/index.html',
+				'version'                 => 1,
+				'theme_slug'              => 'static-template-import',
+				'block_artifact_compiler' => array(
+					'available'        => true,
+					'fragment_count'   => 0,
+					'website_artifact' => array(
+						'summary' => array(
+							'schema'           => 'block-artifact-compiler/result/v1',
+							'status'           => 'success',
+							'source'           => 'artifact.json',
+							'diagnostic_count' => 0,
+						),
+					),
+				),
+				'source_documents'        => array(
+					'total_count'           => 2,
+					'unresolved_link_count' => 1,
+				),
+				'diagnostics'             => array(
 					array(
 						'id'                     => 'diag-001-unsupported_html_fallback-no_transform-indexhtml',
 						'type'                   => 'unsupported_html_fallback',
@@ -76,13 +94,27 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 				),
 			),
 			array(
-				'pass'           => false,
-				'fail_import'    => false,
-				'fallback_count' => 1,
+				'pass'                         => false,
+				'fail_import'                  => false,
+				'failure_reasons'              => array( 'unsupported_html_fallback' ),
+				'fallback_count'               => 1,
+				'empty_conversion_count'       => 0,
+				'invalid_block_document_count' => 0,
 			)
 		);
 
+		$this->assertSame( 'static-site-importer/import-metrics/v1', $result['schema'] ?? '' );
+		$this->assertSame( 1, $result['version'] ?? 0 );
+		$this->assertSame( 1, $result['report_version'] ?? 0 );
+		$this->assertSame( 'static-template-import', $result['theme_slug'] ?? '' );
+		$this->assertSame( 'block-artifact-compiler/result/v1', $result['compiler']['schema'] ?? '' );
+		$this->assertSame( 'success', $result['compiler']['status'] ?? '' );
 		$this->assertSame( 1, $result['diagnostic_count'] ?? 0 );
+		$this->assertSame( 2, $result['source_document_count'] ?? 0 );
+		$this->assertSame( 1, $result['unresolved_link_count'] ?? 0 );
+		$this->assertSame( 1, $result['diagnostic_summary']['warning'] ?? 0 );
+		$this->assertCount( 1, $result['warning_summaries'] ?? array() );
+		$this->assertSame( 'unsupported_html_fallback', $result['warning_summaries'][0]['type'] ?? '' );
 		$this->assertCount( 1, $result['diagnostics'] ?? array() );
 		$this->assertSame( 'diag-001-unsupported_html_fallback-no_transform-indexhtml', $result['diagnostics'][0]['id'] ?? '' );
 		$this->assertSame( 'index.html', $result['diagnostics'][0]['source_path'] ?? '' );
