@@ -194,7 +194,7 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 			$this->assertTrue( $this->contains_selector( $post->post_content, '.hero' ) );
 			$this->assertNotEmpty( parse_blocks( $post->post_content ), 'Page block parse failed for ' . $filename );
 			$this->assertNotEmpty( parse_blocks( $pattern_body ), 'Pattern snapshot block parse failed for ' . $filename );
-			$this->assertSame( trim( $pattern_body ), trim( $post->post_content ), 'Pattern snapshot should match page content for ' . $filename );
+			$this->assertSame( trim( wp_kses_post( $pattern_body ) ), trim( $post->post_content ), 'Pattern snapshot should match page content for ' . $filename );
 			$pages[ $filename ] = array(
 				'stored'   => $post->post_content,
 				'rendered' => do_blocks( $post->post_content ),
@@ -327,6 +327,18 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 								'severity' => 'warning',
 								'message'  => 'BAC normalized an MDX component before SSI materialization.',
 							),
+						),
+					),
+				),
+				'site'      => array(
+					'schema' => 'block-artifact-compiler/compiled-site/v1',
+					'pages'  => array(
+						array(
+							'source_path' => 'content.mdx',
+							'route_key'   => 'content',
+							'post_type'   => 'post',
+							'slug'        => 'compiled-bac-post',
+							'title'       => 'Compiled BAC Post',
 						),
 					),
 				),
