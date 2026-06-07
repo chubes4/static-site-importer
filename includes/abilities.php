@@ -217,6 +217,7 @@ if ( ! function_exists( 'static_site_importer_ability_import_website_artifact' )
 			'fail_on_quality'              => ! empty( $input['fail_on_quality'] ),
 			'max_fallbacks'                => isset( $input['max_fallbacks'] ) ? (int) $input['max_fallbacks'] : null,
 			'allow_missing_woocommerce'    => ! empty( $input['allow_missing_woocommerce'] ),
+			'materialize_dependencies'     => array_key_exists( 'materialize_dependencies', $input ) ? (bool) $input['materialize_dependencies'] : true,
 			'report'                       => isset( $input['report'] ) ? (string) $input['report'] : '',
 			'asset_policy'                 => isset( $input['asset_policy'] ) ? (string) $input['asset_policy'] : '',
 			'asset_materialization_policy' => isset( $input['asset_materialization_policy'] ) ? (string) $input['asset_materialization_policy'] : '',

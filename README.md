@@ -118,15 +118,19 @@ Commerce-bearing imports require WooCommerce. Commerce intent is detected when a
 - caller-supplied `commerce_context` with at least one product, or
 - inferred commerce context from JSON-LD `Product` data or visible product cards.
 
-When intent is present and WooCommerce is not active, Static Site Importer hard-fails the import by default. Theme files are still written so the import report and generated artifacts can be inspected. The failure surfaces three ways:
+When intent is present and WooCommerce is not active, Static Site Importer first tries to materialize the dependency deterministically by installing and activating WooCommerce from WordPress.org inside the active WordPress runtime. This keeps product support in the WordPress/PHP materializer rather than relying on the generating agent to install plugins by prompt convention.
+
+The dependency materialization result is recorded under `plugin_materialization.plugins.woocommerce` with the plugin slug, plugin file, source, attempted flag, install/activate actions, status, and any error. If WooCommerce is already loaded, the status is `already_available`; if the runtime installs and activates it, the status is `installed_activated`; if installation or activation is unavailable, the status is `failed` and the normal dependency gate still protects the import.
+
+When WooCommerce remains unavailable after materialization, Static Site Importer hard-fails the import by default. Theme files are still written so the import report and generated artifacts can be inspected. The failure surfaces three ways:
 
 - `commerce.dependencies.woocommerce` block on the import report (`required`, `active`, `waived`, `sources`, `product_count`, `missing_apis`).
 - A `woocommerce_missing` error diagnostic in the report `diagnostics[]` list.
 - `quality.failure_reasons[]` contains `woocommerce_missing`, `quality.commerce_dependency_failures` is non-zero, and `quality.fail_import` is set regardless of `--fail-on-quality`.
 
-Pass `--allow-missing-woocommerce` (CLI) or `'allow_missing_woocommerce' => true` (PHP API) to import the theme without seeding products. The waiver records a `woocommerce_waived` warning diagnostic and clears the dependency failure. Non-commerce imports (no manifest, no inferred context) are unaffected: no `commerce.dependencies` block is recorded and no dependency diagnostics are emitted.
+Pass `--allow-missing-woocommerce` (CLI) or `'allow_missing_woocommerce' => true` (PHP API) to import the theme without seeding products. The waiver records a `woocommerce_waived` warning diagnostic and clears the dependency failure. Pass `--skip-dependency-materialization` (CLI) or `'materialize_dependencies' => false` (PHP API) only for tests or hosts that intentionally forbid plugin installation. Non-commerce imports (no manifest, no inferred context) are unaffected: no `commerce.dependencies` block is recorded and no dependency diagnostics are emitted.
 
-The import-time auto-install of WooCommerce (`--ensure-woocommerce`) is intentionally out of scope for this gate; install WooCommerce explicitly with `wp plugin install woocommerce --activate` before retrying the import.
+This materializer is intentionally generic: WooCommerce is the first plugin-backed entity path, and the same pattern should be used for bbPress forums/topics, Jetpack-backed features, and other popular WordPress.org plugins. The source artifact declares or implies plugin-backed intent; SSI materializes the plugin in PHP; then a plugin-specific seeder creates native WordPress/plugin entities and records diagnostics.
 
 ## CLI Usage
 

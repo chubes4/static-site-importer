@@ -25,6 +25,7 @@ if ( is_readable( STATIC_SITE_IMPORTER_PATH . 'vendor/autoload.php' ) ) {
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-document.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-source-page.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-url-fetcher.php';
+require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-plugin-materializer.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-woo-product-seeder.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-wp-codebox-artifact-diagnostics-normalizer.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-theme-generator.php';
