@@ -27,7 +27,7 @@ When a generated artifact contains full-document HTML, Static Site Importer rout
 - Allows ZIP/CLI source-site imports to include nested `.md` / `.markdown` content documents; `.mdx` is skipped with explicit diagnostics because MDX runtime components are not supported.
 - Provides a WP-CLI importer for a local HTML entry file or one public HTML URL; the local source file does not need to be named `index.html` unless you want automatic front-page assignment.
 - Discovers readable sibling `*.html` files beside the selected entry file and recursive Markdown content documents under the source tree, then imports them as WordPress pages.
-- Converts static HTML fragments through `bfb_convert( $html, 'html', 'blocks' )` and Markdown content through `bfb_convert( $markdown, 'markdown', 'blocks' )`.
+- Compiles static HTML fragments through Block Artifact Compiler, which delegates deterministic format conversion to Block Format Bridge and the bundled HTML-to-blocks converter. Markdown content still routes through Block Format Bridge's Markdown adapter.
 - Stores converted page bodies on the imported WordPress pages as `post_content`.
 - Generates a block theme with shared header/footer template parts, `core/post-content` templates, page patterns for reusable/reference artifacts, `theme.json`, `style.css`, and optional `assets/site.js`.
 - Rewrites local `.html` links to the imported WordPress page permalinks.
@@ -118,15 +118,19 @@ Commerce-bearing imports require WooCommerce. Commerce intent is detected when a
 - caller-supplied `commerce_context` with at least one product, or
 - inferred commerce context from JSON-LD `Product` data or visible product cards.
 
-When intent is present and WooCommerce is not active, Static Site Importer hard-fails the import by default. Theme files are still written so the import report and generated artifacts can be inspected. The failure surfaces three ways:
+When intent is present and WooCommerce is not active, Static Site Importer first tries to materialize the dependency deterministically by installing and activating WooCommerce from WordPress.org inside the active WordPress runtime. This keeps product support in the WordPress/PHP materializer rather than relying on the generating agent to install plugins by prompt convention.
+
+The dependency materialization result is recorded under `plugin_materialization.plugins.woocommerce` with the plugin slug, plugin file, source, attempted flag, install/activate actions, status, and any error. If WooCommerce is already loaded, the status is `already_available`; if the runtime installs and activates it, the status is `installed_activated`; if installation or activation is unavailable, the status is `failed` and the normal dependency gate still protects the import.
+
+When WooCommerce remains unavailable after materialization, Static Site Importer hard-fails the import by default. Theme files are still written so the import report and generated artifacts can be inspected. The failure surfaces three ways:
 
 - `commerce.dependencies.woocommerce` block on the import report (`required`, `active`, `waived`, `sources`, `product_count`, `missing_apis`).
 - A `woocommerce_missing` error diagnostic in the report `diagnostics[]` list.
 - `quality.failure_reasons[]` contains `woocommerce_missing`, `quality.commerce_dependency_failures` is non-zero, and `quality.fail_import` is set regardless of `--fail-on-quality`.
 
-Pass `--allow-missing-woocommerce` (CLI) or `'allow_missing_woocommerce' => true` (PHP API) to import the theme without seeding products. The waiver records a `woocommerce_waived` warning diagnostic and clears the dependency failure. Non-commerce imports (no manifest, no inferred context) are unaffected: no `commerce.dependencies` block is recorded and no dependency diagnostics are emitted.
+Pass `--allow-missing-woocommerce` (CLI) or `'allow_missing_woocommerce' => true` (PHP API) to import the theme without seeding products. The waiver records a `woocommerce_waived` warning diagnostic and clears the dependency failure. Pass `--skip-dependency-materialization` (CLI) or `'materialize_dependencies' => false` (PHP API) only for tests or hosts that intentionally forbid plugin installation. Non-commerce imports (no manifest, no inferred context) are unaffected: no `commerce.dependencies` block is recorded and no dependency diagnostics are emitted.
 
-The import-time auto-install of WooCommerce (`--ensure-woocommerce`) is intentionally out of scope for this gate; install WooCommerce explicitly with `wp plugin install woocommerce --activate` before retrying the import.
+This materializer is intentionally generic: WooCommerce is the first plugin-backed entity path, and the same pattern should be used for bbPress forums/topics, Jetpack-backed features, and other popular WordPress.org plugins. The source artifact declares or implies plugin-backed intent; SSI materializes the plugin in PHP; then a plugin-specific seeder creates native WordPress/plugin entities and records diagnostics.
 
 ## CLI Usage
 
@@ -284,7 +288,7 @@ This repo is Homeboy-managed:
 
 ## Current Boundaries And Limitations
 
-- The importer is intentionally static-site/artifact-to-block-theme glue. Block Artifact Compiler owns generated website artifact compilation; Block Format Bridge owns format conversion; HTML-to-block transform fidelity belongs upstream in BFB/h2bc.
+- The importer is intentionally static-site/artifact-to-block-theme glue. Block Artifact Compiler owns generated website artifact and fragment compilation envelopes; Block Format Bridge owns format routing and conversion reports; HTML-to-block transform fidelity belongs upstream in BFB/h2bc.
 - The importer currently discovers flat sibling `*.html` files beside the selected entry file and recursive Markdown content documents; it does not crawl arbitrary nested HTML routes.
 - Admin imports accept pasted HTML, one public URL, a direct `.html` / `.htm` file, or a ZIP with a root `index.html` or exactly one nested `index.html`; CLI imports take a direct HTML entry path or one public URL.
 - MDX, Astro, Eleventy, Hugo, and other runtime/build orchestration is out of scope. Build those projects to static HTML first, or provide plain `.md` / `.markdown` source content alongside the HTML shell.
@@ -294,6 +298,14 @@ This repo is Homeboy-managed:
 
 ## Boundary
 
-This plugin owns static-site and website-artifact import workflows plus generated WordPress artifacts. [Block Artifact Compiler](https://github.com/chubes4/block-artifact-compiler) owns generated website artifact compilation. [Block Format Bridge](https://github.com/chubes4/block-format-bridge) owns content-format conversion.
+This plugin owns static-site and website-artifact import workflows plus generated WordPress artifacts. [Block Artifact Compiler](https://github.com/chubes4/block-artifact-compiler) owns generated website artifact and fragment compilation, including the materializer-neutral `block-artifact-compiler/compiled-site/v1` page route, shared-region, and theme-asset contract. [Block Format Bridge](https://github.com/chubes4/block-format-bridge) owns content-format routing, conversion reports, and adapter ergonomics. The bundled HTML-to-blocks converter owns raw HTML transform mechanics underneath BFB.
+
+The intended dependency direction is:
+
+```text
+Static Site Importer -> Block Artifact Compiler -> Block Format Bridge -> HTML to Blocks Converter
+```
+
+SSI import reports consume BAC/BFB result envelopes for fallback and conversion-quality diagnostics, and record BAC's compiled-site contract when importing website artifacts. They should not depend on lower-level h2bc hook names directly or re-derive semantic page-route intent when BAC supplies it.
 
 Imported pages remain WordPress pages for routing, titles, front-page assignment, editor visibility, and body content edits. Their imported body layouts live on the page posts as block markup in `post_content`. The generated block theme owns shared header/footer parts, optional background decoration, frontend/editor styles, scripts, and template wrappers that render page bodies through `core/post-content`; the generic `templates/page.html` stays the fallback for pages created after import.

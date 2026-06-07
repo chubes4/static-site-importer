@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "b95a9a18714916bf7f5881fdd9e1a2be",
+    "content-hash": "7c6b948ce285574028c9811553259d32",
     "packages": [
         {
             "name": "chubes4/block-artifact-compiler",
             "version": "dev-main",
             "source": {
                 "type": "git",
-                "url": "https://github.com/chubes4/block-artifact-compiler.git",
-                "reference": "f1c49b907cd94b7c10cc8c9a67cf6b5122c02cab"
+                "url": "https://github.com/chubes4/block-artifact-compiler",
+                "reference": "e67feb638286af3e67d59e4fb7b42c4fa1dcea6c"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/chubes4/block-artifact-compiler/zipball/f1c49b907cd94b7c10cc8c9a67cf6b5122c02cab",
-                "reference": "f1c49b907cd94b7c10cc8c9a67cf6b5122c02cab",
+                "url": "https://api.github.com/repos/chubes4/block-artifact-compiler/zipball/e67feb638286af3e67d59e4fb7b42c4fa1dcea6c",
+                "reference": "e67feb638286af3e67d59e4fb7b42c4fa1dcea6c",
                 "shasum": ""
             },
             "require": {
@@ -39,18 +39,14 @@
                 "GPL-2.0-or-later"
             ],
             "description": "Compile website artifacts into WordPress-native block artifact bundles.",
-            "support": {
-                "source": "https://github.com/chubes4/block-artifact-compiler/tree/main",
-                "issues": "https://github.com/chubes4/block-artifact-compiler/issues"
-            },
-            "time": "2026-06-07T16:54:06+00:00"
+            "time": "2026-06-07T21:17:08+00:00"
         },
         {
             "name": "chubes4/block-format-bridge",
             "version": "dev-refresh-h2bc-static-form-parity",
             "source": {
                 "type": "git",
-                "url": "https://github.com/chubes4/block-format-bridge.git",
+                "url": "https://github.com/chubes4/block-format-bridge",
                 "reference": "bd96361850b297a7226b5bcf41abaebf3e76cded"
             },
             "dist": {
@@ -90,10 +86,6 @@
             ],
             "description": "WordPress plugin orchestrating bidirectional content format conversion (HTML, Blocks, Markdown) via a unified adapter API.",
             "homepage": "https://github.com/chubes4/block-format-bridge",
-            "support": {
-                "source": "https://github.com/chubes4/block-format-bridge/tree/refresh-h2bc-static-form-parity",
-                "issues": "https://github.com/chubes4/block-format-bridge/issues"
-            },
             "time": "2026-06-07T21:24:44+00:00"
         },
         {
@@ -101,7 +93,7 @@
             "version": "dev-fix-static-form-surrogate-parity",
             "source": {
                 "type": "git",
-                "url": "https://github.com/chubes4/html-to-blocks-converter.git",
+                "url": "https://github.com/chubes4/html-to-blocks-converter",
                 "reference": "78289412228f3d71cc44136dfdd50ea0aad0b82f"
             },
             "dist": {
@@ -130,10 +122,6 @@
             ],
             "description": "Convert raw HTML into Gutenberg block arrays using WordPress' HTML API.",
             "homepage": "https://github.com/chubes4/html-to-blocks-converter",
-            "support": {
-                "source": "https://github.com/chubes4/html-to-blocks-converter/tree/fix-static-form-surrogate-parity",
-                "issues": "https://github.com/chubes4/html-to-blocks-converter/issues"
-            },
             "time": "2026-06-07T21:24:15+00:00"
         },
         {
@@ -858,7 +846,8 @@
     "minimum-stability": "dev",
     "stability-flags": {
         "chubes4/block-artifact-compiler": 20,
-        "chubes4/block-format-bridge": 20
+        "chubes4/block-format-bridge": 20,
+        "chubes4/html-to-blocks-converter": 20
     },
     "prefer-stable": true,
     "prefer-lowest": false,
