@@ -22,6 +22,10 @@ $scenario_matrix = array(
 	'all-consumers-before-ssi'    => array( 'standalone-h2bc', 'standalone-bfb-with-h2bc', 'consumer-bfb-a', 'consumer-h2bc-a', 'consumer-bfb-b', 'ssi' ),
 	'ssi-between-consumers'       => array( 'consumer-bfb-a', 'consumer-h2bc-a', 'ssi', 'standalone-bfb-with-h2bc', 'consumer-bfb-b' ),
 	'all-consumers-after-ssi'     => array( 'ssi', 'standalone-bfb-with-h2bc', 'consumer-bfb-a', 'consumer-h2bc-a', 'consumer-bfb-b' ),
+	'plugins-loaded-before-ssi'  => array( 'standalone-bfb-with-h2bc', '@plugins_loaded', 'ssi', 'consumer-bfb-a' ),
+	'ssi-before-late-consumers'  => array( 'ssi', '@plugins_loaded', 'consumer-bfb-a', 'standalone-h2bc', 'consumer-bfb-b' ),
+	'h2bc-before-late-bfb'       => array( 'standalone-h2bc', '@plugins_loaded', 'consumer-bfb-a', 'ssi' ),
+	'bfb-before-late-h2bc'       => array( 'standalone-bfb', '@plugins_loaded', 'ssi', 'consumer-h2bc-a' ),
 );
 
 if ( ! getenv( 'SSI_COMBINED_DEPENDENCY_SMOKE_CHILD' ) ) {
@@ -263,7 +267,7 @@ function ssi_smoke_component_contains_bfb( string $component ): bool {
 }
 
 function ssi_smoke_component_contains_h2bc( string $component ): bool {
-	return 'ssi' === $component || str_contains( $component, 'h2bc' ) || str_contains( $component, 'bfb' );
+	return 'ssi' === $component || str_contains( $component, 'h2bc' ) || in_array( $component, array( 'standalone-bfb-with-h2bc', 'consumer-bfb-a', 'consumer-bfb-b' ), true );
 }
 
 function ssi_smoke_last_matching_component( array $components, callable $predicate ): ?string {
@@ -276,6 +280,36 @@ function ssi_smoke_last_matching_component( array $components, callable $predica
 	}
 
 	return $winner;
+}
+
+function ssi_smoke_winning_component( array $components, callable $predicate ): ?string {
+	$plugins_loaded_index = array_search( '@plugins_loaded', $components, true );
+
+	if ( false === $plugins_loaded_index ) {
+		return ssi_smoke_last_matching_component( $components, $predicate );
+	}
+
+	$before_hook        = array_slice( $components, 0, $plugins_loaded_index );
+	$before_hook_winner = ssi_smoke_last_matching_component( $before_hook, $predicate );
+	if ( null !== $before_hook_winner ) {
+		return $before_hook_winner;
+	}
+
+	foreach ( array_slice( $components, $plugins_loaded_index + 1 ) as $component ) {
+		if ( $predicate( $component ) ) {
+			return $component;
+		}
+	}
+
+	return null;
+}
+
+function ssi_smoke_expected_bfb_duplicate_warnings( array $components ): int {
+	$plugins_loaded_index = array_search( '@plugins_loaded', $components, true );
+	$registrations        = false === $plugins_loaded_index ? $components : array_slice( $components, 0, $plugins_loaded_index );
+	$bfb_count            = count( array_filter( $registrations, 'ssi_smoke_component_contains_bfb' ) );
+
+	return max( 0, $bfb_count - 1 );
 }
 
 add_action(
@@ -357,6 +391,8 @@ try {
 	foreach ( $loaded_components as $component ) {
 		if ( 'ssi' === $component ) {
 			require $root . '/static-site-importer.php';
+		} elseif ( '@plugins_loaded' === $component ) {
+			do_action( 'plugins_loaded' );
 		} elseif ( isset( $paths[ $component ] ) ) {
 			require $paths[ $component ] . '/library.php';
 		} else {
@@ -369,11 +405,13 @@ try {
 	ssi_smoke_assert( 1 === ssi_smoke_hook_count( 'plugins_loaded', array( 'BFB_Versions', 'initialize_latest_version' ) ), 'BFB initializer hook should register once.' );
 	ssi_smoke_assert( 1 === ssi_smoke_hook_count( 'plugins_loaded', array( 'HTML_To_Blocks_Versions', 'initialize_latest_version' ) ), 'H2BC initializer hook should register once.' );
 
-	do_action( 'plugins_loaded' );
+	if ( ! did_action( 'plugins_loaded' ) ) {
+		do_action( 'plugins_loaded' );
+	}
 	restore_error_handler();
 
-	$bfb_winner_component  = ssi_smoke_last_matching_component( $loaded_components, 'ssi_smoke_component_contains_bfb' );
-	$h2bc_winner_component = ssi_smoke_last_matching_component( $loaded_components, 'ssi_smoke_component_contains_h2bc' );
+	$bfb_winner_component  = ssi_smoke_winning_component( $loaded_components, 'ssi_smoke_component_contains_bfb' );
+	$h2bc_winner_component = ssi_smoke_winning_component( $loaded_components, 'ssi_smoke_component_contains_h2bc' );
 	ssi_smoke_assert( null !== $bfb_winner_component, 'Scenario should include a BFB provider.' );
 	ssi_smoke_assert( null !== $h2bc_winner_component, 'Scenario should include an H2BC provider.' );
 
@@ -395,7 +433,7 @@ try {
 	ssi_smoke_assert( is_string( $bfb_expected_real ), 'Expected BFB path should resolve.' );
 	ssi_smoke_assert( is_string( $h2bc_expected_real ), 'Expected H2BC path should resolve.' );
 
-	$expected_duplicate_warnings = max( 0, count( array_filter( $loaded_components, 'ssi_smoke_component_contains_bfb' ) ) - 1 );
+	$expected_duplicate_warnings = ssi_smoke_expected_bfb_duplicate_warnings( $loaded_components );
 	ssi_smoke_assert( $expected_duplicate_warnings === count( $duplicate_warnings ), "Duplicate BFB warnings should match provider count. Expected {$expected_duplicate_warnings}, got " . count( $duplicate_warnings ) . '.' );
 	ssi_smoke_assert( defined( 'BFB_PATH' ) && trailingslashit( (string) $bfb_expected_real ) === BFB_PATH, 'Last same-version BFB provider should win.' );
 	ssi_smoke_assert( function_exists( 'bfb_convert' ), 'BFB API should load after combined activation.' );
