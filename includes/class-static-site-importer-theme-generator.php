@@ -62,6 +62,13 @@ class Static_Site_Importer_Theme_Generator {
 	private static array $active_asset_map = array();
 
 	/**
+	 * BAC file artifacts materialized into the generated theme, keyed by source path.
+	 *
+	 * @var array<string, array<string, mixed>>
+	 */
+	private static array $active_artifact_materialized_assets = array();
+
+	/**
 	 * Active local asset materialization policy.
 	 *
 	 * @var string
@@ -214,6 +221,7 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		self::$active_asset_map         = self::normalize_asset_map( isset( $args['asset_map'] ) && is_array( $args['asset_map'] ) ? $args['asset_map'] : array() );
+		self::$active_artifact_materialized_assets = array();
 		self::$active_asset_materialization_policy = $asset_policy;
 		self::$active_asset_metadata    = array();
 		self::$active_asset_policy      = self::normalize_asset_policy( isset( $args['asset_policy'] ) ? (string) $args['asset_policy'] : '' );
@@ -430,6 +438,7 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		self::$active_asset_map         = self::normalize_asset_map( isset( $args['asset_map'] ) && is_array( $args['asset_map'] ) ? $args['asset_map'] : array() );
+		self::$active_artifact_materialized_assets = array();
 		self::$active_asset_materialization_policy = $asset_policy;
 		self::$active_asset_metadata    = array();
 		self::$active_asset_policy      = self::normalize_asset_policy( isset( $args['asset_policy'] ) ? (string) $args['asset_policy'] : '' );
@@ -1960,6 +1969,115 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Rewrite local media URLs inside already-converted block markup.
+	 *
+	 * BAC document artifacts already contain block comments. DOM-based rewriting would
+	 * discard those comments, so use focused attribute rewrites that preserve markup.
+	 *
+	 * @param string $markup      Block markup.
+	 * @param string $source_path Source-relative source path.
+	 * @param string $source      Diagnostic source label.
+	 * @return string
+	 */
+	private static function rewrite_block_markup_local_asset_references( string $markup, string $source_path, string $source ): string {
+		if ( '' === trim( $markup ) || ! preg_match( '/\b(?:src|poster|srcset)\s*=/i', $markup ) ) {
+			return $markup;
+		}
+
+		$markup = preg_replace_callback(
+			'/\b(src|poster)\s*=\s*("|\')([^"\']*)(\2)/i',
+			static function ( array $matches ) use ( $source_path, $source ): string {
+				$url = self::normalize_block_markup_local_asset_url( html_entity_decode( (string) $matches[3], ENT_QUOTES ) );
+				if ( '' === trim( $url ) || ! self::is_local_url( $url ) ) {
+					return $matches[0];
+				}
+
+				$asset = self::resolve_local_asset_reference( $url, $source_path, $source );
+				if ( null === $asset ) {
+					return $matches[0];
+				}
+
+				return $matches[1] . '=' . $matches[2] . esc_url_raw( (string) $asset['url'] ) . $matches[4];
+			},
+			$markup
+		) ?? $markup;
+
+		return preg_replace_callback(
+			'/\bsrcset\s*=\s*("|\')([^"\']*)(\1)/i',
+			static function ( array $matches ) use ( $source_path, $source ): string {
+				$srcset    = html_entity_decode( (string) $matches[2], ENT_QUOTES );
+				$rewritten = self::rewrite_srcset_asset_references( $srcset, $source_path, $source );
+				if ( $rewritten === $srcset ) {
+					return $matches[0];
+				}
+
+				return 'srcset=' . $matches[1] . esc_attr( $rewritten ) . $matches[3];
+			},
+			$markup
+		) ?? $markup;
+	}
+
+	/**
+	 * Normalize source-local paths that were serialized as URL-shaped block attrs.
+	 *
+	 * @param string $url Block attribute URL.
+	 * @return string URL or source-local path.
+	 */
+	private static function normalize_block_markup_local_asset_url( string $url ): string {
+		$url = trim( $url );
+		if ( self::is_local_url( $url ) ) {
+			return $url;
+		}
+
+		$parts  = wp_parse_url( $url );
+		$scheme = isset( $parts['scheme'] ) ? strtolower( (string) $parts['scheme'] ) : '';
+		$host   = isset( $parts['host'] ) ? strtolower( (string) $parts['host'] ) : '';
+		if ( ! in_array( $scheme, array( 'http', 'https' ), true ) || '' === $host || str_contains( $host, '.' ) || ! in_array( $host, array( 'assets', 'asset', 'img', 'imgs', 'image', 'images', 'media', 'static' ), true ) ) {
+			return $url;
+		}
+
+		$path = isset( $parts['path'] ) ? ltrim( (string) $parts['path'], '/' ) : '';
+		if ( '' === $path ) {
+			return $url;
+		}
+
+		return $host . '/' . $path;
+	}
+
+	/**
+	 * Ensure image block className attrs are reflected on the serialized figure.
+	 *
+	 * @param string $markup Serialized block markup.
+	 * @return string Repaired markup.
+	 */
+	private static function repair_image_block_class_markup( string $markup ): string {
+		if ( '' === trim( $markup ) || ! str_contains( $markup, '<!-- wp:image' ) || ! str_contains( $markup, '"className"' ) ) {
+			return $markup;
+		}
+
+		return preg_replace_callback(
+			'/<!--\s+wp:image\s+(\{.*?\})\s+-->\s*<figure\b([^>]*)class=("|\')([^"\']*)(\3)/s',
+			static function ( array $matches ): string {
+				$attrs = json_decode( html_entity_decode( (string) $matches[1], ENT_QUOTES ), true );
+				if ( ! is_array( $attrs ) || empty( $attrs['className'] ) || ! is_string( $attrs['className'] ) ) {
+					return $matches[0];
+				}
+
+				$class = (string) $matches[4];
+				foreach ( preg_split( '/\s+/', trim( $attrs['className'] ) ) ?: array() as $token ) {
+					$token = sanitize_html_class( $token );
+					if ( '' !== $token ) {
+						$class = self::append_class_token( $class, $token );
+					}
+				}
+
+				return '<!-- wp:image ' . $matches[1] . ' --><figure' . $matches[2] . 'class=' . $matches[3] . esc_attr( $class ) . $matches[5];
+			},
+			$markup
+		) ?? $markup;
+	}
+
+	/**
 	 * Rewrite one srcset attribute value through local asset materialization.
 	 *
 	 * @param string $srcset      Source srcset attribute.
@@ -2891,6 +3009,13 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		if ( '' === self::$active_source_dir || '' === self::$active_theme_dir || '' === self::$active_theme_uri ) {
+			if ( isset( self::$active_artifact_materialized_assets[ $key ] ) ) {
+				$asset = self::$active_artifact_materialized_assets[ $key ];
+				self::record_local_asset_outcome( 'copied', $source, $source_path, $url, $key, $asset );
+				self::remember_asset_metadata( $url, $key, $asset );
+				return $asset;
+			}
+
 			self::record_local_asset_diagnostic( 'local_asset_not_materialized', $source, $source_path, $url, $key, 'Local asset reference could not be materialized because the import has no active source/theme context.' );
 			return null;
 		}
@@ -3607,14 +3732,16 @@ class Static_Site_Importer_Theme_Generator {
 		$source_path = $page->source_key();
 		$source      = 'main:' . $source_path;
 		$body        = self::route_external_script_tags_from_page_body( $page->body(), $source_path, $source );
+		$body        = self::rewrite_internal_links( $body, $route_map, $source_path, $source );
 		if ( 'blocks' === $page->body_format() ) {
+			$body = self::rewrite_block_markup_local_asset_references( $body, $source_path, $source );
+			$body = self::repair_image_block_class_markup( $body );
 			return trim( $body );
 		}
 
 		if ( 'markdown' === $page->body_format() ) {
 			$body = self::rewrite_markdown_links( $body, $route_map, $source_path, $source );
 		} else {
-			$body = self::rewrite_internal_links( $body, $route_map, $source_path, $source );
 			$body = self::rewrite_local_asset_references( $body, $source_path, $source );
 		}
 
@@ -5197,7 +5324,8 @@ class Static_Site_Importer_Theme_Generator {
 				continue;
 			}
 
-			$target = trailingslashit( $theme_dir ) . 'assets/materialized/' . $relative;
+			$target_relative = 'assets/materialized/' . $relative;
+			$target          = trailingslashit( $theme_dir ) . $target_relative;
 			$dir    = dirname( $target );
 			if ( ! wp_mkdir_p( $dir ) ) {
 				return new WP_Error( 'static_site_importer_artifact_asset_mkdir_failed', sprintf( 'Failed to create website artifact asset directory: %s', $dir ) );
@@ -5207,6 +5335,16 @@ class Static_Site_Importer_Theme_Generator {
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}
+
+			self::$active_artifact_materialized_assets[ $relative ] = array(
+				'source'     => $relative,
+				'path'       => $relative,
+				'url'        => trailingslashit( self::$active_theme_uri ) . $target_relative,
+				'final_url'  => trailingslashit( self::$active_theme_uri ) . $target_relative,
+				'mime_type'  => self::export_mime_type( $target ),
+				'theme_path' => $target_relative,
+				'policy'     => 'theme',
+			);
 		}
 
 		return array(
@@ -8938,10 +9076,13 @@ class Static_Site_Importer_Theme_Generator {
 		$button_bridge              = self::button_style_bridge_css( $css, $button_classes );
 		$admin_bar_bridge           = self::admin_bar_top_chrome_css( $css );
 		$source_nav_selector_bridge = self::source_nav_selector_bridge_css( $css );
+		$source_display_bridge      = self::source_display_selector_bridge_css( $css );
+		$image_block_bridge         = self::source_image_block_selector_bridge_css( $css );
+		$form_control_bridge        = self::source_form_control_selector_bridge_css( $css );
 		$layout_gap_bridge          = self::imported_group_layout_gap_bridge_css();
 		$css                        = self::scope_source_button_css( $css, $button_classes );
 
-		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Imported from static HTML using Block Format Bridge.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge . $admin_bar_bridge . $source_nav_selector_bridge . $layout_gap_bridge;
+		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Imported from static HTML using Block Format Bridge.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge . $admin_bar_bridge . $source_nav_selector_bridge . $source_display_bridge . $image_block_bridge . $layout_gap_bridge . $form_control_bridge;
 	}
 
 	/**
@@ -8955,10 +9096,13 @@ class Static_Site_Importer_Theme_Generator {
 		$editor_bridge              = self::editor_absolute_overlay_css( $css );
 		$editor_reveal_bridge       = self::editor_reveal_animation_css( $css );
 		$source_nav_selector_bridge = self::source_nav_selector_bridge_css( $css );
+		$source_display_bridge      = self::source_display_selector_bridge_css( $css );
+		$image_block_bridge         = self::source_image_block_selector_bridge_css( $css );
+		$form_control_bridge        = self::source_form_control_selector_bridge_css( $css );
 		$layout_gap_bridge          = self::imported_group_layout_gap_bridge_css();
 		$css                        = self::scope_source_button_css( $css, $button_classes );
 
-		return "/*\nStatic Site Importer editor styles.\nGenerated separately from frontend style.css so editor wrapper repairs do not leak to public rendering.\n*/\n\n" . $css . "\n" . $button_bridge . $source_nav_selector_bridge . $layout_gap_bridge . $editor_bridge . $editor_reveal_bridge;
+		return "/*\nStatic Site Importer editor styles.\nGenerated separately from frontend style.css so editor wrapper repairs do not leak to public rendering.\n*/\n\n" . $css . "\n" . $button_bridge . $source_nav_selector_bridge . $source_display_bridge . $image_block_bridge . $layout_gap_bridge . $form_control_bridge . $editor_bridge . $editor_reveal_bridge;
 	}
 
 	/**
@@ -8972,6 +9116,334 @@ class Static_Site_Importer_Theme_Generator {
 	 */
 	private static function imported_group_layout_gap_bridge_css(): string {
 		return "\n/* Static Site Importer: preserve source-authored spacing inside converted source wrappers. */\n.wp-block-post-content.is-layout-flow > *,\n.wp-block-group.is-layout-flow > *,\n.wp-block-group.is-vertical > * { margin-block-start: 0; margin-block-end: 0; }\n.wp-block-group.is-layout-flex,\n.wp-block-group.is-vertical { gap: 0; }\n";
+	}
+
+	/**
+	 * Build selector parity rules for source classes converted to group blocks.
+	 *
+	 * WordPress layout classes can override source-authored rules on converted group
+	 * wrappers. Re-emitting simple class rules with the block wrapper class keeps
+	 * authored layouts intact, including media-query overrides, without hard-coded
+	 * selectors.
+	 *
+	 * @param string $css Source CSS.
+	 * @return string Additional CSS rules.
+	 */
+	private static function source_display_selector_bridge_css( string $css ): string {
+		$css = preg_replace( '/\/\*.*?\*\//s', '', $css ) ?? $css;
+		if ( '' === trim( $css ) ) {
+			return '';
+		}
+
+		$rules = self::source_display_selector_bridge_rules_from_css( $css );
+		if ( empty( $rules ) ) {
+			return '';
+		}
+
+		return "\n/* Static Site Importer: preserve source class rules on converted group wrappers. */\n" . implode( "\n", array_unique( $rules ) ) . "\n";
+	}
+
+	/**
+	 * Build source selector bridge rules from one CSS scope.
+	 *
+	 * @param string $css CSS to inspect.
+	 * @return array<int,string> CSS rules.
+	 */
+	private static function source_display_selector_bridge_rules_from_css( string $css ): array {
+		$rules  = array();
+		$length = strlen( $css );
+		$offset = 0;
+
+		while ( $offset < $length && preg_match( '/\G\s*([^{}]+)\{/', $css, $match, 0, $offset ) ) {
+			$prelude    = trim( $match[1] );
+			$body_start = $offset + strlen( $match[0] );
+			$depth      = 1;
+			$position   = $body_start;
+			while ( $position < $length && $depth > 0 ) {
+				$char = $css[ $position ];
+				if ( '{' === $char ) {
+					++$depth;
+				} elseif ( '}' === $char ) {
+					--$depth;
+				}
+
+				++$position;
+			}
+
+			$body   = substr( $css, $body_start, max( 0, $position - $body_start - 1 ) );
+			$offset = $position;
+
+			if ( str_starts_with( $prelude, '@' ) ) {
+				$nested = self::source_display_selector_bridge_rules_from_css( $body );
+				if ( ! empty( $nested ) ) {
+					$rules[] = $prelude . ' { ' . implode( ' ', $nested ) . ' }';
+				}
+
+				continue;
+			}
+
+			$selectors = array();
+			foreach ( explode( ',', $prelude ) as $selector ) {
+				$rewritten = self::source_display_selector_bridge_selector( trim( $selector ) );
+				if ( null !== $rewritten ) {
+					$selectors[] = $rewritten;
+				}
+			}
+
+			if ( empty( $selectors ) ) {
+				continue;
+			}
+
+			$rules[] = implode( ', ', array_unique( $selectors ) ) . ' {' . trim( $body ) . '}';
+		}
+
+		return $rules;
+	}
+
+	/**
+	 * Rewrite one source selector for converted group display parity.
+	 *
+	 * @param string $selector Source selector.
+	 * @return string|null Rewritten selector, or null when not applicable.
+	 */
+	private static function source_display_selector_bridge_selector( string $selector ): ?string {
+		if ( '' === $selector || str_contains( $selector, '.wp-block-' ) || str_contains( $selector, '#' ) || str_contains( $selector, ':' ) || str_contains( $selector, '[' ) || str_contains( $selector, ' ' ) || str_contains( $selector, '>' ) || str_contains( $selector, '+' ) || str_contains( $selector, '~' ) ) {
+			return null;
+		}
+
+		if ( ! preg_match( '/^(?:[a-z][a-z0-9_-]*)?((?:\.[a-z0-9_-]+)+)$/i', $selector, $match ) ) {
+			return null;
+		}
+
+		return '.wp-block-group' . $match[1];
+	}
+
+	/**
+	 * Build selector parity rules for source image grids converted to image blocks.
+	 *
+	 * @param string $css Source CSS.
+	 * @return string Additional CSS rules.
+	 */
+	private static function source_image_block_selector_bridge_css( string $css ): string {
+		$css = preg_replace( '/\/\*.*?\*\//s', '', $css ) ?? $css;
+		if ( '' === trim( $css ) || ! str_contains( strtolower( $css ), 'img' ) ) {
+			return '';
+		}
+
+		$rules = self::source_image_block_selector_bridge_rules_from_css( $css );
+		if ( empty( $rules ) ) {
+			return '';
+		}
+
+		return "\n/* Static Site Importer: preserve source image-grid selectors on native image blocks. */\n" . implode( "\n", array_unique( $rules ) ) . "\n";
+	}
+
+	/**
+	 * Build image block selector bridge rules from one CSS scope.
+	 *
+	 * @param string $css CSS to inspect.
+	 * @return array<int,string> CSS rules.
+	 */
+	private static function source_image_block_selector_bridge_rules_from_css( string $css ): array {
+		$rules  = array();
+		$length = strlen( $css );
+		$offset = 0;
+
+		while ( $offset < $length && preg_match( '/\G\s*([^{}]+)\{/', $css, $match, 0, $offset ) ) {
+			$prelude    = trim( $match[1] );
+			$body_start = $offset + strlen( $match[0] );
+			$depth      = 1;
+			$position   = $body_start;
+			while ( $position < $length && $depth > 0 ) {
+				$char = $css[ $position ];
+				if ( '{' === $char ) {
+					++$depth;
+				} elseif ( '}' === $char ) {
+					--$depth;
+				}
+
+				++$position;
+			}
+
+			$body   = substr( $css, $body_start, max( 0, $position - $body_start - 1 ) );
+			$offset = $position;
+
+			if ( str_starts_with( $prelude, '@' ) ) {
+				$nested = self::source_image_block_selector_bridge_rules_from_css( $body );
+				if ( ! empty( $nested ) ) {
+					$rules[] = $prelude . ' { ' . implode( ' ', $nested ) . ' }';
+				}
+
+				continue;
+			}
+
+			$selectors = array();
+			$resets    = array();
+			foreach ( explode( ',', $prelude ) as $selector ) {
+				$rewritten = self::source_image_block_selector_bridge_selector( trim( $selector ) );
+				if ( empty( $rewritten ) ) {
+					continue;
+				}
+
+				$selectors = array_merge( $selectors, $rewritten['selectors'] );
+				$resets[]  = $rewritten['reset'];
+			}
+
+			if ( empty( $selectors ) ) {
+				continue;
+			}
+
+			foreach ( array_unique( $resets ) as $reset ) {
+				$rules[] = $reset . ' {margin:0}';
+			}
+
+			$rules[] = implode( ', ', array_unique( $selectors ) ) . ' {' . trim( $body ) . '}';
+		}
+
+		return $rules;
+	}
+
+	/**
+	 * Rewrite one source image selector for native image block wrappers.
+	 *
+	 * @param string $selector Source selector.
+	 * @return array{reset:string,selectors:array<int,string>}|null Rewritten selectors.
+	 */
+	private static function source_image_block_selector_bridge_selector( string $selector ): ?array {
+		if ( '' === $selector || str_contains( $selector, '.wp-block-' ) ) {
+			return null;
+		}
+
+		if ( ! preg_match( '/^((?:[a-z][a-z0-9_-]*)?(?:\.[a-z0-9_-]+)+)\s*>?\s*img((?::first-child|:not\(:first-child\))?)$/i', $selector, $match ) ) {
+			return null;
+		}
+
+		$container = self::source_display_selector_bridge_selector( $match[1] );
+		if ( null === $container ) {
+			return null;
+		}
+
+		$pseudo = $match[2] ?? '';
+		$figure = $container . ' > .wp-block-image' . $pseudo;
+		return array(
+			'reset'     => $container . ' > .wp-block-image',
+			'selectors' => array( $figure, $figure . ' img' ),
+		);
+	}
+
+	/**
+	 * Build selector parity rules for source form controls converted to block surrogates.
+	 *
+	 * @param string $css Source CSS.
+	 * @return string Additional CSS rules.
+	 */
+	private static function source_form_control_selector_bridge_css( string $css ): string {
+		$css = preg_replace( '/\/\*.*?\*\//s', '', $css ) ?? $css;
+		if ( '' === trim( $css ) || ! preg_match( '/\b(?:label|input|select|textarea)\b/i', $css ) ) {
+			return '';
+		}
+
+		$rules = self::source_form_control_selector_bridge_rules_from_css( $css );
+		if ( empty( $rules ) ) {
+			return '';
+		}
+
+		return "\n/* Static Site Importer: preserve source form-control selectors on native static form surrogates. */\n" . implode( "\n", array_unique( $rules ) ) . "\n";
+	}
+
+	/**
+	 * Build source form-control selector bridge rules from one CSS scope.
+	 *
+	 * @param string $css CSS to inspect.
+	 * @return array<int,string> CSS rules.
+	 */
+	private static function source_form_control_selector_bridge_rules_from_css( string $css ): array {
+		$rules  = array();
+		$length = strlen( $css );
+		$offset = 0;
+
+		while ( $offset < $length && preg_match( '/\G\s*([^{}]+)\{/', $css, $match, 0, $offset ) ) {
+			$prelude    = trim( $match[1] );
+			$body_start = $offset + strlen( $match[0] );
+			$body_end   = self::find_css_block_end( $css, $body_start );
+			if ( null === $body_end ) {
+				break;
+			}
+
+			$body   = trim( substr( $css, $body_start, $body_end - $body_start ) );
+			$offset = $body_end + 1;
+
+			if ( str_starts_with( $prelude, '@' ) ) {
+				$nested = self::source_form_control_selector_bridge_rules_from_css( $body );
+				foreach ( $nested as $rule ) {
+					$rules[] = $prelude . ' { ' . $rule . ' }';
+				}
+				continue;
+			}
+
+			$selectors = array();
+			foreach ( explode( ',', $prelude ) as $selector ) {
+				$rewritten = self::source_form_control_selector_bridge_selector( trim( $selector ) );
+				if ( null !== $rewritten ) {
+					$selectors[] = $rewritten;
+				}
+			}
+
+			if ( empty( $selectors ) ) {
+				continue;
+			}
+
+			$rules[] = implode( ', ', array_unique( $selectors ) ) . ' {' . $body . '}';
+		}
+
+		return $rules;
+	}
+
+	/**
+	 * Rewrite a source form-control selector for h2bc static form surrogates.
+	 *
+	 * @param string $selector Source selector.
+	 * @return string|null Rewritten selector, or null when not applicable.
+	 */
+	private static function source_form_control_selector_bridge_selector( string $selector ): ?string {
+		if ( '' === $selector || str_contains( $selector, '.wp-block-' ) ) {
+			return null;
+		}
+
+		$rewritten = preg_replace_callback(
+			'/(^|[\s>+~,(])(?:label|input|select|textarea)(?=($|[\s>+~),.#:\[]))/i',
+			static function ( array $match ): string {
+				$token = strtolower( $match[0] );
+				$lead  = $match[1];
+				$tag   = trim( substr( $token, strlen( $lead ) ) );
+
+				switch ( $tag ) {
+					case 'label':
+						$replacement = '.static-form-field';
+						break;
+					case 'input':
+						$replacement = '.static-form-control.static-form-input';
+						break;
+					case 'select':
+						$replacement = '.static-form-control.static-form-select';
+						break;
+					case 'textarea':
+						$replacement = '.static-form-control.static-form-textarea';
+						break;
+					default:
+						$replacement = $tag;
+				}
+
+				return $lead . $replacement;
+			},
+			$selector
+		);
+
+		if ( ! is_string( $rewritten ) || $rewritten === $selector ) {
+			return null;
+		}
+
+		return $rewritten;
 	}
 
 	/**
