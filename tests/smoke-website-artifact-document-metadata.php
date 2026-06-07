@@ -42,7 +42,11 @@ $result = Static_Site_Importer_Theme_Generator::import_website_artifact(
 		'files'  => array(
 			array(
 				'path'    => 'index.html',
-				'content' => '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ember & Rye</title><meta name="description" content="Wood-fired bakery"><link rel="stylesheet" href="/assets/site.css"></head><body><header class="site-header"><a href="/">Ember & Rye</a></header><main><section class="hero"><h1>Fire, flour, patience.</h1><p>Small-batch loaves.</p></section></main></body></html>',
+				'content' => '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ember & Rye</title><meta name="description" content="Wood-fired bakery"><link rel="stylesheet" href="/assets/site.css"></head><body><header class="site-header"><a href="/">Ember & Rye</a></header><main><section class="hero"><h1>Fire, flour, patience.</h1><p>Small-batch loaves.</p></section></main><script src="assets/js/main.js" defer></script></body></html>',
+			),
+			array(
+				'path'    => 'assets/js/main.js',
+				'content' => 'document.documentElement.dataset.ready = "true";',
 			),
 		),
 	),
@@ -66,6 +70,7 @@ if ( ! is_wp_error( $result ) ) {
 	$content   = $page instanceof WP_Post ? $page->post_content : '';
 	$documents = array();
 	$pattern_documents = array();
+	$scripts = $report['assets']['scripts'] ?? array();
 	foreach ( $report['generated_theme']['block_documents'] ?? array() as $document ) {
 		if ( is_array( $document ) && isset( $document['path'] ) ) {
 			$documents[ $document['path'] ] = $document;
@@ -81,6 +86,7 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( ! str_contains( $content, '<meta' ), 'page-content-has-no-meta-fragments' );
 	$assert( ! str_contains( $content, '<title' ), 'page-content-has-no-title-fragments' );
 	$assert( ! str_contains( $content, '<link' ), 'page-content-has-no-link-fragments' );
+	$assert( ! str_contains( $content, '<script' ), 'page-content-has-no-script-fragments' );
 	$assert( 0 === ( $documents['posts/page-home.post_content']['core_html_block_count'] ?? null ), 'report-page-content-has-zero-core-html' );
 	$assert( 0 === ( $report['quality']['core_html_block_count'] ?? null ), 'quality-core-html-count-is-zero' );
 	$assert( 'static-site-importer/document-metadata/v1' === ( $metadata['schema'] ?? '' ), 'metadata-contract-is-recorded' );
@@ -88,6 +94,8 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( 'utf-8' === ( $metadata['meta'][0]['charset'] ?? '' ), 'charset-meta-is-preserved-in-metadata' );
 	$assert( 'viewport' === ( $metadata['meta'][1]['name'] ?? '' ), 'viewport-meta-is-preserved-in-metadata' );
 	$assert( '/assets/site.css' === ( $metadata['links'][0]['href'] ?? '' ), 'stylesheet-link-is-preserved-in-metadata' );
+	$assert( str_ends_with( (string) ( $scripts[0]['src'] ?? '' ), 'assets/js/main.js' ), 'script-src-is-preserved-in-asset-metadata' );
+	$assert( true === ( $scripts[0]['attributes']['defer'] ?? false ), 'script-defer-is-preserved-in-asset-metadata' );
 }
 
 $multi_page_result = Static_Site_Importer_Theme_Generator::import_website_artifact(

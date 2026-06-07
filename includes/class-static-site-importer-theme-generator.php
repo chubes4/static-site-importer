@@ -3568,7 +3568,7 @@ class Static_Site_Importer_Theme_Generator {
 	private static function source_page_content_blocks( Static_Site_Importer_Source_Page $page, array $route_map ): string {
 		$source_path = $page->source_key();
 		$source      = 'main:' . $source_path;
-		$body        = $page->body();
+		$body        = self::route_external_script_tags_from_page_body( $page->body(), $source_path, $source );
 		if ( 'blocks' === $page->body_format() ) {
 			return trim( $body );
 		}
@@ -3581,6 +3581,104 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return self::convert_fragment( $body, $source, $page->body_format() );
+	}
+
+	/**
+	 * Route generated external script references out of editable page content.
+	 *
+	 * @param string $body        Page body or block markup.
+	 * @param string $source_path Source-relative document path.
+	 * @param string $source      Diagnostic source label.
+	 * @return string Body with external script elements removed.
+	 */
+	private static function route_external_script_tags_from_page_body( string $body, string $source_path, string $source ): string {
+		if ( '' === trim( $body ) || stripos( $body, '<script' ) === false ) {
+			return $body;
+		}
+
+		$routed = preg_replace_callback(
+			'/<script\b([^>]*)>\s*<\/script>/is',
+			static function ( array $matches ) use ( $source_path, $source ): string {
+				$attributes = self::parse_simple_html_attributes( $matches[1] ?? '' );
+				$src        = isset( $attributes['src'] ) ? trim( (string) $attributes['src'] ) : '';
+				if ( '' === $src ) {
+					return $matches[0];
+				}
+
+				self::record_page_body_script_asset( $src, $source_path, $source, $attributes );
+				return '';
+			},
+			$body
+		) ?? $body;
+
+		return self::remove_empty_core_html_blocks( $routed );
+	}
+
+	/**
+	 * Remove empty raw-HTML block wrappers left after routing script tags.
+	 *
+	 * @param string $body Block markup.
+	 * @return string Block markup without empty core/html wrappers.
+	 */
+	private static function remove_empty_core_html_blocks( string $body ): string {
+		return preg_replace( '/<!--\s+wp:html\s+-->\s*<!--\s+\/wp:html\s+-->/i', '', $body ) ?? $body;
+	}
+
+	/**
+	 * Parse a conservative HTML attribute string.
+	 *
+	 * @param string $attribute_string Raw tag attribute string.
+	 * @return array<string,string|bool>
+	 */
+	private static function parse_simple_html_attributes( string $attribute_string ): array {
+		$attributes = array();
+		if ( preg_match_all( '/([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*(?:=\s*("([^"]*)"|\'([^\']*)\'|([^\s"\'>]+)))?/', $attribute_string, $matches, PREG_SET_ORDER ) ) {
+			foreach ( $matches as $match ) {
+				$name  = strtolower( $match[1] );
+				$value = true;
+				if ( isset( $match[3] ) && '' !== $match[3] ) {
+					$value = $match[3];
+				} elseif ( isset( $match[4] ) && '' !== $match[4] ) {
+					$value = $match[4];
+				} elseif ( isset( $match[5] ) && '' !== $match[5] ) {
+					$value = $match[5];
+				}
+
+				$attributes[ $name ] = is_string( $value ) ? html_entity_decode( $value, ENT_QUOTES, 'UTF-8' ) : $value;
+			}
+		}
+
+		return $attributes;
+	}
+
+	/**
+	 * Record a script reference routed out of page block content.
+	 *
+	 * @param string                    $src         Script source.
+	 * @param string                    $source_path Source-relative document path.
+	 * @param string                    $source      Diagnostic source label.
+	 * @param array<string,string|bool> $attributes  Parsed script attributes.
+	 */
+	private static function record_page_body_script_asset( string $src, string $source_path, string $source, array $attributes ): void {
+		if ( ! isset( self::$conversion_report['assets']['scripts'] ) || ! is_array( self::$conversion_report['assets']['scripts'] ) ) {
+			self::$conversion_report['assets']['scripts'] = array();
+		}
+
+		$asset = self::resolve_local_asset_reference( $src, $source_path, $source );
+		$row   = array(
+			'source'      => $source,
+			'source_path' => $source_path,
+			'src'         => esc_url_raw( $src ),
+			'placement'   => 'page_body',
+			'routed_to'   => 'theme_asset_metadata',
+			'attributes'  => array_intersect_key( $attributes, array_fill_keys( array( 'type', 'defer', 'async', 'crossorigin', 'integrity' ), true ) ),
+		);
+
+		if ( null !== $asset ) {
+			$row['asset'] = $asset;
+		}
+
+		self::$conversion_report['assets']['scripts'][] = $row;
 	}
 
 	/**
