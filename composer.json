@@ -6,8 +6,8 @@
   "require": {
     "php": "^8.1",
     "chubes4/block-artifact-compiler": "dev-main",
-    "chubes4/block-format-bridge": "dev-refresh-h2bc-static-form-parity",
-    "chubes4/html-to-blocks-converter": "dev-fix-static-form-surrogate-parity"
+    "chubes4/block-format-bridge": "dev-main",
+    "chubes4/html-to-blocks-converter": "dev-main"
   },
   "repositories": [
     {
