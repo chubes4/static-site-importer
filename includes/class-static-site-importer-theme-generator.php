@@ -288,6 +288,7 @@ class Static_Site_Importer_Theme_Generator {
 		self::record_visual_fidelity_targets( $pages, $page_ids, $permalinks, $writes, $theme_dir );
 		self::record_semantic_fidelity_targets( $pages, $page_ids, $permalinks, $writes, $theme_dir );
 		self::$conversion_report['theme_slug'] = $theme_slug;
+		self::materialize_required_plugins( $args );
 		self::record_product_seeding_report( $args );
 		self::record_commerce_dependency_check( $args );
 		$quality     = self::finalize_quality_report( $args );
@@ -7284,6 +7285,48 @@ class Static_Site_Importer_Theme_Generator {
 			'[class*=card]',
 			'[class*=cta]',
 			'[class*=status]',
+		);
+	}
+
+	/**
+	 * Materialize plugins required by detected source intent.
+	 *
+	 * @param array<string, mixed> $args Import args.
+	 * @return void
+	 */
+	private static function materialize_required_plugins( array $args ): void {
+		self::$conversion_report['plugin_materialization'] = array(
+			'status'  => 'skipped',
+			'plugins' => array(),
+		);
+
+		$intent = self::commerce_dependency_intent();
+		if ( ! $intent['present'] ) {
+			self::$conversion_report['plugin_materialization']['reason'] = 'no_plugin_backed_intent';
+			return;
+		}
+
+		if ( ! empty( $args['allow_missing_woocommerce'] ) ) {
+			self::$conversion_report['plugin_materialization']['reason'] = 'woocommerce_requirement_waived';
+			return;
+		}
+
+		if ( array_key_exists( 'materialize_dependencies', $args ) && false === (bool) $args['materialize_dependencies'] ) {
+			self::$conversion_report['plugin_materialization']['reason'] = 'dependency_materialization_disabled';
+			return;
+		}
+
+		$report = Static_Site_Importer_Plugin_Materializer::ensure_wp_org_plugin(
+			'woocommerce',
+			'woocommerce/woocommerce.php',
+			array( 'Static_Site_Importer_Woo_Product_Seeder', 'woocommerce_available' )
+		);
+
+		self::$conversion_report['plugin_materialization'] = array(
+			'status'  => 'failed' === ( $report['status'] ?? '' ) ? 'failed' : 'completed',
+			'plugins' => array(
+				'woocommerce' => $report,
+			),
 		);
 	}
 

@@ -51,15 +51,18 @@ class Static_Site_Importer_CLI_Command {
 	 * [--allow-missing-woocommerce]
 	 * : Allow commerce-bearing imports to proceed when WooCommerce is not active. Default is to fail the import. Theme files are still written either way; the waiver only suppresses product seeding without aborting.
 	 *
-		 * [--report=<path>]
-		 * : Copy the generated import report JSON to an external archive path.
-		 *
-		 * [--asset-policy=<policy>]
-		 * : Copy target for resolved local assets. Use media-library to import supported copied assets as WordPress attachments; defaults to theme.
-		 *
-		 * [--asset-materialization-policy=<policy>]
-		 * : Local asset materialization policy. One of copy_to_theme, preserve, use_map. Defaults to copy_to_theme.
-		 *
+	 * [--skip-dependency-materialization]
+	 * : Do not install/activate required WordPress.org plugins before entity materialization. By default, commerce-bearing imports try to materialize WooCommerce before seeding products.
+	 *
+	 * [--report=<path>]
+	 * : Copy the generated import report JSON to an external archive path.
+	 *
+	 * [--asset-policy=<policy>]
+	 * : Copy target for resolved local assets. Use media-library to import supported copied assets as WordPress attachments; defaults to theme.
+	 *
+	 * [--asset-materialization-policy=<policy>]
+	 * : Local asset materialization policy. One of copy_to_theme, preserve, use_map. Defaults to copy_to_theme.
+	 *
 	 * [--format=<format>]
 	 * : Output format. Use json for machine-readable command output.
 	 *
@@ -109,6 +112,7 @@ class Static_Site_Importer_CLI_Command {
 			'keep_source'               => isset( $assoc_args['keep-source'] ),
 			'fail_on_quality'           => isset( $assoc_args['fail-on-quality'] ),
 			'allow_missing_woocommerce' => isset( $assoc_args['allow-missing-woocommerce'] ),
+			'materialize_dependencies'  => ! isset( $assoc_args['skip-dependency-materialization'] ),
 			'report'                    => isset( $assoc_args['report'] ) ? (string) $assoc_args['report'] : '',
 			'source_metadata'           => $source_metadata,
 		);

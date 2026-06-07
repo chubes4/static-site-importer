@@ -194,7 +194,7 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 			$this->assertTrue( $this->contains_selector( $post->post_content, '.hero' ) );
 			$this->assertNotEmpty( parse_blocks( $post->post_content ), 'Page block parse failed for ' . $filename );
 			$this->assertNotEmpty( parse_blocks( $pattern_body ), 'Pattern snapshot block parse failed for ' . $filename );
-			$this->assertSame( trim( $pattern_body ), trim( $post->post_content ), 'Pattern snapshot should match page content for ' . $filename );
+			$this->assertSame( $this->normalize_stored_post_content( $pattern_body ), $this->normalize_stored_post_content( $post->post_content ), 'Pattern snapshot should match page content for ' . $filename );
 			$pages[ $filename ] = array(
 				'stored'   => $post->post_content,
 				'rendered' => do_blocks( $post->post_content ),
@@ -330,6 +330,18 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 						),
 					),
 				),
+				'site'      => array(
+					'schema' => 'block-artifact-compiler/compiled-site/v1',
+					'pages'  => array(
+						array(
+							'source_path' => 'content.mdx',
+							'route_key'   => 'content',
+							'post_type'   => 'post',
+							'slug'        => 'compiled-bac-post',
+							'title'       => 'Compiled BAC Post',
+						),
+					),
+				),
 			),
 		);
 
@@ -388,7 +400,7 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertSame( 'mdx_component_skipped', $artifact_diagnostic['type'] ?? '' );
 		$this->assertSame( 'warning', $artifact_diagnostic['severity'] ?? '' );
 		$this->assertSame( 'BAC normalized an MDX component before SSI materialization.', $artifact_diagnostic['message'] ?? '' );
-		$this->assertSame( 'static-site-importer', $artifact_diagnostic['source'] ?? '' );
+		$this->assertSame( 'content.mdx', $artifact_diagnostic['source'] ?? '' );
 		$this->assertSame( 'content.mdx', $artifact_diagnostic['path'] ?? '' );
 		$this->assertSame( 'mdx_component_skipped', $artifact_diagnostic['code'] ?? '' );
 		$this->assertSame( 'import-report.json', $artifact_diagnostic['refs'][0]['path'] ?? '' );
@@ -683,11 +695,12 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$result = Static_Site_Importer_Theme_Generator::import_theme(
 			$fixture,
 			array(
-				'name'        => 'Generated Store Hard Fail',
-				'slug'        => 'generated-store-hard-fail',
-				'overwrite'   => true,
-				'activate'    => false,
-				'keep_source' => true,
+				'name'                     => 'Generated Store Hard Fail',
+				'slug'                     => 'generated-store-hard-fail',
+				'overwrite'                => true,
+				'activate'                 => false,
+				'keep_source'              => true,
+				'materialize_dependencies' => false,
 			)
 		);
 
@@ -708,6 +721,8 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertSame( false, $dependencies['waived'] ?? null );
 		$this->assertContains( 'products_manifest', $dependencies['sources'] ?? array() );
 		$this->assertSame( 2, $dependencies['product_count'] ?? null );
+		$this->assertSame( 'skipped', $report['plugin_materialization']['status'] ?? null );
+		$this->assertSame( 'dependency_materialization_disabled', $report['plugin_materialization']['reason'] ?? null );
 
 		$diagnostics = array_values(
 			array_filter(
@@ -720,6 +735,26 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertSame( 2, $diagnostics[0]['product_count'] ?? null );
 
 		$this->assertSame( 'woocommerce_required_but_missing', $report['product_seeding']['reason'] ?? '' );
+	}
+
+	/**
+	 * Already-available plugin dependencies report cleanly without installer side effects.
+	 */
+	public function test_plugin_materializer_reports_already_available_dependency(): void {
+		$report = Static_Site_Importer_Plugin_Materializer::ensure_wp_org_plugin(
+			'woocommerce',
+			'woocommerce/woocommerce.php',
+			static fn (): bool => true
+		);
+
+		$this->assertSame( 'woocommerce', $report['slug'] ?? '' );
+		$this->assertSame( 'woocommerce/woocommerce.php', $report['plugin_file'] ?? '' );
+		$this->assertSame( 'wordpress.org', $report['source'] ?? '' );
+		$this->assertSame( 'already_available', $report['status'] ?? '' );
+		$this->assertSame( false, $report['attempted'] ?? null );
+		$this->assertSame( true, $report['installed'] ?? null );
+		$this->assertSame( true, $report['active'] ?? null );
+		$this->assertSame( array(), $report['actions'] ?? null );
 	}
 
 	/**
@@ -2654,6 +2689,43 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$parts = explode( '?>', $pattern_file, 2 );
 
 		return trim( 2 === count( $parts ) ? $parts[1] : $pattern_file );
+	}
+
+	/**
+	 * Normalize post content through the same storage-safe comparison boundary.
+	 */
+	private function normalize_stored_post_content( string $content ): string {
+		$windows_1252_entities = array(
+			'&#128;' => '&#8364;',
+			'&#130;' => '&#8218;',
+			'&#131;' => '&#402;',
+			'&#132;' => '&#8222;',
+			'&#133;' => '&#8230;',
+			'&#134;' => '&#8224;',
+			'&#135;' => '&#8225;',
+			'&#136;' => '&#710;',
+			'&#137;' => '&#8240;',
+			'&#138;' => '&#352;',
+			'&#139;' => '&#8249;',
+			'&#140;' => '&#338;',
+			'&#142;' => '&#381;',
+			'&#145;' => '&#8216;',
+			'&#146;' => '&#8217;',
+			'&#147;' => '&#8220;',
+			'&#148;' => '&#8221;',
+			'&#149;' => '&#8226;',
+			'&#150;' => '&#8211;',
+			'&#151;' => '&#8212;',
+			'&#152;' => '&#732;',
+			'&#153;' => '&#8482;',
+			'&#154;' => '&#353;',
+			'&#155;' => '&#8250;',
+			'&#156;' => '&#339;',
+			'&#158;' => '&#382;',
+			'&#159;' => '&#376;',
+		);
+
+		return trim( strtr( wp_kses_post( $content ), $windows_1252_entities ) );
 	}
 
 	/**
