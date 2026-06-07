@@ -5741,14 +5741,23 @@ class Static_Site_Importer_Theme_Generator {
 			}
 		}
 
-		$warnings = array( 'No valid products.json manifest, JSON-LD Product data, or visible product cards with prices were found.' );
+		$warnings = array();
+		if ( ! empty( $selector_hints ) || ! empty( $rejected ) ) {
+			$warnings[] = 'Commerce-like source markup was found, but Static Site Importer could not infer a product set. ' .
+				'Provide a valid products.json manifest, JSON-LD Product data, or at least two visible product cards with prices.';
+		}
+
 		self::set_commerce_product_inference_report( 'none', array(), $selector_hints, $rejected, $warnings );
-		self::$conversion_report['diagnostics'][] = array(
-			'code'     => 'commerce_product_inference_none',
-			'severity' => 'warning',
-			'source'   => 'html',
-			'message'  => $warnings[0],
-		);
+		if ( ! empty( $warnings ) ) {
+			self::$conversion_report['diagnostics'][] = array(
+				'code'                    => 'commerce_product_inference_incomplete',
+				'severity'                => 'warning',
+				'source'                  => 'html',
+				'message'                 => $warnings[0],
+				'skipped_candidate_count' => count( $rejected ),
+				'selector_hints'          => $selector_hints,
+			);
+		}
 
 		return array();
 	}
