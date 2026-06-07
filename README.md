@@ -1,8 +1,24 @@
 # Static Site Importer
 
-Import a static site into WordPress pages and a companion block theme using the bundled [Block Format Bridge](https://github.com/chubes4/block-format-bridge) converter.
+Import a static site or Block Artifact Compiler website artifact into WordPress pages and a companion block theme.
 
-Static Site Importer is a WordPress plugin. It installs [Block Format Bridge](https://github.com/chubes4/block-format-bridge) through Composer and loads its bundled converter directly from `vendor/`.
+Static Site Importer is a WordPress plugin. It installs [Block Artifact Compiler](https://github.com/chubes4/block-artifact-compiler) and [Block Format Bridge](https://github.com/chubes4/block-format-bridge) through Composer and loads the bundled conversion stack directly from `vendor/`.
+
+## Architecture Stack
+
+Static Site Importer is the WordPress materialization layer for static website inputs. It accepts two related shapes:
+
+- Static source imports: an HTML entry file, pasted HTML document, public HTML URL, direct HTML upload, or ZIP source tree.
+- Generated website artifacts: a `block-artifact-compiler/website-artifact/v1` bundle, such as the website artifact emitted by Studio Web or WP Codebox browser runtimes.
+
+The conversion stack is split by responsibility:
+
+- **Static Site Importer** owns WordPress intake, safety checks, page/theme creation, asset placement, import reports, quality gates, and block-theme materialization.
+- **Block Artifact Compiler** owns the generated website artifact contract and compilation of artifact files into a materializable website model.
+- **Block Format Bridge** owns format normalization across HTML, Markdown, and Gutenberg block markup conversion requests.
+- **HTML to Blocks Converter** owns raw HTML-to-Gutenberg block fidelity underneath Block Format Bridge.
+
+When a generated artifact contains full-document HTML, Static Site Importer routes document metadata, head content, styles, scripts, and page body fragments to the right WordPress destinations before calling the conversion stack. A `core/html` block in imported page content is therefore a materialization/conversion quality issue to fix in this stack, not a product-layer workaround to hide upstream.
 
 ## What It Does
 
@@ -26,7 +42,7 @@ Static Site Importer is a WordPress plugin. It installs [Block Format Bridge](ht
 - Composer dependencies installed for development/source checkouts.
 - Node dependencies installed only when running the JavaScript block-validation smoke tests.
 
-The current Composer dependency is [`chubes4/block-format-bridge:^0.7.1`](https://github.com/chubes4/block-format-bridge). That package includes the prefixed HTML-to-blocks converter used by the importer.
+The current Composer dependencies are [`chubes4/block-artifact-compiler`](https://github.com/chubes4/block-artifact-compiler) and [`chubes4/block-format-bridge`](https://github.com/chubes4/block-format-bridge). Block Format Bridge includes the prefixed HTML-to-blocks converter used by the importer.
 
 ## Admin Usage
 
@@ -176,7 +192,7 @@ Important behavior:
 
 ## Website Artifact Export
 
-`static-site-importer/export-theme` exports an imported or active block theme as a BAC-compatible website artifact. SSI owns the WordPress import/export/materialization path; Block Artifact Compiler owns the website artifact compilation contract. Studio Web, Codebox, and other products should consume the exported `website_artifact` object rather than SSI-specific static-site wrappers.
+`static-site-importer/export-theme` exports an imported or active block theme as a BAC-compatible website artifact. SSI owns the WordPress import/export/materialization path; Block Artifact Compiler owns the website artifact compilation contract. Studio Web, WP Codebox, and other products should consume the exported `website_artifact` object rather than SSI-specific static-site wrappers.
 
 The export envelope includes:
 
@@ -268,7 +284,7 @@ This repo is Homeboy-managed:
 
 ## Current Boundaries And Limitations
 
-- The importer is intentionally static-site-to-block-theme glue. Block Format Bridge owns format conversion; HTML-to-block transform fidelity belongs upstream in BFB/h2bc.
+- The importer is intentionally static-site/artifact-to-block-theme glue. Block Artifact Compiler owns generated website artifact compilation; Block Format Bridge owns format conversion; HTML-to-block transform fidelity belongs upstream in BFB/h2bc.
 - The importer currently discovers flat sibling `*.html` files beside the selected entry file and recursive Markdown content documents; it does not crawl arbitrary nested HTML routes.
 - Admin imports accept pasted HTML, one public URL, a direct `.html` / `.htm` file, or a ZIP with a root `index.html` or exactly one nested `index.html`; CLI imports take a direct HTML entry path or one public URL.
 - MDX, Astro, Eleventy, Hugo, and other runtime/build orchestration is out of scope. Build those projects to static HTML first, or provide plain `.md` / `.markdown` source content alongside the HTML shell.
@@ -278,6 +294,6 @@ This repo is Homeboy-managed:
 
 ## Boundary
 
-This plugin owns the static-site import workflow and generated WordPress artifacts. [Block Format Bridge](https://github.com/chubes4/block-format-bridge) owns content-format conversion.
+This plugin owns static-site and website-artifact import workflows plus generated WordPress artifacts. [Block Artifact Compiler](https://github.com/chubes4/block-artifact-compiler) owns generated website artifact compilation. [Block Format Bridge](https://github.com/chubes4/block-format-bridge) owns content-format conversion.
 
 Imported pages remain WordPress pages for routing, titles, front-page assignment, editor visibility, and body content edits. Their imported body layouts live on the page posts as block markup in `post_content`. The generated block theme owns shared header/footer parts, optional background decoration, frontend/editor styles, scripts, and template wrappers that render page bodies through `core/post-content`; the generic `templates/page.html` stays the fallback for pages created after import.
