@@ -18,13 +18,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 $bfb_library_path    = __DIR__;
-$bfb_library_version = '0.8.0';
+$bfb_library_version = '0.8.1';
 
-// Load Composer/php-scoper dependencies as soon as the bridge package is
-// included, not when the winning BFB version initializes on
-// `plugins_loaded:1`. Some dependencies (notably html-to-blocks-converter)
-// register their own Action-Scheduler-style version callbacks at
-// `plugins_loaded:0`; loading them from BFB's initializer would be too late.
+// Load built/php-scoper dependencies when present. Composer consumers usually
+// load dependencies through the root autoloader before this file runs, while
+// standalone release builds can still ship a scoped vendor_prefixed/ artifact.
 if ( file_exists( $bfb_library_path . '/vendor_prefixed/autoload.php' ) ) {
 	require_once $bfb_library_path . '/vendor_prefixed/autoload.php';
 } elseif ( file_exists( $bfb_library_path . '/vendor/autoload.php' ) ) {

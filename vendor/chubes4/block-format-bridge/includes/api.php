@@ -191,10 +191,10 @@ if ( ! function_exists( 'bfb_h2bc_capabilities' ) ) {
 	 */
 	function bfb_h2bc_capabilities(): array {
 		$handler = null;
-		if ( function_exists( '\BlockFormatBridge\Vendor\html_to_blocks_raw_handler' ) ) {
-			$handler = '\BlockFormatBridge\Vendor\html_to_blocks_raw_handler';
-		} elseif ( function_exists( 'html_to_blocks_raw_handler' ) ) {
+		if ( function_exists( 'html_to_blocks_raw_handler' ) ) {
 			$handler = 'html_to_blocks_raw_handler';
+		} elseif ( function_exists( '\BlockFormatBridge\Vendor\html_to_blocks_raw_handler' ) ) {
+			$handler = '\BlockFormatBridge\Vendor\html_to_blocks_raw_handler';
 		}
 
 		$path = null;
@@ -253,8 +253,8 @@ if ( ! function_exists( 'bfb_h2bc_capability_function' ) ) {
 	 */
 	function bfb_h2bc_capability_function(): ?string {
 		$candidates = array(
-			'\BlockFormatBridge\Vendor\html_to_blocks_capabilities',
 			'html_to_blocks_capabilities',
+			'\BlockFormatBridge\Vendor\html_to_blocks_capabilities',
 		);
 		$defined    = get_defined_functions();
 		$functions  = array_map( 'strtolower', $defined['user'] );

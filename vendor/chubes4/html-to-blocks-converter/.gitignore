@@ -1,0 +1,31 @@
+# Dependencies
+vendor/
+node_modules/
+
+# Build artifacts
+build/
+*.zip
+
+# IDE and editors
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+debug.log
+
+# Lock files
+composer.lock
+package-lock.json
+
+# Test files
+test-conversion.php
+
+# Documentation build
+.docs-sync.json

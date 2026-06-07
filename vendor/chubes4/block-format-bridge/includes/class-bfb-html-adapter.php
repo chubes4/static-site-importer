@@ -65,13 +65,13 @@ class BFB_HTML_Adapter implements BFB_Format_Adapter {
 			return bfb_filter_html_to_blocks_result( $pre_result, $content, $options, $args );
 		}
 
-		if ( function_exists( '\BlockFormatBridge\Vendor\html_to_blocks_raw_handler' ) ) {
-			$blocks = \BlockFormatBridge\Vendor\html_to_blocks_raw_handler( $args );
+		if ( function_exists( 'html_to_blocks_raw_handler' ) ) {
+			$blocks = html_to_blocks_raw_handler( $args );
 			return bfb_filter_html_to_blocks_result( is_array( $blocks ) ? $blocks : array(), $content, $options, $args );
 		}
 
-		if ( function_exists( 'html_to_blocks_raw_handler' ) ) {
-			$blocks = html_to_blocks_raw_handler( $args );
+		if ( function_exists( '\BlockFormatBridge\Vendor\html_to_blocks_raw_handler' ) ) {
+			$blocks = \BlockFormatBridge\Vendor\html_to_blocks_raw_handler( $args );
 			return bfb_filter_html_to_blocks_result( is_array( $blocks ) ? $blocks : array(), $content, $options, $args );
 		}
 
