@@ -4651,13 +4651,6 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		self::start_conversion_fragment( $source, $html );
-		$fallback_listener     = static function ( string $element_html, array $context, array $block ) use ( $source ): void {
-			self::record_unsupported_fallback( $source, $element_html, $context, $block );
-		};
-		$content_loss_listener = static function ( int $original_text_length, int $serialized_text_length ) use ( $source ): void {
-			self::record_content_loss( $source, $original_text_length, $serialized_text_length );
-		};
-
 		$commerce_metadata_listener = static function ( array $metadata ) use ( $source ): void {
 			self::record_commerce_conversion_metadata( $source, $metadata );
 		};
@@ -4665,14 +4658,10 @@ class Static_Site_Importer_Theme_Generator {
 			self::record_commerce_conversion_metadata( $source, array_merge( array( 'type' => 'materialization_request' ), $request ) );
 		};
 
-		add_action( 'html_to_blocks_unsupported_html_fallback', $fallback_listener, 10, 3 );
-		add_action( 'html_to_blocks_conversion_aborted_content_loss', $content_loss_listener, 10, 2 );
 		add_action( 'bfb_conversion_metadata', $commerce_metadata_listener, 10, 1 );
 		add_action( 'bfb_materialization_request', $commerce_request_listener, 10, 1 );
 		$conversion_options = self::conversion_options( $source );
 		$blocks             = self::compile_fragment_to_blocks( $html, $source, $format, $conversion_options );
-		remove_action( 'html_to_blocks_unsupported_html_fallback', $fallback_listener, 10 );
-		remove_action( 'html_to_blocks_conversion_aborted_content_loss', $content_loss_listener, 10 );
 		remove_action( 'bfb_conversion_metadata', $commerce_metadata_listener, 10 );
 		remove_action( 'bfb_materialization_request', $commerce_request_listener, 10 );
 
@@ -4729,6 +4718,112 @@ class Static_Site_Importer_Theme_Generator {
 		if ( isset( self::$conversion_report['conversion_fragments'][ $source ] ) ) {
 			self::$conversion_report['conversion_fragments'][ $source ]['compiler'] = $payload;
 		}
+
+		self::record_compiler_conversion_diagnostics( $source, $compiled );
+	}
+
+	/**
+	 * Record conversion diagnostics surfaced by the BAC/BFB result envelope.
+	 *
+	 * @param string              $source   Source fragment label.
+	 * @param array<string,mixed> $compiled Compiler result envelope.
+	 * @return void
+	 */
+	private static function record_compiler_conversion_diagnostics( string $source, array $compiled ): void {
+		$report = isset( $compiled['bfb_report'] ) && is_array( $compiled['bfb_report'] ) ? $compiled['bfb_report'] : array();
+		if ( empty( $report ) ) {
+			return;
+		}
+
+		$fallbacks = isset( $report['fallback_events'] ) && is_array( $report['fallback_events'] ) ? $report['fallback_events'] : array();
+		if ( empty( $fallbacks ) && isset( $report['fallback_diagnostics'] ) && is_array( $report['fallback_diagnostics'] ) ) {
+			$fallbacks = $report['fallback_diagnostics'];
+		}
+
+		foreach ( $fallbacks as $fallback ) {
+			if ( ! is_array( $fallback ) ) {
+				continue;
+			}
+
+			self::record_compiler_unsupported_fallback( $source, $fallback );
+		}
+
+		$diagnostics = isset( $report['diagnostics'] ) && is_array( $report['diagnostics'] ) ? $report['diagnostics'] : array();
+		foreach ( $diagnostics as $diagnostic ) {
+			if ( ! is_array( $diagnostic ) || 'possible_text_loss' !== (string) ( $diagnostic['code'] ?? '' ) ) {
+				continue;
+			}
+
+			$details                = isset( $diagnostic['details'] ) && is_array( $diagnostic['details'] ) ? $diagnostic['details'] : array();
+			$original_text_length   = isset( $details['source_text_bytes'] ) ? (int) $details['source_text_bytes'] : (int) ( $report['source_text_bytes'] ?? 0 );
+			$serialized_text_length = isset( $details['converted_text_bytes'] ) ? (int) $details['converted_text_bytes'] : (int) ( $report['converted_text_bytes'] ?? 0 );
+			self::record_content_loss( $source, $original_text_length, $serialized_text_length );
+		}
+	}
+
+	/**
+	 * Record one unsupported fallback from the compiler report surface.
+	 *
+	 * @param string              $source   Source fragment label.
+	 * @param array<string,mixed> $fallback Normalized BFB fallback diagnostic.
+	 * @return void
+	 */
+	private static function record_compiler_unsupported_fallback( string $source, array $fallback ): void {
+		$preview = isset( $fallback['preview'] ) && is_scalar( $fallback['preview'] ) ? (string) $fallback['preview'] : '';
+		if ( '' === $preview && isset( $fallback['html_excerpt'] ) && is_scalar( $fallback['html_excerpt'] ) ) {
+			$preview = (string) $fallback['html_excerpt'];
+		}
+
+		$context = array(
+			'reason'   => isset( $fallback['reason_code'] ) && is_scalar( $fallback['reason_code'] ) ? (string) $fallback['reason_code'] : (string) ( $fallback['reason'] ?? 'unknown' ),
+			'tag_name' => isset( $fallback['tag_name'] ) && is_scalar( $fallback['tag_name'] ) ? (string) $fallback['tag_name'] : (string) ( $fallback['source_tag'] ?? '' ),
+		);
+
+		if ( isset( $fallback['occurrence'] ) && is_numeric( $fallback['occurrence'] ) ) {
+			$context['occurrence'] = (int) $fallback['occurrence'];
+		}
+
+		$selector = self::fallback_selector_from_compiler_diagnostic( $fallback );
+		if ( '' !== $selector ) {
+			$context['selector'] = $selector;
+		}
+
+		$block_name = isset( $fallback['generated_block_type'] ) && is_scalar( $fallback['generated_block_type'] ) ? (string) $fallback['generated_block_type'] : (string) ( $fallback['block_name'] ?? 'core/html' );
+		$block      = array(
+			'blockName'    => '' !== $block_name ? $block_name : 'core/html',
+			'attrs'        => array( 'content' => $preview ),
+			'innerHTML'    => $preview,
+			'innerContent' => array( $preview ),
+		);
+
+		self::record_unsupported_fallback( $source, $preview, $context, $block );
+	}
+
+	/**
+	 * Build a best-effort selector from a normalized compiler fallback diagnostic.
+	 *
+	 * @param array<string,mixed> $fallback Normalized BFB fallback diagnostic.
+	 * @return string
+	 */
+	private static function fallback_selector_from_compiler_diagnostic( array $fallback ): string {
+		$tag        = isset( $fallback['source_tag'] ) && is_scalar( $fallback['source_tag'] ) ? strtolower( (string) $fallback['source_tag'] ) : '';
+		$attributes = isset( $fallback['attributes'] ) && is_array( $fallback['attributes'] ) ? $fallback['attributes'] : array();
+		$id         = isset( $attributes['id'] ) && is_scalar( $attributes['id'] ) ? sanitize_html_class( (string) $attributes['id'] ) : '';
+		$classes    = isset( $fallback['classes'] ) && is_array( $fallback['classes'] ) ? $fallback['classes'] : array();
+		$selector   = '' !== $tag ? $tag : 'html';
+
+		if ( '' !== $id ) {
+			$selector .= '#' . $id;
+		}
+
+		foreach ( $classes as $class ) {
+			$class = is_scalar( $class ) ? sanitize_html_class( (string) $class ) : '';
+			if ( '' !== $class ) {
+				$selector .= '.' . $class;
+			}
+		}
+
+		return $selector;
 	}
 
 	/**
