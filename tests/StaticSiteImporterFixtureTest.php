@@ -726,50 +726,23 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Commerce-bearing imports try to materialize WooCommerce before failing the dependency gate.
+	 * Already-available plugin dependencies report cleanly without installer side effects.
 	 */
-	public function test_commerce_intent_attempts_woocommerce_materialization_before_missing_dependency_failure(): void {
-		if ( class_exists( 'WC_Product_Simple' ) ) {
-			$this->markTestSkipped( 'Requires a runtime without WooCommerce active.' );
-		}
-
-		$plugin_root = dirname( __DIR__ );
-		$fixture     = $plugin_root . '/tests/fixtures/generated-store-valid/index.html';
-
-		$result = Static_Site_Importer_Theme_Generator::import_theme(
-			$fixture,
-			array(
-				'name'        => 'Generated Store Materialize Woo',
-				'slug'        => 'generated-store-materialize-woo',
-				'overwrite'   => true,
-				'activate'    => false,
-				'keep_source' => true,
-			)
+	public function test_plugin_materializer_reports_already_available_dependency(): void {
+		$report = Static_Site_Importer_Plugin_Materializer::ensure_wp_org_plugin(
+			'woocommerce',
+			'woocommerce/woocommerce.php',
+			static fn (): bool => true
 		);
 
-		$this->assertNotWPError( $result );
-		$this->assertIsArray( $result );
-
-		$report = json_decode( $this->read_file( $result['report_path'] ), true );
-		$this->assertIsArray( $report );
-
-		$materialization = $report['plugin_materialization']['plugins']['woocommerce'] ?? array();
-		$this->assertSame( true, $materialization['attempted'] ?? null );
-		$this->assertSame( 'wordpress.org', $materialization['source'] ?? '' );
-		$this->assertSame( 'woocommerce/woocommerce.php', $materialization['plugin_file'] ?? '' );
-
-		if ( 'failed' === ( $materialization['status'] ?? '' ) ) {
-			$this->assertSame( true, $result['quality']['fail_import'] ?? null );
-			$this->assertContains( 'woocommerce_missing', $result['quality']['failure_reasons'] ?? array() );
-			$this->assertSame( 'failed', $report['plugin_materialization']['status'] ?? null );
-			$this->assertNotEmpty( $materialization['error']['code'] ?? '' );
-			return;
-		}
-
-		$this->assertSame( 'completed', $report['plugin_materialization']['status'] ?? null );
-		$this->assertSame( true, $report['commerce']['dependencies']['woocommerce']['active'] ?? null );
-		$this->assertNotContains( 'woocommerce_missing', $result['quality']['failure_reasons'] ?? array() );
-		$this->assertSame( 'completed', $report['product_seeding']['status'] ?? '' );
+		$this->assertSame( 'woocommerce', $report['slug'] ?? '' );
+		$this->assertSame( 'woocommerce/woocommerce.php', $report['plugin_file'] ?? '' );
+		$this->assertSame( 'wordpress.org', $report['source'] ?? '' );
+		$this->assertSame( 'already_available', $report['status'] ?? '' );
+		$this->assertSame( false, $report['attempted'] ?? null );
+		$this->assertSame( true, $report['installed'] ?? null );
+		$this->assertSame( true, $report['active'] ?? null );
+		$this->assertSame( array(), $report['actions'] ?? null );
 	}
 
 	/**
