@@ -294,7 +294,7 @@ This repo is Homeboy-managed:
 
 ## Boundary
 
-This plugin owns static-site and website-artifact import workflows plus generated WordPress artifacts. [Block Artifact Compiler](https://github.com/chubes4/block-artifact-compiler) owns generated website artifact and fragment compilation. [Block Format Bridge](https://github.com/chubes4/block-format-bridge) owns content-format routing, conversion reports, and adapter ergonomics. The bundled HTML-to-blocks converter owns raw HTML transform mechanics underneath BFB.
+This plugin owns static-site and website-artifact import workflows plus generated WordPress artifacts. [Block Artifact Compiler](https://github.com/chubes4/block-artifact-compiler) owns generated website artifact and fragment compilation, including the materializer-neutral `block-artifact-compiler/compiled-site/v1` page route, shared-region, and theme-asset contract. [Block Format Bridge](https://github.com/chubes4/block-format-bridge) owns content-format routing, conversion reports, and adapter ergonomics. The bundled HTML-to-blocks converter owns raw HTML transform mechanics underneath BFB.
 
 The intended dependency direction is:
 
@@ -302,6 +302,6 @@ The intended dependency direction is:
 Static Site Importer -> Block Artifact Compiler -> Block Format Bridge -> HTML to Blocks Converter
 ```
 
-SSI import reports consume BAC/BFB result envelopes for fallback and conversion-quality diagnostics. They should not depend on lower-level h2bc hook names directly.
+SSI import reports consume BAC/BFB result envelopes for fallback and conversion-quality diagnostics, and record BAC's compiled-site contract when importing website artifacts. They should not depend on lower-level h2bc hook names directly or re-derive semantic page-route intent when BAC supplies it.
 
 Imported pages remain WordPress pages for routing, titles, front-page assignment, editor visibility, and body content edits. Their imported body layouts live on the page posts as block markup in `post_content`. The generated block theme owns shared header/footer parts, optional background decoration, frontend/editor styles, scripts, and template wrappers that render page bodies through `core/post-content`; the generic `templates/page.html` stays the fallback for pages created after import.
