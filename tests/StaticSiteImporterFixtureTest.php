@@ -783,8 +783,16 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertArrayNotHasKey( 'dependencies', $report['commerce'] ?? array() );
 		$this->assertSame( 0, $report['quality']['commerce_dependency_failures'] ?? null );
 		$this->assertNotContains( 'woocommerce_missing', $report['quality']['failure_reasons'] ?? array() );
+		$this->assertSame( 'none', $report['commerce_product_inference']['strategy'] ?? '' );
+		$this->assertSame( array(), $report['commerce_product_inference']['warnings'] ?? array() );
 
-		$dependency_codes = array( 'woocommerce_missing', 'woocommerce_present', 'woocommerce_waived' );
+		$dependency_codes = array(
+			'commerce_product_inference_none',
+			'commerce_product_inference_incomplete',
+			'woocommerce_missing',
+			'woocommerce_present',
+			'woocommerce_waived',
+		);
 		foreach ( $report['diagnostics'] ?? array() as $diagnostic ) {
 			if ( ! is_array( $diagnostic ) ) {
 				continue;
@@ -920,6 +928,55 @@ class StaticSiteImporterFixtureTest extends WP_UnitTestCase {
 		$this->assertSame( 'Structured Beans', $inference['products'][0]['name'] ?? '' );
 		$this->assertSame( 'structured-beans', $inference['products'][0]['slug'] ?? '' );
 		$this->assertSame( '18.00', $inference['products'][0]['regular_price'] ?? '' );
+	}
+
+	/**
+	 * Incomplete commerce-like markup reports source-selection guidance without gating WooCommerce.
+	 */
+	public function test_incomplete_product_card_markup_records_source_selection_warning_only(): void {
+		$html = '<!doctype html><html><body><main>' .
+			'<article class="product-card"><h2>Single Repair Kit</h2><p class="price">$28</p></article>' .
+			'</main></body></html>';
+
+		$fixture = $this->write_temp_fixture(
+			'index.html',
+			$html
+		);
+
+		$result = Static_Site_Importer_Theme_Generator::import_theme(
+			$fixture,
+			array(
+				'name'        => 'Incomplete Product Markup',
+				'slug'        => 'incomplete-product-markup',
+				'overwrite'   => true,
+				'activate'    => false,
+				'keep_source' => true,
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertIsArray( $result );
+
+		$report      = json_decode( $this->read_file( $result['report_path'] ), true );
+		$inference   = $report['commerce_product_inference'] ?? array();
+		$diagnostics = array_values(
+			array_filter(
+				$report['diagnostics'] ?? array(),
+				static fn ( $diagnostic ): bool => is_array( $diagnostic ) && 'commerce_product_inference_incomplete' === ( $diagnostic['code'] ?? '' )
+			)
+		);
+
+		$this->assertIsArray( $report );
+		$this->assertSame( 'none', $inference['strategy'] ?? '' );
+		$this->assertSame( 0, $inference['product_count'] ?? null );
+		$this->assertSame( 1, $inference['skipped_candidate_count'] ?? null );
+		$this->assertSame( 'html_card_inference_requires_repeated_products', $inference['rejected_candidates'][0]['reason'] ?? '' );
+		$this->assertNotEmpty( $inference['warnings'] ?? array() );
+		$this->assertCount( 1, $diagnostics );
+		$this->assertSame( 'warning', $diagnostics[0]['severity'] ?? '' );
+		$this->assertStringContainsString( 'could not infer a product set', $diagnostics[0]['message'] ?? '' );
+		$this->assertArrayNotHasKey( 'dependencies', $report['commerce'] ?? array() );
+		$this->assertSame( 0, $report['quality']['commerce_dependency_failures'] ?? null );
 	}
 
 	/**
