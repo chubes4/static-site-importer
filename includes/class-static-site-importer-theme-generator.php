@@ -182,9 +182,11 @@ class Static_Site_Importer_Theme_Generator {
 		}
 		$has_footer_part      = isset( $template_part_writes[ $theme_dir . '/parts/footer.html' ] );
 
+		$selector_provenance = self::selector_provenance_from_artifacts( $artifacts );
+
 		$writes = array(
-			$theme_dir . '/style.css'                   => self::style_css( $theme_name, $materialized['css'], array_keys( self::$button_wrapper_classes ) ),
-			$theme_dir . '/assets/css/editor-style.css' => self::editor_style_css( $materialized['css'], array_keys( self::$button_wrapper_classes ) ),
+			$theme_dir . '/style.css'                   => self::style_css( $theme_name, $materialized['css'], array_keys( self::$button_wrapper_classes ), $selector_provenance ),
+			$theme_dir . '/assets/css/editor-style.css' => self::editor_style_css( $materialized['css'], array_keys( self::$button_wrapper_classes ), $selector_provenance ),
 			$theme_dir . '/functions.php'               => self::functions_php( $theme_slug ),
 			$theme_dir . '/theme.json'                  => self::theme_json( $theme_name, $materialized['css'] ),
 			$theme_dir . '/templates/front-page.html'   => self::content_template( '', $has_footer_part ),
@@ -2346,6 +2348,445 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Collect BAC selector provenance from every WordPress artifact boundary.
+	 *
+	 * @param array<string,mixed> $artifacts BAC WordPress artifacts.
+	 * @return array<int,array<string,mixed>> Selector provenance rows.
+	 */
+	private static function selector_provenance_from_artifacts( array $artifacts ): array {
+		$rows = array();
+		foreach ( array( 'selector_provenance' ) as $field ) {
+			if ( isset( $artifacts[ $field ] ) && is_array( $artifacts[ $field ] ) ) {
+				$rows = array_merge( $rows, array_filter( $artifacts[ $field ], 'is_array' ) );
+			}
+		}
+
+		foreach ( array( 'documents', 'template_parts' ) as $artifact_field ) {
+			$items = isset( $artifacts[ $artifact_field ] ) && is_array( $artifacts[ $artifact_field ] ) ? $artifacts[ $artifact_field ] : array();
+			foreach ( $items as $item ) {
+				if ( ! is_array( $item ) || ! isset( $item['selector_provenance'] ) || ! is_array( $item['selector_provenance'] ) ) {
+					continue;
+				}
+
+				$rows = array_merge( $rows, array_filter( $item['selector_provenance'], 'is_array' ) );
+			}
+		}
+
+		$deduped = array();
+		foreach ( $rows as $row ) {
+			$key = json_encode( $row );
+			if ( is_string( $key ) && '' !== $key ) {
+				$deduped[ $key ] = $row;
+			}
+		}
+
+		return array_values( $deduped );
+	}
+
+	/**
+	 * Mark empty absolute-positioned groups so editor CSS can hide only decorative placeholders.
+	 *
+	 * @param string $block_markup Serialized block markup.
+	 * @return string Serialized block markup.
+	 */
+	private static function mark_empty_decorative_group_blocks( string $block_markup, string $source = '' ): string {
+		if ( '' === trim( $block_markup ) || empty( self::$decorative_empty_group_classes ) || ! function_exists( 'parse_blocks' ) || ! function_exists( 'serialize_blocks' ) ) {
+			return $block_markup;
+		}
+
+		/** @var array<int, array<string, mixed>> $blocks */
+		$blocks                 = parse_blocks( $block_markup );
+		$changed                = false;
+		$normalized_html_blocks = 0;
+		self::normalize_decorative_html_blocks_in_tree( $blocks, $changed, $normalized_html_blocks );
+		if ( $normalized_html_blocks > 0 && '' !== $source ) {
+			self::clear_normalized_decorative_fallbacks( $source, $normalized_html_blocks );
+		}
+		self::mark_empty_decorative_group_blocks_in_tree( $blocks, $changed );
+
+		// @phpstan-ignore-next-line argument.type -- Parsed blocks are normalized before serializing.
+		return $changed ? serialize_blocks( $blocks ) : $block_markup;
+	}
+
+	/**
+	 * Restore empty decorative divs when the converter drops them from card bodies.
+	 *
+	 * @param string $html         Source HTML fragment.
+	 * @param string $block_markup Serialized block markup.
+	 * @return string Serialized block markup.
+	 */
+	private static function restore_dropped_empty_decorative_groups( string $html, string $block_markup ): string {
+		if ( '' === trim( $html ) || '' === trim( $block_markup ) || empty( self::$decorative_empty_group_classes ) || ! function_exists( 'parse_blocks' ) || ! function_exists( 'serialize_blocks' ) ) {
+			return $block_markup;
+		}
+
+		$restore = self::empty_decorative_groups_by_parent_class( $html );
+		if ( empty( $restore ) ) {
+			return $block_markup;
+		}
+
+		/** @var array<int, array<string, mixed>> $blocks */
+		$blocks  = parse_blocks( $block_markup );
+		$changed = false;
+		self::restore_dropped_empty_decorative_groups_in_tree( $blocks, $restore, $changed );
+
+		// @phpstan-ignore-next-line argument.type -- Parsed blocks are normalized before serializing.
+		return $changed ? serialize_blocks( $blocks ) : $block_markup;
+	}
+
+	/**
+	 * Extract decorative empty div blocks keyed by their parent class token.
+	 *
+	 * @param string $html Source HTML fragment.
+	 * @return array<string, array<int, array<string, mixed>>>
+	 */
+	private static function empty_decorative_groups_by_parent_class( string $html ): array {
+		$doc     = self::load_fragment_document( $html );
+		$restore = array();
+
+		foreach ( $doc->getElementsByTagName( 'div' ) as $element ) {
+			if ( ! self::is_empty_decorative_theme_part_element( $element ) || ! $element->parentNode instanceof DOMElement ) {
+				continue;
+			}
+
+			$matched = false;
+			$block   = self::decorative_group_block_from_element( $element, $matched );
+			if ( null === $block || ! $matched ) {
+				continue;
+			}
+
+			$parent_classes = preg_split( '/\s+/', trim( $element->parentNode->getAttribute( 'class' ) ) );
+			$parent_classes = false === $parent_classes ? array() : $parent_classes;
+			foreach ( $parent_classes as $parent_class ) {
+				if ( '' !== $parent_class && self::class_token_looks_like_card_container( $parent_class ) ) {
+					$restore[ $parent_class ][] = $block;
+				}
+			}
+		}
+
+		return $restore;
+	}
+
+	/**
+	 * Whether a class token identifies a card-like container that can safely receive restored layers.
+	 *
+	 * @param string $class_name Class token.
+	 * @return bool
+	 */
+	private static function class_token_looks_like_card_container( string $class_name ): bool {
+		return str_contains( $class_name, 'card' ) || str_contains( $class_name, 'gallery' ) || str_contains( $class_name, 'product' ) || str_contains( $class_name, 'category' );
+	}
+
+	/**
+	 * Restore decorative blocks inside matching generated group blocks.
+	 *
+	 * @param array<int, array<string, mixed>>              $blocks  Parsed blocks.
+	 * @param array<string, array<int, array<string,mixed>>> $restore Blocks keyed by parent class.
+	 * @param bool                                          $changed Whether any block changed.
+	 * @return void
+	 */
+	private static function restore_dropped_empty_decorative_groups_in_tree( array &$blocks, array $restore, bool &$changed ): void {
+		foreach ( $blocks as &$block ) {
+			if ( 'core/group' === ( $block['blockName'] ?? '' ) ) {
+				$attrs   = is_array( $block['attrs'] ?? null ) ? $block['attrs'] : array();
+				$classes = preg_split( '/\s+/', trim( (string) ( $attrs['className'] ?? '' ) ) );
+				$classes = false === $classes ? array() : $classes;
+				foreach ( $classes as $class ) {
+					if ( ! isset( $restore[ $class ] ) || self::block_contains_any_decorative_group( $block, $restore[ $class ] ) ) {
+						continue;
+					}
+
+					$inner_blocks          = is_array( $block['innerBlocks'] ?? null ) ? $block['innerBlocks'] : array();
+					$block['innerBlocks']  = array_merge( $restore[ $class ], $inner_blocks );
+					$block['innerContent'] = self::prepend_inner_content_placeholders( is_array( $block['innerContent'] ?? null ) ? $block['innerContent'] : array(), count( $restore[ $class ] ) );
+					$changed               = true;
+					break;
+				}
+			}
+
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				self::restore_dropped_empty_decorative_groups_in_tree( $block['innerBlocks'], $restore, $changed );
+			}
+		}
+		unset( $block );
+	}
+
+	/**
+	 * Add innerContent placeholders for restored leading inner blocks.
+	 *
+	 * @param array<int, mixed> $inner_content Existing innerContent.
+	 * @param int              $count         Number of leading blocks to insert.
+	 * @return array<int, mixed>
+	 */
+	private static function prepend_inner_content_placeholders( array $inner_content, int $count ): array {
+		$placeholders = array_fill( 0, max( 0, $count ), null );
+		if ( empty( $inner_content ) ) {
+			return $placeholders;
+		}
+
+		$first = array_shift( $inner_content );
+		return array_merge( array( $first ), $placeholders, $inner_content );
+	}
+
+	/**
+	 * Check whether a generated block already contains any decorative class slated for restore.
+	 *
+	 * @param array<string, mixed>             $block        Parsed block.
+	 * @param array<int, array<string, mixed>> $restore_list Candidate restored blocks.
+	 * @return bool
+	 */
+	private static function block_contains_any_decorative_group( array $block, array $restore_list ): bool {
+		$haystack = wp_json_encode( $block, JSON_UNESCAPED_SLASHES );
+		$haystack = is_string( $haystack ) ? $haystack : '';
+		foreach ( $restore_list as $restore_block ) {
+			$attrs      = is_array( $restore_block['attrs'] ?? null ) ? $restore_block['attrs'] : array();
+			$class_name = (string) ( $attrs['className'] ?? '' );
+			if ( '' !== $class_name && str_contains( $haystack, $class_name ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Convert raw HTML islands made only of decorative empty divs into native groups.
+	 *
+	 * @param array<int, array<string, mixed>> $blocks  Parsed blocks.
+	 * @param bool                            $changed Whether any block changed.
+	 * @return void
+	 */
+	private static function normalize_decorative_html_blocks_in_tree( array &$blocks, bool &$changed, int &$normalized_html_blocks ): void {
+		$block_total = count( $blocks );
+		for ( $index = 0; $index < $block_total; ++$index ) {
+			if ( ! empty( $blocks[ $index ]['innerBlocks'] ) && is_array( $blocks[ $index ]['innerBlocks'] ) ) {
+				self::normalize_decorative_html_blocks_in_tree( $blocks[ $index ]['innerBlocks'], $changed, $normalized_html_blocks );
+			}
+
+			if ( 'core/html' !== ( $blocks[ $index ]['blockName'] ?? '' ) ) {
+				continue;
+			}
+
+			$replacement = self::decorative_group_blocks_from_html( (string) ( $blocks[ $index ]['innerHTML'] ?? '' ) );
+			if ( null === $replacement ) {
+				continue;
+			}
+
+			array_splice( $blocks, $index, 1, $replacement );
+			$replacement_count = count( $replacement );
+			$index            += $replacement_count - 1;
+			$block_total      += $replacement_count - 1;
+			$changed           = true;
+			++$normalized_html_blocks;
+		}
+	}
+
+	/**
+	 * Remove fallback diagnostics that were recovered as native decorative group blocks.
+	 *
+	 * @param string $source Source fragment label.
+	 * @param int    $count  Number of normalized fallback blocks.
+	 * @return void
+	 */
+	private static function clear_normalized_decorative_fallbacks( string $source, int $count ): void {
+		self::$conversion_report['quality']['fallback_count'] = max( 0, (int) self::$conversion_report['quality']['fallback_count'] - $count );
+		if ( isset( self::$conversion_report['conversion_fragments'][ $source ]['fallback_count'] ) ) {
+			self::$conversion_report['conversion_fragments'][ $source ]['fallback_count'] = max( 0, (int) self::$conversion_report['conversion_fragments'][ $source ]['fallback_count'] - $count );
+		}
+
+		for ( $index = count( self::$conversion_report['diagnostics'] ) - 1; $index >= 0 && $count > 0; --$index ) {
+			$diagnostic = self::$conversion_report['diagnostics'][ $index ];
+			if ( 'unsupported_html_fallback' !== ( $diagnostic['type'] ?? '' ) || ( $diagnostic['source'] ?? '' ) !== $source ) {
+				continue;
+			}
+
+			array_splice( self::$conversion_report['diagnostics'], $index, 1 );
+			--$count;
+		}
+	}
+
+	/**
+	 * Convert an HTML fragment to group blocks when it only contains decorative empty div layers.
+	 *
+	 * @param string $html HTML fragment.
+	 * @return array<int, array<string, mixed>>|null Replacement group blocks, or null when not safe.
+	 */
+	private static function decorative_group_blocks_from_html( string $html ): ?array {
+		if ( '' === trim( $html ) || ! str_contains( $html, '<div' ) ) {
+			return null;
+		}
+
+		$doc      = self::load_fragment_document( $html );
+		$root     = $doc->documentElement;
+		$blocks   = array();
+		$matched  = false;
+		$has_node = false;
+		if ( ! $root instanceof DOMElement ) {
+			return null;
+		}
+
+		foreach ( $root->childNodes as $child ) {
+			if ( $child instanceof DOMText && '' === trim( $child->textContent ) ) {
+				continue;
+			}
+
+			if ( ! $child instanceof DOMElement ) {
+				return null;
+			}
+
+			$has_node = true;
+			$block    = self::decorative_group_block_from_element( $child, $matched );
+			if ( null === $block ) {
+				return null;
+			}
+
+			$blocks[] = $block;
+		}
+
+		return $has_node && $matched ? $blocks : null;
+	}
+
+	/**
+	 * Convert one empty decorative div tree to a parsed group block.
+	 *
+	 * @param DOMElement $element Source element.
+	 * @param bool       $matched Whether a decorative class was found.
+	 * @return array<string, mixed>|null Parsed block, or null when not safe.
+	 */
+	private static function decorative_group_block_from_element( DOMElement $element, bool &$matched ): ?array {
+		if ( 'div' !== strtolower( $element->tagName ) ) {
+			return null;
+		}
+
+		$children = array();
+		foreach ( $element->childNodes as $child ) {
+			if ( $child instanceof DOMText && '' === trim( $child->textContent ) ) {
+				continue;
+			}
+
+			if ( ! $child instanceof DOMElement ) {
+				return null;
+			}
+
+			$child_block = self::decorative_group_block_from_element( $child, $matched );
+			if ( null === $child_block ) {
+				return null;
+			}
+
+			$children[] = $child_block;
+		}
+
+		$class_name = trim( $element->getAttribute( 'class' ) );
+		$classes    = preg_split( '/\s+/', $class_name );
+		$classes    = false === $classes ? array() : $classes;
+		$is_layer   = false;
+		foreach ( $classes as $class ) {
+			if ( isset( self::$decorative_empty_group_classes[ $class ] ) ) {
+				$is_layer = true;
+				$matched  = true;
+				break;
+			}
+		}
+
+		if ( empty( $children ) && $is_layer ) {
+			$class_name = self::append_class_token( $class_name, 'static-site-importer-decorative-layer' );
+		}
+
+		$attrs = array();
+		if ( '' !== $class_name ) {
+			$attrs['className'] = $class_name;
+		}
+
+		$class_attr    = esc_attr( trim( 'wp-block-group ' . $class_name ) );
+		$inner_content = array( '<div class="' . $class_attr . '">' );
+		foreach ( $children as $_child ) {
+			$inner_content[] = null;
+		}
+		$inner_content[] = '</div>';
+
+		if ( empty( $children ) ) {
+			$inner_content = array( '<div class="' . $class_attr . '"></div>' );
+		}
+
+		return array(
+			'blockName'    => 'core/group',
+			'attrs'        => $attrs,
+			'innerBlocks'  => $children,
+			'innerHTML'    => implode( '', array_filter( $inner_content, 'is_string' ) ),
+			'innerContent' => $inner_content,
+		);
+	}
+
+	/**
+	 * Recursively mark empty decorative group blocks.
+	 *
+	 * @param array<int, array<string, mixed>> $blocks  Parsed blocks.
+	 * @param bool                            $changed Whether any block changed.
+	 * @return void
+	 */
+	private static function mark_empty_decorative_group_blocks_in_tree( array &$blocks, bool &$changed ): void {
+		foreach ( $blocks as &$block ) {
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				self::mark_empty_decorative_group_blocks_in_tree( $block['innerBlocks'], $changed );
+			}
+
+			if ( 'core/group' !== ( $block['blockName'] ?? '' ) || ! self::is_empty_decorative_group_block( $block ) ) {
+				continue;
+			}
+
+			$attrs              = is_array( $block['attrs'] ?? null ) ? $block['attrs'] : array();
+			$attrs['className'] = self::append_class_token( (string) ( $attrs['className'] ?? '' ), 'static-site-importer-decorative-layer' );
+			$block['attrs']     = $attrs;
+
+			foreach ( array( 'innerHTML' ) as $key ) {
+				if ( isset( $block[ $key ] ) && is_string( $block[ $key ] ) ) {
+					$block[ $key ] = self::append_class_to_first_html_class_attribute( $block[ $key ], 'static-site-importer-decorative-layer' );
+				}
+			}
+
+			if ( isset( $block['innerContent'] ) && is_array( $block['innerContent'] ) ) {
+				foreach ( $block['innerContent'] as &$content ) {
+					if ( is_string( $content ) ) {
+						$content = self::append_class_to_first_html_class_attribute( $content, 'static-site-importer-decorative-layer' );
+					}
+				}
+				unset( $content );
+			}
+
+			$changed = true;
+		}
+		unset( $block );
+	}
+
+	/**
+	 * Check whether a parsed group block is empty and styled as a decorative layer.
+	 *
+	 * @param array<string, mixed> $block Parsed block.
+	 * @return bool Whether the block is an empty decorative group.
+	 */
+	private static function is_empty_decorative_group_block( array $block ): bool {
+		if ( ! empty( $block['innerBlocks'] ) ) {
+			return false;
+		}
+
+		$inner_html = (string) ( $block['innerHTML'] ?? '' );
+		if ( '' !== trim( wp_strip_all_tags( $inner_html ) ) ) {
+			return false;
+		}
+
+		$attrs   = is_array( $block['attrs'] ?? null ) ? $block['attrs'] : array();
+		$classes = preg_split( '/\s+/', trim( (string) ( $attrs['className'] ?? '' ) ) );
+		$classes = false === $classes ? array() : $classes;
+		foreach ( $classes as $class ) {
+			if ( isset( self::$decorative_empty_group_classes[ $class ] ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * Append a class token if it is not already present.
 	 *
 	 * @param string $classes Existing classes.
@@ -2867,17 +3308,18 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param string $css        Source CSS.
 	 * @return string
 	 */
-	private static function style_css( string $theme_name, string $css, array $button_classes = array() ): string {
+	private static function style_css( string $theme_name, string $css, array $button_classes = array(), array $selector_provenance = array() ): string {
 		$button_bridge              = self::button_style_bridge_css( $css, $button_classes );
 		$admin_bar_bridge           = self::admin_bar_top_chrome_css( $css );
 		$source_nav_selector_bridge = self::source_nav_selector_bridge_css( $css );
+		$provenance_bridge          = self::selector_provenance_bridge_css( $css, $selector_provenance );
 		$source_display_bridge      = self::source_display_selector_bridge_css( $css );
 		$image_block_bridge         = self::source_image_block_selector_bridge_css( $css );
 		$form_control_bridge        = self::source_form_control_selector_bridge_css( $css );
 		$layout_gap_bridge          = self::imported_group_layout_gap_bridge_css();
 		$css                        = self::scope_source_button_css( $css, $button_classes );
 
-		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Materialized from a compiled website artifact.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge . $admin_bar_bridge . $source_nav_selector_bridge . $source_display_bridge . $image_block_bridge . $layout_gap_bridge . $form_control_bridge;
+		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Materialized from a compiled website artifact.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge . $admin_bar_bridge . $source_nav_selector_bridge . $provenance_bridge . $source_display_bridge . $image_block_bridge . $layout_gap_bridge . $form_control_bridge;
 	}
 
 	/**
@@ -2886,18 +3328,19 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param string $css Source CSS.
 	 * @return string
 	 */
-	private static function editor_style_css( string $css, array $button_classes = array() ): string {
+	private static function editor_style_css( string $css, array $button_classes = array(), array $selector_provenance = array() ): string {
 		$button_bridge              = self::button_style_bridge_css( $css, $button_classes );
 		$editor_bridge              = self::editor_absolute_overlay_css( $css );
 		$editor_reveal_bridge       = self::editor_reveal_animation_css( $css );
 		$source_nav_selector_bridge = self::source_nav_selector_bridge_css( $css );
+		$provenance_bridge          = self::selector_provenance_bridge_css( $css, $selector_provenance );
 		$source_display_bridge      = self::source_display_selector_bridge_css( $css );
 		$image_block_bridge         = self::source_image_block_selector_bridge_css( $css );
 		$form_control_bridge        = self::source_form_control_selector_bridge_css( $css );
 		$layout_gap_bridge          = self::imported_group_layout_gap_bridge_css();
 		$css                        = self::scope_source_button_css( $css, $button_classes );
 
-		return "/*\nStatic Site Importer editor styles.\nGenerated separately from frontend style.css so editor wrapper repairs do not leak to public rendering.\n*/\n\n" . $css . "\n" . $button_bridge . $source_nav_selector_bridge . $source_display_bridge . $image_block_bridge . $layout_gap_bridge . $form_control_bridge . $editor_bridge . $editor_reveal_bridge;
+		return "/*\nStatic Site Importer editor styles.\nGenerated separately from frontend style.css so editor wrapper repairs do not leak to public rendering.\n*/\n\n" . $css . "\n" . $button_bridge . $source_nav_selector_bridge . $provenance_bridge . $source_display_bridge . $image_block_bridge . $layout_gap_bridge . $form_control_bridge . $editor_bridge . $editor_reveal_bridge;
 	}
 
 	/**
@@ -2911,6 +3354,205 @@ class Static_Site_Importer_Theme_Generator {
 	 */
 	private static function imported_group_layout_gap_bridge_css(): string {
 		return "\n/* Static Site Importer: preserve source-authored spacing inside converted source wrappers. */\n.wp-block-post-content.is-layout-flow > *,\n.wp-block-group.is-layout-flow > *,\n.wp-block-group.is-vertical > * { margin-block-start: 0; margin-block-end: 0; }\n.wp-block-group.is-layout-flex,\n.wp-block-group.is-vertical { gap: 0; }\n";
+	}
+
+	/**
+	 * Build selector bridge rules from BAC source-to-block provenance.
+	 *
+	 * @param string                   $css                 Source CSS.
+	 * @param array<int,array<string,mixed>> $selector_provenance Selector provenance rows.
+	 * @return string Additional CSS rules.
+	 */
+	private static function selector_provenance_bridge_css( string $css, array $selector_provenance ): string {
+		$css = preg_replace( '/\/\*.*?\*\//s', '', $css ) ?? $css;
+		if ( '' === trim( $css ) || empty( $selector_provenance ) ) {
+			return '';
+		}
+
+		$selector_map = self::selector_provenance_selector_map( $selector_provenance );
+		if ( empty( $selector_map ) ) {
+			return '';
+		}
+
+		$rules = self::selector_provenance_bridge_rules_from_css( $css, $selector_map );
+		if ( empty( $rules ) ) {
+			return '';
+		}
+
+		return "\n/* Static Site Importer: transpose source selectors using block conversion provenance. */\n" . implode( "\n", array_unique( $rules ) ) . "\n";
+	}
+
+	/**
+	 * Build a source-selector to generated-selector map from BAC provenance.
+	 *
+	 * @param array<int,array<string,mixed>> $selector_provenance Selector provenance rows.
+	 * @return array<string,array<int,string>> Selector map.
+	 */
+	private static function selector_provenance_selector_map( array $selector_provenance ): array {
+		$map = array();
+		foreach ( $selector_provenance as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+
+			$source = isset( $row['source']['selector'] ) && is_scalar( $row['source']['selector'] ) ? trim( (string) $row['source']['selector'] ) : '';
+			if ( '' === $source || ! self::is_safe_selector_bridge_selector( $source ) ) {
+				continue;
+			}
+
+			$targets = self::selector_provenance_target_selectors( $row );
+			if ( empty( $targets ) ) {
+				continue;
+			}
+
+			foreach ( self::selector_provenance_source_aliases( $source ) as $alias ) {
+				if ( ! isset( $map[ $alias ] ) ) {
+					$map[ $alias ] = array();
+				}
+
+				$map[ $alias ] = array_values( array_unique( array_merge( $map[ $alias ], $targets ) ) );
+			}
+		}
+
+		return $map;
+	}
+
+	/**
+	 * Extract generated target selectors from one provenance row.
+	 *
+	 * @param array<string,mixed> $row Selector provenance row.
+	 * @return array<int,string> Generated selectors.
+	 */
+	private static function selector_provenance_target_selectors( array $row ): array {
+		$targets = array();
+		$block   = isset( $row['generated_block'] ) && is_array( $row['generated_block'] ) ? $row['generated_block'] : array();
+
+		if ( isset( $block['selector'] ) && is_scalar( $block['selector'] ) ) {
+			$targets[] = trim( (string) $block['selector'] );
+		}
+
+		foreach ( isset( $block['targets'] ) && is_array( $block['targets'] ) ? $block['targets'] : array() as $target ) {
+			if ( is_array( $target ) && isset( $target['selector'] ) && is_scalar( $target['selector'] ) ) {
+				$targets[] = trim( (string) $target['selector'] );
+			}
+		}
+
+		return array_values(
+			array_unique(
+				array_filter(
+					$targets,
+					static fn ( string $selector ): bool => '' !== $selector && self::is_safe_selector_bridge_selector( $selector )
+				)
+			)
+		);
+	}
+
+	/**
+	 * Derive safe source selector aliases for BAC provenance lookup.
+	 *
+	 * @param string $source Source selector.
+	 * @return array<int,string> Lookup aliases.
+	 */
+	private static function selector_provenance_source_aliases( string $source ): array {
+		$aliases = array( $source );
+		if ( preg_match( '/^[a-z][a-z0-9_-]*((?:[.#][a-z0-9_-]+)+)$/i', $source, $match ) ) {
+			$aliases[] = $match[1];
+		}
+		if ( preg_match_all( '/\.([A-Za-z_-][A-Za-z0-9_-]*)/', $source, $matches ) ) {
+			foreach ( $matches[1] as $class ) {
+				$aliases[] = '.' . $class;
+			}
+		}
+
+		return array_values( array_unique( $aliases ) );
+	}
+
+	/**
+	 * Build provenance bridge rules from one CSS scope.
+	 *
+	 * @param string                         $css          CSS to inspect.
+	 * @param array<string,array<int,string>> $selector_map Source-to-target selector map.
+	 * @return array<int,string> CSS rules.
+	 */
+	private static function selector_provenance_bridge_rules_from_css( string $css, array $selector_map ): array {
+		$rules  = array();
+		$length = strlen( $css );
+		$offset = 0;
+
+		while ( $offset < $length && preg_match( '/\G\s*([^{}]+)\{/', $css, $match, 0, $offset ) ) {
+			$prelude    = trim( $match[1] );
+			$body_start = $offset + strlen( $match[0] );
+			$body_end   = self::find_css_block_end( $css, $body_start );
+			if ( null === $body_end ) {
+				break;
+			}
+
+			$body   = trim( substr( $css, $body_start, $body_end - $body_start ) );
+			$offset = $body_end + 1;
+
+			if ( str_starts_with( $prelude, '@' ) ) {
+				$nested = self::selector_provenance_bridge_rules_from_css( $body, $selector_map );
+				if ( ! empty( $nested ) ) {
+					$rules[] = $prelude . ' { ' . implode( ' ', $nested ) . ' }';
+				}
+
+				continue;
+			}
+
+			$selectors = array();
+			foreach ( explode( ',', $prelude ) as $selector ) {
+				$selector = trim( $selector );
+				$selectors = array_merge( $selectors, self::selector_provenance_rewritten_selectors( $selector, $selector_map ) );
+			}
+
+			$selectors = array_values( array_unique( $selectors ) );
+			if ( empty( $selectors ) || '' === $body ) {
+				continue;
+			}
+
+			$rules[] = implode( ', ', $selectors ) . ' {' . $body . '}';
+		}
+
+		return $rules;
+	}
+
+	/**
+	 * Rewrite one source selector through the provenance selector map.
+	 *
+	 * @param string                         $selector     Source selector.
+	 * @param array<string,array<int,string>> $selector_map Source-to-target selector map.
+	 * @return array<int,string> Rewritten selectors.
+	 */
+	private static function selector_provenance_rewritten_selectors( string $selector, array $selector_map ): array {
+		if ( isset( $selector_map[ $selector ] ) ) {
+			return $selector_map[ $selector ];
+		}
+
+		if ( ! preg_match( '/^(.*?)([a-z][a-z0-9_-]*(?:[.#][a-z0-9_-]+)+|(?:[.#][a-z0-9_-]+)+)((?::[A-Za-z_-][A-Za-z0-9_-]*(?:\([^)]*\))?)*)$/i', $selector, $match ) ) {
+			return array();
+		}
+
+		$prefix = $match[1];
+		$target = $match[2];
+		$suffix = $match[3];
+		if ( ! isset( $selector_map[ $target ] ) || ( '' !== $prefix && ! self::is_safe_selector_bridge_selector( $prefix ) ) || ( '' !== $suffix && ! self::is_safe_selector_bridge_selector( $suffix ) ) ) {
+			return array();
+		}
+
+		return array_map(
+			static fn ( string $rewritten ): string => $prefix . $rewritten . $suffix,
+			$selector_map[ $target ]
+		);
+	}
+
+	/**
+	 * Check whether a selector is safe to copy into generated bridge CSS.
+	 *
+	 * @param string $selector Selector.
+	 * @return bool Whether the selector is safe.
+	 */
+	private static function is_safe_selector_bridge_selector( string $selector ): bool {
+		return '' !== trim( $selector ) && ! preg_match( '/[{};]/', $selector );
 	}
 
 	/**
