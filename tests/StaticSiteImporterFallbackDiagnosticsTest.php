@@ -25,12 +25,7 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 	 * Unsupported fallback diagnostics include routing metadata for upstream triage.
 	 */
 	public function test_fallback_diagnostic_includes_actionable_routing_metadata(): void {
-		$reflection = new ReflectionClass( Static_Site_Importer_Theme_Generator::class );
-		$method     = $reflection->getMethod( 'fallback_diagnostic_entry' );
-		$method->setAccessible( true );
-
-		$diagnostic = $method->invoke(
-			null,
+		$diagnostic = Static_Site_Importer_Report_Diagnostics::fallback_diagnostic_entry(
 			'unsupported_html_fallback',
 			'main:index.html',
 			'<iframe id="store-widget" class="embedded checkout" src="https://example.com/widget"></iframe>',
@@ -57,13 +52,7 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 	 * Import report summaries include compact machine-actionable diagnostics.
 	 */
 	public function test_import_report_summary_includes_compact_diagnostics(): void {
-		$reflection = new ReflectionClass( Static_Site_Importer_Theme_Generator::class );
-
-		$summary = $reflection->getMethod( 'import_report_summary' );
-		$summary->setAccessible( true );
-
-		$result = $summary->invoke(
-			null,
+		$result = Static_Site_Importer_Report_Diagnostics::import_report_summary(
 			array(
 				'entry_file'              => '/tmp/source/index.html',
 				'version'                 => 1,
@@ -200,12 +189,9 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 	public function test_generated_core_html_diagnostic_includes_actionable_routing_metadata(): void {
 		$reflection = new ReflectionClass( Static_Site_Importer_Theme_Generator::class );
 
-		$new_report = $reflection->getMethod( 'new_conversion_report' );
-		$new_report->setAccessible( true );
-
 		$report_property = $reflection->getProperty( 'conversion_report' );
 		$report_property->setAccessible( true );
-		$report_property->setValue( null, $new_report->invoke( null, '/tmp/source/index.html' ) );
+		$report_property->setValue( null, Static_Site_Importer_Report_Diagnostics::new_conversion_report( '/tmp/source/index.html' ) );
 
 		$analyze = $reflection->getMethod( 'analyze_generated_theme_block_documents' );
 		$analyze->setAccessible( true );
@@ -242,12 +228,9 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 	public function test_generated_freeform_diagnostic_includes_machine_actionable_shape(): void {
 		$reflection = new ReflectionClass( Static_Site_Importer_Theme_Generator::class );
 
-		$new_report = $reflection->getMethod( 'new_conversion_report' );
-		$new_report->setAccessible( true );
-
 		$report_property = $reflection->getProperty( 'conversion_report' );
 		$report_property->setAccessible( true );
-		$report_property->setValue( null, $new_report->invoke( null, '/tmp/source/index.html' ) );
+		$report_property->setValue( null, Static_Site_Importer_Report_Diagnostics::new_conversion_report( '/tmp/source/index.html' ) );
 
 		$analyze = $reflection->getMethod( 'analyze_generated_theme_block_documents' );
 		$analyze->setAccessible( true );
@@ -259,11 +242,9 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 			'/tmp/generated'
 		);
 
-		$normalize = $reflection->getMethod( 'normalize_import_diagnostics' );
-		$normalize->setAccessible( true );
-		$normalize->invoke( null );
+		$report = $report_property->getValue();
+		Static_Site_Importer_Report_Diagnostics::finalize_quality_report( $report, array() );
 
-		$report      = $report_property->getValue();
 		$diagnostics = array_values(
 			array_filter(
 				$report['diagnostics'] ?? array(),

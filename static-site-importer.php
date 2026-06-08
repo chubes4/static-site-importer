@@ -29,5 +29,6 @@ require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-pl
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-theme-materializer.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-woo-product-seeder.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-wp-codebox-artifact-diagnostics-normalizer.php';
+require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-report-diagnostics.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-theme-generator.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/abilities.php';
