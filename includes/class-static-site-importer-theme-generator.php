@@ -458,6 +458,15 @@ class Static_Site_Importer_Theme_Generator {
 			return $document_pages;
 		}
 
+		$page_ids = self::create_page_shells( $document_pages );
+		if ( is_wp_error( $page_ids ) ) {
+			return $page_ids;
+		}
+
+		$permalinks     = self::page_permalinks( $page_ids );
+		$route_map      = self::source_route_map( $document_pages, $permalinks );
+		$page_artifacts = self::page_artifacts( $document_pages, $route_map, $theme_slug );
+
 		$materialized = self::materialize_website_artifact_files_to_theme( $theme_dir, $artifacts );
 		if ( is_wp_error( $materialized ) ) {
 			return $materialized;
@@ -474,16 +483,6 @@ class Static_Site_Importer_Theme_Generator {
 			$theme_dir . '/templates/page.html'         => self::content_template( '', false ),
 			$theme_dir . '/templates/index.html'        => self::content_template( '', false ),
 		);
-		$page_ids = array();
-
-		$page_ids = self::create_page_shells( $document_pages );
-		if ( is_wp_error( $page_ids ) ) {
-			return $page_ids;
-		}
-
-		$permalinks     = self::page_permalinks( $page_ids );
-		$route_map      = self::source_route_map( $document_pages, $permalinks );
-		$page_artifacts = self::page_artifacts( $document_pages, $route_map, $theme_slug );
 		$result         = self::write_page_contents( $document_pages, $page_ids, $page_artifacts['contents'] );
 		if ( is_wp_error( $result ) ) {
 			return $result;
@@ -1667,6 +1666,7 @@ class Static_Site_Importer_Theme_Generator {
 			$slug         = self::page_slug( $filename, $page );
 			$pattern_slug = sanitize_key( $theme_slug ) . '/page-' . $slug;
 			$content      = self::source_page_content_blocks( $page, $route_map );
+			self::record_button_wrapper_classes_from_blocks( $content );
 
 			$patterns[ $filename ] = $pattern_slug;
 			$files[ $filename ]    = self::pattern_file( self::page_title( $filename, $page ), $pattern_slug, $content );
@@ -10112,16 +10112,27 @@ class Static_Site_Importer_Theme_Generator {
 				continue;
 			}
 
-			$selectors = array();
+			$link_selectors    = array();
+			$wrapper_selectors = array();
 			foreach ( explode( ',', $prelude ) as $selector ) {
 				$bridge_selector = self::button_style_bridge_selector( trim( $selector ), $button_classes );
 				if ( null !== $bridge_selector ) {
-					$selectors[] = $bridge_selector;
+					$link_selectors[] = $bridge_selector;
+				}
+
+				$wrapper_selector = self::button_wrapper_layout_bridge_selector( trim( $selector ), $button_classes );
+				if ( null !== $wrapper_selector ) {
+					$wrapper_selectors[] = $wrapper_selector;
 				}
 			}
 
-			if ( $selectors ) {
-				$rules[] = implode( ', ', array_unique( $selectors ) ) . ' { ' . $body . ' }';
+			if ( $link_selectors ) {
+				$rules[] = implode( ', ', array_unique( $link_selectors ) ) . ' { ' . $body . ' }';
+			}
+
+			$layout_body = self::button_wrapper_layout_declarations( $body );
+			if ( $wrapper_selectors && '' !== $layout_body ) {
+				$rules[] = implode( ', ', array_unique( $wrapper_selectors ) ) . ' { ' . $layout_body . ' }';
 			}
 		}
 
@@ -10182,6 +10193,62 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return $prefix . '.wp-block-button.' . implode( '.', $classes ) . ' > .wp-block-button__link' . $target_match[3];
+	}
+
+	/**
+	 * Rewrite one source selector to target a generated core/button wrapper for layout declarations.
+	 *
+	 * @param string              $selector       Source selector.
+	 * @param array<string, true> $button_classes Classes observed on generated core/button wrappers.
+	 * @return string|null Bridge selector, or null when selector does not target a known button class.
+	 */
+	private static function button_wrapper_layout_bridge_selector( string $selector, array $button_classes ): ?string {
+		if ( '' === $selector || ! preg_match( '/^(.*?)([^\s>+~]+)$/', $selector, $selector_match ) ) {
+			return null;
+		}
+
+		$prefix = $selector_match[1];
+		$target = $selector_match[2];
+		if ( ! preg_match( '/^(?:(a|button))?((?:\.[A-Za-z_-][A-Za-z0-9_-]*)+)(?::[A-Za-z_-][A-Za-z0-9_-]*(?:\([^)]*\))?)*$/i', $target, $target_match ) ) {
+			return null;
+		}
+
+		$classes = array();
+		foreach ( explode( '.', ltrim( $target_match[2], '.' ) ) as $class ) {
+			if ( isset( $button_classes[ $class ] ) ) {
+				$classes[] = $class;
+			}
+		}
+
+		if ( empty( $classes ) ) {
+			return null;
+		}
+
+		return $prefix . '.wp-block-button.' . implode( '.', $classes );
+	}
+
+	/**
+	 * Keep layout-affecting declarations on the core/button wrapper.
+	 *
+	 * @param string $body CSS declaration body.
+	 * @return string Filtered declaration body.
+	 */
+	private static function button_wrapper_layout_declarations( string $body ): string {
+		$declarations = array();
+		foreach ( explode( ';', $body ) as $declaration ) {
+			$declaration = trim( $declaration );
+			if ( '' === $declaration || ! str_contains( $declaration, ':' ) ) {
+				continue;
+			}
+
+			list( $property ) = explode( ':', $declaration, 2 );
+			$property         = strtolower( trim( $property ) );
+			if ( preg_match( '/^(?:width|min-width|max-width|flex(?:-.+)?|margin(?:-.+)?|align-self|justify-self|place-self|order)$/', $property ) ) {
+				$declarations[] = $declaration;
+			}
+		}
+
+		return implode( ';', $declarations );
 	}
 
 	/**

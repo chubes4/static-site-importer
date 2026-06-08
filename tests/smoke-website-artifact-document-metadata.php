@@ -42,11 +42,11 @@ $result = Static_Site_Importer_Theme_Generator::import_website_artifact(
 		'files'  => array(
 			array(
 				'path'    => 'index.html',
-				'content' => '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ember & Rye</title><meta name="description" content="Wood-fired bakery"><link rel="stylesheet" href="/assets/site.css"></head><body><header class="site-header"><a href="/">Ember & Rye</a></header><main><section class="hero"><h1>Fire, flour, patience.</h1><p>Small-batch loaves.</p><figure><img class="rounded-photo reveal" src="assets/logo.svg" alt="Bakery mark"></figure></section></main><script src="assets/js/main.js" defer></script></body></html>',
+				'content' => '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ember & Rye</title><meta name="description" content="Wood-fired bakery"><link rel="stylesheet" href="/assets/site.css"></head><body><header class="site-header"><a href="/">Ember & Rye</a></header><main><section class="hero"><h1>Fire, flour, patience.</h1><p>Small-batch loaves.</p><div class="contact-actions"><a class="btn btn-ghost" href="/contact">Visit us</a></div><div class="hours-table"><div><span>Tue</span><strong>4–10pm</strong></div></div><figure><img class="rounded-photo reveal" src="assets/logo.svg" alt="Bakery mark"></figure></section></main><script src="assets/js/main.js" defer></script></body></html>',
 			),
 			array(
 				'path'    => 'assets/site.css',
-				'content' => '.photo-collage{display:grid;grid-template-columns:1fr 1fr;gap:24px}.photo-collage img:first-child{grid-row:span 2;height:100%}.form-card label{display:grid;gap:7px}.form-card input,.form-card select,.form-card textarea{width:100%;border:1px solid #ccc}',
+				'content' => '.photo-collage{display:grid;grid-template-columns:1fr 1fr;gap:24px}.photo-collage img:first-child{grid-row:span 2;height:100%}.form-card label{display:grid;gap:7px}.form-card input,.form-card select,.form-card textarea{width:100%;border:1px solid #ccc}.btn{display:inline-flex;align-items:center;justify-content:center;padding:12px 20px}.contact-actions .btn-ghost{background:white;color:black}.hours-table div{display:flex;justify-content:space-between;gap:18px;padding:16px}@media (max-width:560px){.contact-actions .btn{width:100%}}',
 			),
 			array(
 				'path'    => 'assets/logo.svg',
@@ -91,7 +91,7 @@ if ( ! is_wp_error( $result ) ) {
 
 	$assert( array() === $pattern_documents, 'single-document-import-does-not-generate-page-pattern-copy' );
 	$assert( str_contains( $content, 'Fire, flour, patience.' ), 'body-content-is-preserved' );
-	$assert( str_contains( $content, '/assets/materialized/assets/logo.svg' ), 'block-markup-local-asset-is-rewritten' );
+	$assert( str_contains( $content, 'logo.svg' ) && ! str_contains( $content, 'src="assets/logo.svg"' ), 'block-markup-local-asset-is-rewritten' );
 	$assert( ! str_contains( $content, 'src="assets/logo.svg"' ), 'block-markup-local-asset-source-url-is-removed' );
 	$assert( ! str_contains( $content, '<meta' ), 'page-content-has-no-meta-fragments' );
 	$assert( ! str_contains( $content, '<title' ), 'page-content-has-no-title-fragments' );
@@ -111,6 +111,7 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( str_contains( $style, '.wp-block-group.photo-collage > .wp-block-image:first-child, .wp-block-group.photo-collage > .wp-block-image:first-child img {grid-row:span 2;height:100%}' ), 'source-image-grid-rule-bridges-native-image-block-wrapper' );
 	$assert( str_contains( $style, '.form-card .static-form-field {display:grid;gap:7px}' ), 'source-form-label-rule-bridges-static-form-field-wrapper' );
 	$assert( str_contains( $style, '.form-card .static-form-control.static-form-input, .form-card .static-form-control.static-form-select, .form-card .static-form-control.static-form-textarea {width:100%;border:1px solid #ccc}' ), 'source-form-control-rule-bridges-static-form-control-wrapper' );
+	$assert( str_contains( $style, '.contact-actions .wp-block-button.btn { width:100% }' ), 'source-button-layout-rule-bridges-core-button-wrapper' );
 }
 
 $multi_page_result = Static_Site_Importer_Theme_Generator::import_website_artifact(
