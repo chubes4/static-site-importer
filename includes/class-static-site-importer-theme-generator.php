@@ -473,16 +473,20 @@ class Static_Site_Importer_Theme_Generator {
 		}
 		self::record_website_artifact_document_metadata( $artifacts );
 
+		$template_part_writes = self::template_part_artifact_writes( $theme_dir, $artifacts );
+		$has_footer_part      = isset( $template_part_writes[ $theme_dir . '/parts/footer.html' ] );
+
 		$writes = array(
 			$theme_dir . '/style.css'                   => self::style_css( $theme_name, $materialized['css'], array_keys( self::$button_wrapper_classes ) ),
 			$theme_dir . '/assets/css/editor-style.css' => self::editor_style_css( $materialized['css'], array_keys( self::$button_wrapper_classes ) ),
 			$theme_dir . '/functions.php'               => self::functions_php( $theme_slug ),
 			$theme_dir . '/theme.json'                  => self::theme_json( $theme_name, $materialized['css'] ),
 			$theme_dir . '/parts/header.html'           => '',
-			$theme_dir . '/templates/front-page.html'   => self::content_template( '', false ),
-			$theme_dir . '/templates/page.html'         => self::content_template( '', false ),
-			$theme_dir . '/templates/index.html'        => self::content_template( '', false ),
+			$theme_dir . '/templates/front-page.html'   => self::content_template( '', $has_footer_part ),
+			$theme_dir . '/templates/page.html'         => self::content_template( '', $has_footer_part ),
+			$theme_dir . '/templates/index.html'        => self::content_template( '', $has_footer_part ),
 		);
+		$writes = array_merge( $writes, $template_part_writes );
 		$result         = self::write_page_contents( $document_pages, $page_ids, $page_artifacts['contents'] );
 		if ( is_wp_error( $result ) ) {
 			return $result;
@@ -497,7 +501,7 @@ class Static_Site_Importer_Theme_Generator {
 				continue;
 			}
 
-			$writes[ $theme_dir . '/templates/page-' . $slug . '.html' ] = self::content_template( '', false );
+			$writes[ $theme_dir . '/templates/page-' . $slug . '.html' ] = self::content_template( '', $has_footer_part );
 		}
 
 		if ( '' !== trim( $materialized['js'] ) ) {
@@ -1473,6 +1477,101 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return $compiled_documents;
+	}
+
+	/**
+	 * Normalize BAC template part artifacts into generated theme writes.
+	 *
+	 * @param string              $theme_dir Theme directory.
+	 * @param array<string,mixed> $artifacts WordPress artifacts from BAC.
+	 * @return array<string,string> Absolute write paths keyed to serialized block markup.
+	 */
+	private static function template_part_artifact_writes( string $theme_dir, array $artifacts ): array {
+		$template_parts = isset( $artifacts['template_parts'] ) && is_array( $artifacts['template_parts'] ) ? $artifacts['template_parts'] : array();
+		if ( empty( $template_parts ) ) {
+			return array();
+		}
+
+		$writes = array();
+		foreach ( $template_parts as $template_part ) {
+			if ( ! is_array( $template_part ) ) {
+				continue;
+			}
+
+			$relative = self::template_part_artifact_relative_path( $template_part );
+			if ( '' === $relative ) {
+				self::$conversion_report['diagnostics'][] = array(
+					'type'    => 'template_part_artifact_skipped',
+					'source'  => 'website_artifact:template_parts',
+					'reason'  => 'unsupported_template_part',
+					'slug'    => isset( $template_part['slug'] ) && is_scalar( $template_part['slug'] ) ? (string) $template_part['slug'] : '',
+					'area'    => isset( $template_part['area'] ) && is_scalar( $template_part['area'] ) ? (string) $template_part['area'] : '',
+					'message' => 'A BAC template part artifact was skipped because SSI only materializes generated header and footer parts.',
+				);
+				continue;
+			}
+
+			if ( ! isset( $template_part['block_markup'] ) || ! is_scalar( $template_part['block_markup'] ) ) {
+				self::$conversion_report['diagnostics'][] = array(
+					'type'    => 'template_part_artifact_skipped',
+					'source'  => 'website_artifact:template_parts',
+					'reason'  => 'missing_block_markup',
+					'path'    => $relative,
+					'message' => 'A BAC template part artifact was skipped because it did not include serialized block markup.',
+				);
+				continue;
+			}
+
+			$markup = (string) $template_part['block_markup'];
+			if ( '' === trim( $markup ) ) {
+				continue;
+			}
+
+			$writes[ trailingslashit( $theme_dir ) . $relative ] = $markup;
+			self::$conversion_report['generated_theme']['template_parts'][] = self::template_part_artifact_report_payload( $relative, $template_part, $markup );
+		}
+
+		return $writes;
+	}
+
+	/**
+	 * Resolve a BAC template part artifact to an SSI-supported theme part path.
+	 *
+	 * @param array<string,mixed> $template_part BAC template part artifact.
+	 * @return string Relative theme path, or empty string when unsupported.
+	 */
+	private static function template_part_artifact_relative_path( array $template_part ): string {
+		$slug = isset( $template_part['slug'] ) && is_scalar( $template_part['slug'] ) ? sanitize_key( (string) $template_part['slug'] ) : '';
+		$area = isset( $template_part['area'] ) && is_scalar( $template_part['area'] ) ? sanitize_key( (string) $template_part['area'] ) : '';
+		$part = '';
+
+		if ( in_array( $slug, array( 'header', 'footer' ), true ) ) {
+			$part = $slug;
+		} elseif ( in_array( $area, array( 'header', 'footer' ), true ) ) {
+			$part = $area;
+		}
+
+		return '' !== $part ? 'parts/' . $part . '.html' : '';
+	}
+
+	/**
+	 * Build a compact report row for a materialized BAC template part artifact.
+	 *
+	 * @param string              $path          Relative generated theme path.
+	 * @param array<string,mixed> $template_part BAC template part artifact.
+	 * @param string              $markup        Serialized block markup.
+	 * @return array<string,mixed>
+	 */
+	private static function template_part_artifact_report_payload( string $path, array $template_part, string $markup ): array {
+		return array(
+			'path'               => $path,
+			'slug'               => isset( $template_part['slug'] ) && is_scalar( $template_part['slug'] ) ? (string) $template_part['slug'] : '',
+			'area'               => isset( $template_part['area'] ) && is_scalar( $template_part['area'] ) ? (string) $template_part['area'] : '',
+			'source_paths'       => isset( $template_part['source_paths'] ) && is_array( $template_part['source_paths'] ) ? array_values( array_filter( $template_part['source_paths'], 'is_scalar' ) ) : array(),
+			'source_hash'        => isset( $template_part['source_hash'] ) && is_scalar( $template_part['source_hash'] ) ? (string) $template_part['source_hash'] : '',
+			'block_markup_bytes' => strlen( $markup ),
+			'block_markup_hash'  => hash( 'sha256', $markup ),
+		);
 	}
 
 	/**
@@ -5887,6 +5986,7 @@ class Static_Site_Importer_Theme_Generator {
 			),
 			'generated_theme'         => array(
 				'document_metadata' => array(),
+				'template_parts'    => array(),
 				'block_documents' => array(),
 				'freeform_blocks' => array(),
 			),

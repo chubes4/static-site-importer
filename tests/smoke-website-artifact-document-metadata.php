@@ -121,11 +121,11 @@ $multi_page_result = Static_Site_Importer_Theme_Generator::import_website_artifa
 		'files'      => array(
 			array(
 				'path'    => 'website/index.html',
-				'content' => '<!doctype html><html><head><title>Home Page</title></head><body><main><h1>Home</h1><p>Welcome.</p></main></body></html>',
+				'content' => '<!doctype html><html><head><title>Home Page</title></head><body><header><a href="/">Ember Rye</a><nav><a href="/menu.html">Menu</a></nav></header><main><h1>Home</h1><p>Welcome.</p></main><footer><p>Open daily.</p></footer></body></html>',
 			),
 			array(
 				'path'    => 'website/menu.html',
-				'content' => '<!doctype html><html><head><title>Menu Page</title></head><body><main><h1>Menu</h1><p>Pizza and small plates.</p></main></body></html>',
+				'content' => '<!doctype html><html><head><title>Menu Page</title></head><body><header><a href="/">Ember Rye</a><nav><a href="/menu.html">Menu</a></nav></header><main><h1>Menu</h1><p>Pizza and small plates.</p></main><footer><p>Open daily.</p></footer></body></html>',
 			),
 			array(
 				'path'    => 'website/contact.html',
@@ -150,8 +150,10 @@ if ( ! is_wp_error( $multi_page_result ) ) {
 	$bac_documents   = $source_docs['bac_documents'] ?? array();
 	$compiled_site   = $multi_report['block_artifact_compiler']['compiled_site'] ?? array();
 	$block_documents = $multi_report['generated_theme']['block_documents'] ?? array();
+	$template_parts  = $multi_report['generated_theme']['template_parts'] ?? array();
 	$documents_by_source = array();
 	$pattern_documents = array();
+	$template_parts_by_path = array();
 	foreach ( $bac_documents as $document ) {
 		if ( is_array( $document ) && isset( $document['source_path'] ) ) {
 			$documents_by_source[ $document['source_path'] ] = $document;
@@ -160,6 +162,11 @@ if ( ! is_wp_error( $multi_page_result ) ) {
 	foreach ( $block_documents as $document ) {
 		if ( is_array( $document ) && str_starts_with( (string) ( $document['path'] ?? '' ), 'patterns/page-' ) ) {
 			$pattern_documents[] = $document;
+		}
+	}
+	foreach ( $template_parts as $template_part ) {
+		if ( is_array( $template_part ) && isset( $template_part['path'] ) ) {
+			$template_parts_by_path[ $template_part['path'] ] = $template_part;
 		}
 	}
 
@@ -172,6 +179,11 @@ if ( ! is_wp_error( $multi_page_result ) ) {
 	$assert( 'block-artifact-compiler/compiled-site/v1' === ( $compiled_site['schema'] ?? '' ), 'compiled-site-contract-is-recorded' );
 	$assert( 3 === ( $compiled_site['page_count'] ?? null ), 'compiled-site-page-count-is-recorded' );
 	$assert( 'menu' === ( $compiled_site['pages'][1]['route_key'] ?? '' ), 'compiled-site-route-key-is-recorded' );
+	$assert( str_contains( $read( $multi_page_result['theme_dir'] . '/parts/header.html' ), 'Ember Rye' ), 'multi-page-bac-header-template-part-is-materialized' );
+	$assert( str_contains( $read( $multi_page_result['theme_dir'] . '/parts/footer.html' ), 'Open daily.' ), 'multi-page-bac-footer-template-part-is-materialized' );
+	$assert( isset( $template_parts_by_path['parts/header.html'] ), 'multi-page-header-template-part-is-recorded' );
+	$assert( isset( $template_parts_by_path['parts/footer.html'] ), 'multi-page-footer-template-part-is-recorded' );
+	$assert( str_contains( $read( $multi_page_result['theme_dir'] . '/templates/front-page.html' ), '"slug":"footer"' ), 'multi-page-template-references-bac-footer-part' );
 	$assert( array() === $pattern_documents, 'bac-document-import-does-not-generate-page-pattern-copies' );
 }
 
