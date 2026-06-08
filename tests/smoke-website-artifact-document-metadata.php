@@ -42,11 +42,11 @@ $result = Static_Site_Importer_Theme_Generator::import_website_artifact(
 		'files'  => array(
 			array(
 				'path'    => 'index.html',
-				'content' => '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ember & Rye</title><meta name="description" content="Wood-fired bakery"><link rel="stylesheet" href="/assets/site.css"></head><body><header class="site-header"><a href="/">Ember & Rye</a></header><main><section class="hero"><h1>Fire, flour, patience.</h1><p>Small-batch loaves.</p><div class="contact-actions"><a class="btn btn-ghost" href="/contact">Visit us</a></div><div class="hours-table"><div><span>Tue</span><strong>4–10pm</strong></div></div><figure><img class="rounded-photo reveal" src="assets/logo.svg" alt="Bakery mark"></figure></section></main><script src="assets/js/main.js" defer></script></body></html>',
+				'content' => '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ember & Rye</title><meta name="description" content="Wood-fired bakery"><link rel="stylesheet" href="/assets/site.css"></head><body><header class="site-header"><a href="/">Ember & Rye</a></header><main><section class="hero"><h1>Fire, flour, patience.</h1><p>Small-batch loaves.</p><div class="contact-actions"><a class="btn btn-ghost" href="/contact">Visit us</a></div><div class="hours-table"><div><span>Tue</span><strong>4–10pm</strong></div></div><figure><img class="rounded-photo reveal" src="assets/logo.svg" alt="Bakery mark"></figure><div class="glow-orb"></div></section></main><script src="assets/js/main.js" defer></script></body></html>',
 			),
 			array(
 				'path'    => 'assets/site.css',
-				'content' => '.photo-collage{display:grid;grid-template-columns:1fr 1fr;gap:24px}.photo-collage img:first-child{grid-row:span 2;height:100%}.form-card label{display:grid;gap:7px}.form-card input,.form-card select,.form-card textarea{width:100%;border:1px solid #ccc}.btn{display:inline-flex;align-items:center;justify-content:center;padding:12px 20px}.contact-actions .btn-ghost{background:white;color:black}.hours-table div{display:flex;justify-content:space-between;gap:18px;padding:16px}@media (max-width:560px){.contact-actions .btn{width:100%}}',
+				'content' => '.photo-collage{display:grid;grid-template-columns:1fr 1fr;gap:24px}.photo-collage img:first-child{grid-row:span 2;height:100%}.form-card label{display:grid;gap:7px}.form-card input,.form-card select,.form-card textarea{width:100%;border:1px solid #ccc}.btn{display:inline-flex;align-items:center;justify-content:center;padding:12px 20px}.contact-actions .btn-ghost{background:white;color:black}.hours-table div{display:flex;justify-content:space-between;gap:18px;padding:16px}.glow-orb{position:absolute}.reveal{opacity:0;transform:translateY(1rem)}@media (max-width:560px){.contact-actions .btn{width:100%}}',
 			),
 			array(
 				'path'    => 'assets/logo.svg',
@@ -109,12 +109,12 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( str_ends_with( (string) ( $scripts[0]['src'] ?? '' ), 'assets/js/main.js' ), 'script-src-is-preserved-in-document-metadata' );
 	$assert( 'body' === ( $scripts[0]['placement'] ?? '' ), 'script-placement-is-preserved-in-document-metadata' );
 	$assert( true === ( $scripts[0]['defer'] ?? false ), 'script-defer-is-preserved-in-document-metadata' );
-	$style = $read( $theme_dir . '/style.css' );
-	$assert( str_contains( $style, '.wp-block-group.photo-collage {display:grid;grid-template-columns:1fr 1fr;gap:24px}' ), 'source-display-rule-bridges-converted-group-wrapper' );
-	$assert( str_contains( $style, '.wp-block-group.photo-collage > .wp-block-image:first-child, .wp-block-group.photo-collage > .wp-block-image:first-child img {grid-row:span 2;height:100%}' ), 'source-image-grid-rule-bridges-native-image-block-wrapper' );
-	$assert( str_contains( $style, '.form-card .static-form-field {display:grid;gap:7px}' ), 'source-form-label-rule-bridges-static-form-field-wrapper' );
-	$assert( str_contains( $style, '.form-card .static-form-control.static-form-input, .form-card .static-form-control.static-form-select, .form-card .static-form-control.static-form-textarea {width:100%;border:1px solid #ccc}' ), 'source-form-control-rule-bridges-static-form-control-wrapper' );
-	$assert( str_contains( $style, '.contact-actions .wp-block-button.btn { width:100% }' ), 'source-button-layout-rule-bridges-core-button-wrapper' );
+	$style        = $read( $theme_dir . '/style.css' );
+	$editor_style = $read( $theme_dir . '/assets/css/editor-style.css' );
+	$assert( str_contains( $style, 'Block Artifact Compiler: visual repair artifacts.' ), 'style-includes-bac-frontend-visual-repair-css', $style );
+	$assert( str_contains( $style, '.wp-block-button.btn .wp-block-button__link' ), 'style-includes-bac-button-repair-css', $style );
+	$assert( str_contains( $editor_style, 'Block Artifact Compiler: editor visual repair artifacts.' ), 'editor-includes-bac-editor-visual-repair-css', $editor_style );
+	$assert( str_contains( $editor_style, '.editor-styles-wrapper .wp-block-group.glow-orb' ), 'editor-includes-bac-decorative-repair-css', $editor_style );
 }
 
 $missing_template_parts_result = Static_Site_Importer_Theme_Generator::import_website_artifact(

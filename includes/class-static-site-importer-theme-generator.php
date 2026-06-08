@@ -73,13 +73,6 @@ class Static_Site_Importer_Theme_Generator {
 	private static array $recorded_local_asset_keys = array();
 
 	/**
-	 * Classes observed on generated core/button wrappers during this import.
-	 *
-	 * @var array<string, true>
-	 */
-	private static array $button_wrapper_classes = array();
-
-	/**
 	 * Import a website artifact bundle as a block theme.
 	 *
 	 * @param array<string,mixed> $artifact Website artifact bundle.
@@ -166,7 +159,6 @@ class Static_Site_Importer_Theme_Generator {
 		self::$conversion_report['asset_map']['supplied']    = ! empty( self::$active_asset_map );
 		self::$conversion_report['asset_map']['entry_count'] = count( self::$active_asset_map );
 		self::$conversion_report['assets']['local_policy']   = self::$active_asset_materialization_policy;
-		self::$button_wrapper_classes   = array();
 
 		$document_pages = self::bac_document_pages( $compiled );
 		if ( is_wp_error( $document_pages ) ) {
@@ -193,16 +185,16 @@ class Static_Site_Importer_Theme_Generator {
 		}
 		$has_footer_part      = isset( $template_part_writes[ $theme_dir . '/parts/footer.html' ] );
 
-		$selector_provenance = self::selector_provenance_from_artifacts( $artifacts );
+		$visual_repair_styles = self::visual_repair_styles_from_artifacts( $artifacts );
 
 		$stylesheet_writes = Static_Site_Importer_Stylesheet_Materializer::stylesheet_writes(
 			$theme_dir,
 			$theme_name,
 			$materialized['css'],
-			array_keys( self::$button_wrapper_classes ),
-			$selector_provenance,
-			static fn ( string $name, string $css, array $classes, array $provenance ): string => self::style_css( $name, $css, $classes, $provenance ),
-			static fn ( string $css, array $classes, array $provenance ): string => self::editor_style_css( $css, $classes, $provenance )
+			array(),
+			array(),
+			static fn ( string $name, string $css, array $classes, array $provenance ): string => self::style_css( $name, $css, $visual_repair_styles ),
+			static fn ( string $css, array $classes, array $provenance ): string => self::editor_style_css( $css, $visual_repair_styles )
 		);
 
 		$writes = array_merge(
@@ -1266,7 +1258,6 @@ class Static_Site_Importer_Theme_Generator {
 			$slug         = self::page_slug( $filename, $page );
 			$pattern_slug = sanitize_key( $theme_slug ) . '/page-' . $slug;
 			$content      = self::source_page_content_blocks( $page );
-			self::record_button_wrapper_classes_from_blocks( $content );
 
 			$patterns[ $filename ] = $pattern_slug;
 			$files[ $filename ]    = self::pattern_file( self::page_title( $filename, $page ), $pattern_slug, $content );
@@ -1993,39 +1984,36 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Collect BAC selector provenance from every WordPress artifact boundary.
+	 * Collect BAC visual repair stylesheet artifacts by target.
 	 *
 	 * @param array<string,mixed> $artifacts BAC WordPress artifacts.
-	 * @return array<int,array<string,mixed>> Selector provenance rows.
+	 * @return array{frontend:array<int,string>,editor:array<int,string>} Repair CSS content by stylesheet target.
 	 */
-	private static function selector_provenance_from_artifacts( array $artifacts ): array {
-		$rows = array();
-		foreach ( array( 'selector_provenance' ) as $field ) {
-			if ( isset( $artifacts[ $field ] ) && is_array( $artifacts[ $field ] ) ) {
-				$rows = array_merge( $rows, array_filter( $artifacts[ $field ], 'is_array' ) );
+	private static function visual_repair_styles_from_artifacts( array $artifacts ): array {
+		$styles = array(
+			'frontend' => array(),
+			'editor'   => array(),
+		);
+
+		$repair_styles = isset( $artifacts['visual_repair']['styles'] ) && is_array( $artifacts['visual_repair']['styles'] ) ? $artifacts['visual_repair']['styles'] : array();
+		foreach ( $repair_styles as $style ) {
+			if ( ! is_array( $style ) || ! isset( $style['target'], $style['content'] ) || ! is_scalar( $style['target'] ) || ! is_scalar( $style['content'] ) ) {
+				continue;
 			}
+
+			$target  = (string) $style['target'];
+			$content = trim( (string) $style['content'] );
+			if ( '' === $content || ! isset( $styles[ $target ] ) ) {
+				continue;
+			}
+
+			$styles[ $target ][] = $content;
 		}
 
-		foreach ( array( 'documents', 'template_parts' ) as $artifact_field ) {
-			$items = isset( $artifacts[ $artifact_field ] ) && is_array( $artifacts[ $artifact_field ] ) ? $artifacts[ $artifact_field ] : array();
-			foreach ( $items as $item ) {
-				if ( ! is_array( $item ) || ! isset( $item['selector_provenance'] ) || ! is_array( $item['selector_provenance'] ) ) {
-					continue;
-				}
+		$styles['frontend'] = array_values( array_unique( $styles['frontend'] ) );
+		$styles['editor']   = array_values( array_unique( $styles['editor'] ) );
 
-				$rows = array_merge( $rows, array_filter( $item['selector_provenance'], 'is_array' ) );
-			}
-		}
-
-		$deduped = array();
-		foreach ( $rows as $row ) {
-			$key = json_encode( $row );
-			if ( is_string( $key ) && '' !== $key ) {
-				$deduped[ $key ] = $row;
-			}
-		}
-
-		return array_values( $deduped );
+		return $styles;
 	}
 
 	/**
@@ -3195,72 +3183,17 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Record generated core/button wrapper classes from serialized block markup.
-	 *
-	 * @param string $blocks Serialized block markup.
-	 * @return void
-	 */
-	private static function record_button_wrapper_classes_from_blocks( string $blocks ): void {
-		if ( '' === trim( $blocks ) || ! function_exists( 'parse_blocks' ) ) {
-			return;
-		}
-
-		/** @var array<int, array<string, mixed>> $parsed_blocks */
-		$parsed_blocks = parse_blocks( $blocks );
-		self::record_button_wrapper_classes_from_parsed_blocks( $parsed_blocks );
-	}
-
-	/**
-	 * Record generated core/button wrapper classes from parsed blocks.
-	 *
-	 * @param array<int, array<string, mixed>> $blocks Parsed block list.
-	 * @return void
-	 */
-	private static function record_button_wrapper_classes_from_parsed_blocks( array $blocks ): void {
-		foreach ( $blocks as $block ) {
-			if ( 'core/button' === ( $block['blockName'] ?? null ) && ! empty( $block['attrs']['className'] ) && is_string( $block['attrs']['className'] ) ) {
-				self::record_button_wrapper_classes( $block['attrs']['className'] );
-			}
-
-			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
-				self::record_button_wrapper_classes_from_parsed_blocks( $block['innerBlocks'] );
-			}
-		}
-	}
-
-	/**
-	 * Record individual class tokens present on generated core/button wrappers.
-	 *
-	 * @param string $class_name Space-separated class attribute.
-	 * @return void
-	 */
-	private static function record_button_wrapper_classes( string $class_name ): void {
-		$classes = preg_split( '/\s+/', trim( $class_name ) );
-		if ( ! is_array( $classes ) ) {
-			return;
-		}
-
-		foreach ( $classes as $class ) {
-			if ( preg_match( '/^[A-Za-z_-][A-Za-z0-9_-]*$/', $class ) ) {
-				self::$button_wrapper_classes[ $class ] = true;
-			}
-		}
-	}
-
-	/**
 	 * Build style.css.
 	 *
 	 * @param string $theme_name Theme name.
 	 * @param string $css        Source CSS.
 	 * @return string
 	 */
-	private static function style_css( string $theme_name, string $css, array $button_classes = array(), array $selector_provenance = array() ): string {
-		$button_bridge     = self::button_style_bridge_css( $css, $button_classes );
-		$admin_bar_bridge  = self::admin_bar_top_chrome_css( $css );
-		$provenance_bridge = self::selector_provenance_bridge_css( $css, $selector_provenance );
-		$css                        = self::scope_source_button_css( $css, $button_classes );
+	private static function style_css( string $theme_name, string $css, array $visual_repair_styles = array() ): string {
+		$admin_bar_bridge = self::admin_bar_top_chrome_css( $css );
+		$repair_css       = self::visual_repair_css_for_target( $visual_repair_styles, 'frontend' );
 
-		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Materialized from a compiled website artifact.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge . $admin_bar_bridge . $provenance_bridge;
+		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Materialized from a compiled website artifact.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $admin_bar_bridge . $repair_css;
 	}
 
 	/**
@@ -3269,213 +3202,24 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param string $css Source CSS.
 	 * @return string
 	 */
-	private static function editor_style_css( string $css, array $button_classes = array(), array $selector_provenance = array() ): string {
-		$button_bridge        = self::button_style_bridge_css( $css, $button_classes );
-		$editor_bridge        = self::editor_absolute_overlay_css( $css );
-		$editor_reveal_bridge = self::editor_reveal_animation_css( $css );
-		$provenance_bridge    = self::selector_provenance_bridge_css( $css, $selector_provenance );
-		$css                        = self::scope_source_button_css( $css, $button_classes );
+	private static function editor_style_css( string $css, array $visual_repair_styles = array() ): string {
+		$repair_css = self::visual_repair_css_for_target( $visual_repair_styles, 'editor' );
 
-		return "/*\nStatic Site Importer editor styles.\nGenerated separately from frontend style.css so editor wrapper repairs do not leak to public rendering.\n*/\n\n" . $css . "\n" . $button_bridge . $provenance_bridge . $editor_bridge . $editor_reveal_bridge;
+		return "/*\nStatic Site Importer editor styles.\nGenerated separately from frontend style.css so editor wrapper repairs do not leak to public rendering.\n*/\n\n" . $css . "\n" . $repair_css;
 	}
 
 	/**
-	 * Build selector bridge rules from BAC source-to-block provenance.
+	 * Return compiled BAC visual repair CSS for one stylesheet target.
 	 *
-	 * @param string                   $css                 Source CSS.
-	 * @param array<int,array<string,mixed>> $selector_provenance Selector provenance rows.
-	 * @return string Additional CSS rules.
+	 * @param array<string,array<int,string>> $visual_repair_styles Repair CSS content by target.
+	 * @param string                          $target               Stylesheet target.
+	 * @return string CSS content.
 	 */
-	private static function selector_provenance_bridge_css( string $css, array $selector_provenance ): string {
-		$css = preg_replace( '/\/\*.*?\*\//s', '', $css ) ?? $css;
-		if ( '' === trim( $css ) || empty( $selector_provenance ) ) {
-			return '';
-		}
+	private static function visual_repair_css_for_target( array $visual_repair_styles, string $target ): string {
+		$styles = isset( $visual_repair_styles[ $target ] ) && is_array( $visual_repair_styles[ $target ] ) ? $visual_repair_styles[ $target ] : array();
+		$styles = array_values( array_filter( array_map( 'strval', $styles ), static fn ( string $style ): bool => '' !== trim( $style ) ) );
 
-		$selector_map = self::selector_provenance_selector_map( $selector_provenance );
-		if ( empty( $selector_map ) ) {
-			return '';
-		}
-
-		$rules = self::selector_provenance_bridge_rules_from_css( $css, $selector_map );
-		if ( empty( $rules ) ) {
-			return '';
-		}
-
-		return "\n/* Static Site Importer: transpose source selectors using block conversion provenance. */\n" . implode( "\n", array_unique( $rules ) ) . "\n";
-	}
-
-	/**
-	 * Build a source-selector to generated-selector map from BAC provenance.
-	 *
-	 * @param array<int,array<string,mixed>> $selector_provenance Selector provenance rows.
-	 * @return array<string,array<int,string>> Selector map.
-	 */
-	private static function selector_provenance_selector_map( array $selector_provenance ): array {
-		$map = array();
-		foreach ( $selector_provenance as $row ) {
-			if ( ! is_array( $row ) ) {
-				continue;
-			}
-
-			$source = isset( $row['source']['selector'] ) && is_scalar( $row['source']['selector'] ) ? trim( (string) $row['source']['selector'] ) : '';
-			if ( '' === $source || ! self::is_safe_selector_bridge_selector( $source ) ) {
-				continue;
-			}
-
-			$targets = self::selector_provenance_target_selectors( $row );
-			if ( empty( $targets ) ) {
-				continue;
-			}
-
-			foreach ( self::selector_provenance_source_aliases( $source ) as $alias ) {
-				if ( ! isset( $map[ $alias ] ) ) {
-					$map[ $alias ] = array();
-				}
-
-				$map[ $alias ] = array_values( array_unique( array_merge( $map[ $alias ], $targets ) ) );
-			}
-		}
-
-		return $map;
-	}
-
-	/**
-	 * Extract generated target selectors from one provenance row.
-	 *
-	 * @param array<string,mixed> $row Selector provenance row.
-	 * @return array<int,string> Generated selectors.
-	 */
-	private static function selector_provenance_target_selectors( array $row ): array {
-		$targets = array();
-		$block   = isset( $row['generated_block'] ) && is_array( $row['generated_block'] ) ? $row['generated_block'] : array();
-
-		if ( isset( $block['selector'] ) && is_scalar( $block['selector'] ) ) {
-			$targets[] = trim( (string) $block['selector'] );
-		}
-
-		foreach ( isset( $block['targets'] ) && is_array( $block['targets'] ) ? $block['targets'] : array() as $target ) {
-			if ( is_array( $target ) && isset( $target['selector'] ) && is_scalar( $target['selector'] ) ) {
-				$targets[] = trim( (string) $target['selector'] );
-			}
-		}
-
-		return array_values(
-			array_unique(
-				array_filter(
-					$targets,
-					static fn ( string $selector ): bool => '' !== $selector && self::is_safe_selector_bridge_selector( $selector )
-				)
-			)
-		);
-	}
-
-	/**
-	 * Derive safe source selector aliases for BAC provenance lookup.
-	 *
-	 * @param string $source Source selector.
-	 * @return array<int,string> Lookup aliases.
-	 */
-	private static function selector_provenance_source_aliases( string $source ): array {
-		$aliases = array( $source );
-		if ( preg_match( '/^[a-z][a-z0-9_-]*((?:[.#][a-z0-9_-]+)+)$/i', $source, $match ) ) {
-			$aliases[] = $match[1];
-		}
-		if ( preg_match_all( '/\.([A-Za-z_-][A-Za-z0-9_-]*)/', $source, $matches ) ) {
-			foreach ( $matches[1] as $class ) {
-				$aliases[] = '.' . $class;
-			}
-		}
-
-		return array_values( array_unique( $aliases ) );
-	}
-
-	/**
-	 * Build provenance bridge rules from one CSS scope.
-	 *
-	 * @param string                         $css          CSS to inspect.
-	 * @param array<string,array<int,string>> $selector_map Source-to-target selector map.
-	 * @return array<int,string> CSS rules.
-	 */
-	private static function selector_provenance_bridge_rules_from_css( string $css, array $selector_map ): array {
-		$rules  = array();
-		$length = strlen( $css );
-		$offset = 0;
-
-		while ( $offset < $length && preg_match( '/\G\s*([^{}]+)\{/', $css, $match, 0, $offset ) ) {
-			$prelude    = trim( $match[1] );
-			$body_start = $offset + strlen( $match[0] );
-			$body_end   = self::find_css_block_end( $css, $body_start );
-			if ( null === $body_end ) {
-				break;
-			}
-
-			$body   = trim( substr( $css, $body_start, $body_end - $body_start ) );
-			$offset = $body_end + 1;
-
-			if ( str_starts_with( $prelude, '@' ) ) {
-				$nested = self::selector_provenance_bridge_rules_from_css( $body, $selector_map );
-				if ( ! empty( $nested ) ) {
-					$rules[] = $prelude . ' { ' . implode( ' ', $nested ) . ' }';
-				}
-
-				continue;
-			}
-
-			$selectors = array();
-			foreach ( explode( ',', $prelude ) as $selector ) {
-				$selector = trim( $selector );
-				$selectors = array_merge( $selectors, self::selector_provenance_rewritten_selectors( $selector, $selector_map ) );
-			}
-
-			$selectors = array_values( array_unique( $selectors ) );
-			if ( empty( $selectors ) || '' === $body ) {
-				continue;
-			}
-
-			$rules[] = implode( ', ', $selectors ) . ' {' . $body . '}';
-		}
-
-		return $rules;
-	}
-
-	/**
-	 * Rewrite one source selector through the provenance selector map.
-	 *
-	 * @param string                         $selector     Source selector.
-	 * @param array<string,array<int,string>> $selector_map Source-to-target selector map.
-	 * @return array<int,string> Rewritten selectors.
-	 */
-	private static function selector_provenance_rewritten_selectors( string $selector, array $selector_map ): array {
-		if ( isset( $selector_map[ $selector ] ) ) {
-			return $selector_map[ $selector ];
-		}
-
-		if ( ! preg_match( '/^(.*?)([a-z][a-z0-9_-]*(?:[.#][a-z0-9_-]+)+|(?:[.#][a-z0-9_-]+)+)((?::[A-Za-z_-][A-Za-z0-9_-]*(?:\([^)]*\))?)*)$/i', $selector, $match ) ) {
-			return array();
-		}
-
-		$prefix = $match[1];
-		$target = $match[2];
-		$suffix = $match[3];
-		if ( ! isset( $selector_map[ $target ] ) || ( '' !== $prefix && ! self::is_safe_selector_bridge_selector( $prefix ) ) || ( '' !== $suffix && ! self::is_safe_selector_bridge_selector( $suffix ) ) ) {
-			return array();
-		}
-
-		return array_map(
-			static fn ( string $rewritten ): string => $prefix . $rewritten . $suffix,
-			$selector_map[ $target ]
-		);
-	}
-
-	/**
-	 * Check whether a selector is safe to copy into generated bridge CSS.
-	 *
-	 * @param string $selector Selector.
-	 * @return bool Whether the selector is safe.
-	 */
-	private static function is_safe_selector_bridge_selector( string $selector ): bool {
-		return '' !== trim( $selector ) && ! preg_match( '/[{};]/', $selector );
+		return empty( $styles ) ? '' : "\n" . implode( "\n", $styles ) . "\n";
 	}
 
 	/**
@@ -3621,398 +3365,6 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Build editor-only wrapper normalization for imported absolute overlay blocks.
-	 *
-	 * The Site Editor inserts block-list wrappers between imported section/group blocks
-	 * and their children. When a source child is absolutely positioned, that extra
-	 * wrapper can become the visible stack item instead of the imported child.
-	 *
-	 * @param string $css Source CSS.
-	 * @return string Additional editor-only CSS rules.
-	 */
-	private static function editor_absolute_overlay_css( string $css ): string {
-		$classes = self::absolute_position_classes_from_css( $css );
-		if ( empty( $classes ) ) {
-			return '';
-		}
-
-		$selectors = array();
-		foreach ( $classes as $class ) {
-			if ( preg_match( '/^[A-Za-z_-][A-Za-z0-9_-]*$/', $class ) ) {
-				$selectors[] = '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .' . $class . ')';
-			}
-		}
-
-		if ( empty( $selectors ) ) {
-			return '';
-		}
-
-		$selectors[] = '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .wp-block-group.static-site-importer-decorative-layer)';
-		$selectors[] = '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block.wp-block-group.static-site-importer-decorative-layer';
-
-		$group_selector    = '.editor-styles-wrapper .wp-block-group.static-site-importer-decorative-layer';
-		$placeholder_rules = array(
-			$group_selector . ' .block-editor-block-variation-picker',
-			$group_selector . ' .components-placeholder',
-			$group_selector . ' .block-list-appender',
-			$group_selector . ' .block-editor-button-block-appender',
-		);
-
-		$css  = "\n/* Static Site Importer: let Site Editor wrappers preserve imported absolute overlay stacking. */\n" . implode( ', ', array_unique( $selectors ) ) . ' { display: contents; }' . "\n";
-		$css .= "\n/* Static Site Importer: hide empty decorative layer group controls in the Site Editor. */\n" . implode( ', ', array_unique( $placeholder_rules ) ) . ' { display: none; }' . "\n";
-
-		return $css;
-	}
-
-	/**
-	 * Build editor-only visibility resets for JS-driven reveal animation starts.
-	 *
-	 * Source sites often initialize reveal targets with opacity:0 plus a transform,
-	 * then use frontend JavaScript to animate them into place. The editor canvas does
-	 * not run that frontend script, so scope the neutralization to editor styles.
-	 *
-	 * @param string $css Source CSS.
-	 * @return string Additional editor-only CSS rules.
-	 */
-	private static function editor_reveal_animation_css( string $css ): string {
-		$classes = self::reveal_animation_classes_from_css( $css );
-		if ( empty( $classes ) ) {
-			return '';
-		}
-
-		$selectors = array();
-		foreach ( $classes as $class ) {
-			if ( preg_match( '/^[A-Za-z_-][A-Za-z0-9_-]*$/', $class ) ) {
-				$selectors[] = '.editor-styles-wrapper .' . $class;
-			}
-		}
-
-		if ( empty( $selectors ) ) {
-			return '';
-		}
-
-		return "\n/* Static Site Importer: show JS-revealed animation content in editor canvases. */\n" . implode( ', ', array_unique( $selectors ) ) . ' { opacity: 1 !important; transform: none !important; }' . "\n";
-	}
-
-	/**
-	 * Collect terminal selector classes from rules declaring hidden transform reveals.
-	 *
-	 * @param string $css Source CSS.
-	 * @return array<int, string> Class names.
-	 */
-	private static function reveal_animation_classes_from_css( string $css ): array {
-		$css       = preg_replace( '/\/\*.*?\*\//s', '', $css ) ?? $css;
-		$lower_css = strtolower( $css );
-		if ( '' === trim( $css ) || ! str_contains( $lower_css, 'opacity' ) || ! str_contains( $lower_css, 'transform' ) || ! str_contains( $css, '.' ) ) {
-			return array();
-		}
-
-		$classes = self::reveal_animation_classes_from_css_scope( $css );
-		sort( $classes, SORT_STRING );
-
-		return $classes;
-	}
-
-	/**
-	 * Collect hidden transform reveal classes inside one CSS block list.
-	 *
-	 * @param string $css CSS to inspect.
-	 * @return array<int, string> Class names.
-	 */
-	private static function reveal_animation_classes_from_css_scope( string $css ): array {
-		$classes = array();
-		$length  = strlen( $css );
-		$offset  = 0;
-
-		while ( $offset < $length && preg_match( '/\G\s*([^{}]+)\{/', $css, $match, 0, $offset ) ) {
-			$prelude    = trim( $match[1] );
-			$body_start = $offset + strlen( $match[0] );
-			$body_end   = self::find_css_block_end( $css, $body_start );
-			if ( null === $body_end ) {
-				break;
-			}
-
-			$body   = substr( $css, $body_start, $body_end - $body_start );
-			$offset = $body_end + 1;
-
-			if ( str_starts_with( $prelude, '@' ) ) {
-				$classes = array_merge( $classes, self::reveal_animation_classes_from_css_scope( $body ) );
-				continue;
-			}
-
-			$opacity   = self::css_declaration_value( $body, 'opacity' );
-			$transform = self::css_declaration_value( $body, 'transform' );
-			if ( ! self::css_opacity_is_zero( $opacity ) || null === $transform || preg_match( '/^none\s*(?:!important\s*)?$/i', $transform ) ) {
-				continue;
-			}
-
-			foreach ( explode( ',', $prelude ) as $selector ) {
-				$classes = array_merge( $classes, self::selector_terminal_classes( trim( $selector ) ) );
-			}
-		}
-
-		return array_values( array_unique( $classes ) );
-	}
-
-	/**
-	 * Determine whether an opacity declaration hides the element.
-	 *
-	 * @param string|null $opacity Opacity declaration value.
-	 * @return bool Whether the value is zero.
-	 */
-	private static function css_opacity_is_zero( ?string $opacity ): bool {
-		if ( null === $opacity ) {
-			return false;
-		}
-
-		$opacity = trim( preg_replace( '/\s*!important\s*$/i', '', $opacity ) ?? $opacity );
-		return (bool) preg_match( '/^0(?:\.0+)?%?$/', $opacity );
-	}
-
-	/**
-	 * Collect terminal selector classes from rules declaring position:absolute.
-	 *
-	 * @param string $css Source CSS.
-	 * @return array<int, string> Class names.
-	 */
-	private static function absolute_position_classes_from_css( string $css ): array {
-		$css = preg_replace( '/\/\*.*?\*\//s', '', $css ) ?? $css;
-		if ( '' === trim( $css ) || ! str_contains( $css, 'position' ) || ! str_contains( $css, '.' ) ) {
-			return array();
-		}
-
-		$classes = self::absolute_position_classes_from_css_scope( $css );
-		sort( $classes, SORT_STRING );
-
-		return $classes;
-	}
-
-	/**
-	 * Collect absolute-position classes inside one CSS block list.
-	 *
-	 * @param string $css CSS to inspect.
-	 * @return array<int, string> Class names.
-	 */
-	private static function absolute_position_classes_from_css_scope( string $css ): array {
-		$classes = array();
-		$length  = strlen( $css );
-		$offset  = 0;
-
-		while ( $offset < $length && preg_match( '/\G\s*([^{}]+)\{/', $css, $match, 0, $offset ) ) {
-			$prelude    = trim( $match[1] );
-			$body_start = $offset + strlen( $match[0] );
-			$body_end   = self::find_css_block_end( $css, $body_start );
-			if ( null === $body_end ) {
-				break;
-			}
-
-			$body   = substr( $css, $body_start, $body_end - $body_start );
-			$offset = $body_end + 1;
-
-			if ( str_starts_with( $prelude, '@' ) ) {
-				$classes = array_merge( $classes, self::absolute_position_classes_from_css_scope( $body ) );
-				continue;
-			}
-
-			if ( ! preg_match( '/(?:^|;)\s*position\s*:\s*absolute\s*(?:;|$)/i', $body ) ) {
-				continue;
-			}
-
-			foreach ( explode( ',', $prelude ) as $selector ) {
-				$classes = array_merge( $classes, self::selector_terminal_classes( trim( $selector ) ) );
-			}
-		}
-
-		return array_values( array_unique( $classes ) );
-	}
-
-	/**
-	 * Extract classes from the final compound selector that identifies the styled element.
-	 *
-	 * @param string $selector CSS selector.
-	 * @return array<int, string> Class names.
-	 */
-	private static function selector_terminal_classes( string $selector ): array {
-		if ( '' === $selector || ! preg_match( '/([^\s>+~]+)(?::[A-Za-z_-][A-Za-z0-9_-]*(?:\([^)]*\))?)*\s*$/', $selector, $selector_match ) ) {
-			return array();
-		}
-
-		if ( ! preg_match_all( '/\.([A-Za-z_-][A-Za-z0-9_-]*)/', $selector_match[1], $class_matches ) ) {
-			return array();
-		}
-
-		return array_values( array_unique( $class_matches[1] ) );
-	}
-
-	/**
-	 * Keep copied source button selectors from restyling generated core/button wrappers.
-	 *
-	 * @param string             $css            Source CSS.
-	 * @param array<int, string> $button_classes Classes observed on generated core/button wrappers.
-	 * @return string Scoped source CSS.
-	 */
-	private static function scope_source_button_css( string $css, array $button_classes ): string {
-		$button_classes = array_fill_keys( array_filter( array_map( 'strval', $button_classes ) ), true );
-		if ( '' === trim( $css ) || ! str_contains( $css, '.' ) || empty( $button_classes ) ) {
-			return $css;
-		}
-
-		return self::scope_source_button_css_scope( $css, $button_classes );
-	}
-
-	/**
-	 * Scope selectors inside one CSS block list, preserving nested media/supports scopes.
-	 *
-	 * @param string              $css            CSS to rewrite.
-	 * @param array<string, true> $button_classes Classes observed on generated core/button wrappers.
-	 * @return string Rewritten CSS.
-	 */
-	private static function scope_source_button_css_scope( string $css, array $button_classes ): string {
-		$rewritten = '';
-		$length    = strlen( $css );
-		$offset    = 0;
-
-		while ( $offset < $length && preg_match( '/\G(\s*)([^{}]+)\{/', $css, $match, 0, $offset ) ) {
-			$leading    = $match[1];
-			$prelude    = trim( $match[2] );
-			$body_start = $offset + strlen( $match[0] );
-			$body_end   = self::find_css_block_end( $css, $body_start );
-			if ( null === $body_end ) {
-				break;
-			}
-
-			$body   = substr( $css, $body_start, $body_end - $body_start );
-			$offset = $body_end + 1;
-
-			if ( str_starts_with( $prelude, '@' ) ) {
-				$body = self::scope_source_button_css_scope( $body, $button_classes );
-			} else {
-				$selectors = array();
-				foreach ( explode( ',', $prelude ) as $selector ) {
-					$selectors[] = self::source_button_selector_without_wrapper_match( trim( $selector ), $button_classes ) ?? trim( $selector );
-				}
-
-				$prelude = implode( ', ', $selectors );
-			}
-
-			$rewritten .= $leading . $prelude . ' {' . $body . '}';
-		}
-
-		return $rewritten . substr( $css, $offset );
-	}
-
-	/**
-	 * Build CSS bridge rules for source anchor classes moved onto core/button wrappers.
-	 *
-	 * @param string             $css            Source CSS.
-	 * @param array<int, string> $button_classes Classes observed on generated core/button wrappers.
-	 * @return string Additional CSS rules.
-	 */
-	private static function button_style_bridge_css( string $css, array $button_classes ): string {
-		$css            = preg_replace( '/\/\*.*?\*\//s', '', $css ) ?? $css;
-		$button_classes = array_fill_keys( array_filter( array_map( 'strval', $button_classes ) ), true );
-		if ( '' === trim( $css ) || ! str_contains( $css, '.' ) || empty( $button_classes ) ) {
-			return '';
-		}
-
-		$rules = array_merge(
-			self::button_style_bridge_reset_rules( $button_classes ),
-			self::button_style_bridge_rules_from_css( $css, $button_classes )
-		);
-
-		if ( ! $rules ) {
-			return '';
-		}
-
-		return "\n/* Static Site Importer: preserve source anchor styles on core/button links. */\n" . implode( "\n", array_unique( $rules ) ) . "\n";
-	}
-
-	/**
-	 * Build reset rules that prevent WordPress button defaults from leaking into source-converted buttons.
-	 *
-	 * @param array<string, true> $button_classes Classes observed on generated core/button wrappers.
-	 * @return array<int, string>
-	 */
-	private static function button_style_bridge_reset_rules( array $button_classes ): array {
-		$selectors = array();
-		foreach ( array_keys( $button_classes ) as $class ) {
-			if ( preg_match( '/^[A-Za-z_-][A-Za-z0-9_-]*$/', $class ) ) {
-				$selectors[] = '.wp-block-button.' . $class . ' > .wp-block-button__link:where(.wp-element-button)';
-			}
-		}
-
-		if ( empty( $selectors ) ) {
-			return array();
-		}
-
-		return array(
-			implode( ', ', $selectors ) . ' { background: transparent; border: 0; border-radius: 0; box-shadow: none; color: inherit; display: inline; font: inherit; height: auto; line-height: inherit; max-width: none; min-width: 0; padding: 0; text-decoration: inherit; width: auto; }',
-		);
-	}
-
-	/**
-	 * Build bridge rules from one CSS scope, preserving nested media/supports scopes.
-	 *
-	 * @param string              $css            CSS to inspect.
-	 * @param array<string, true> $button_classes Classes observed on generated core/button wrappers.
-	 * @return array<int, string>
-	 */
-	private static function button_style_bridge_rules_from_css( string $css, array $button_classes ): array {
-		$rules  = array();
-		$length = strlen( $css );
-		$offset = 0;
-
-		while ( $offset < $length && preg_match( '/\G\s*([^{}]+)\{/', $css, $match, 0, $offset ) ) {
-			$prelude    = trim( $match[1] );
-			$body_start = $offset + strlen( $match[0] );
-			$body_end   = self::find_css_block_end( $css, $body_start );
-			if ( null === $body_end ) {
-				break;
-			}
-
-			$body   = trim( substr( $css, $body_start, $body_end - $body_start ) );
-			$offset = $body_end + 1;
-
-			if ( '' === $prelude || '' === $body ) {
-				continue;
-			}
-
-			if ( str_starts_with( $prelude, '@' ) ) {
-				$nested_rules = self::button_style_bridge_rules_from_css( $body, $button_classes );
-				if ( $nested_rules ) {
-					$rules[] = $prelude . " {\n" . implode( "\n", $nested_rules ) . "\n}";
-				}
-				continue;
-			}
-
-			$link_selectors    = array();
-			$wrapper_selectors = array();
-			foreach ( explode( ',', $prelude ) as $selector ) {
-				$bridge_selector = self::button_style_bridge_selector( trim( $selector ), $button_classes );
-				if ( null !== $bridge_selector ) {
-					$link_selectors[] = $bridge_selector;
-				}
-
-				$wrapper_selector = self::button_wrapper_layout_bridge_selector( trim( $selector ), $button_classes );
-				if ( null !== $wrapper_selector ) {
-					$wrapper_selectors[] = $wrapper_selector;
-				}
-			}
-
-			if ( $link_selectors ) {
-				$rules[] = implode( ', ', array_unique( $link_selectors ) ) . ' { ' . $body . ' }';
-			}
-
-			$layout_body = self::button_wrapper_layout_declarations( $body );
-			if ( $wrapper_selectors && '' !== $layout_body ) {
-				$rules[] = implode( ', ', array_unique( $wrapper_selectors ) ) . ' { ' . $layout_body . ' }';
-			}
-		}
-
-		return $rules;
-	}
-
-	/**
 	 * Find the matching closing brace for a CSS block body.
 	 *
 	 * @param string $css        CSS text.
@@ -4030,125 +3382,6 @@ class Static_Site_Importer_Theme_Generator {
 				if ( 0 === $depth ) {
 					return $index;
 				}
-			}
-		}
-
-		return null;
-	}
-
-	/**
-	 * Rewrite one source selector to target a generated core/button inner link.
-	 *
-	 * @param string              $selector       Source selector.
-	 * @param array<string, true> $button_classes Classes observed on generated core/button wrappers.
-	 * @return string|null Bridge selector, or null when selector does not target a known button class.
-	 */
-	private static function button_style_bridge_selector( string $selector, array $button_classes ): ?string {
-		if ( '' === $selector || ! preg_match( '/^(.*?)([^\s>+~]+)$/', $selector, $selector_match ) ) {
-			return null;
-		}
-
-		$prefix = $selector_match[1];
-		$target = $selector_match[2];
-		if ( ! preg_match( '/^(?:(a|button))?((?:\.[A-Za-z_-][A-Za-z0-9_-]*)+)((?::[A-Za-z_-][A-Za-z0-9_-]*(?:\([^)]*\))?)*)$/i', $target, $target_match ) ) {
-			return null;
-		}
-
-		$classes = array();
-		foreach ( explode( '.', ltrim( $target_match[2], '.' ) ) as $class ) {
-			if ( isset( $button_classes[ $class ] ) ) {
-				$classes[] = $class;
-			}
-		}
-
-		if ( empty( $classes ) ) {
-			return null;
-		}
-
-		return $prefix . '.wp-block-button.' . implode( '.', $classes ) . ' > .wp-block-button__link' . $target_match[3];
-	}
-
-	/**
-	 * Rewrite one source selector to target a generated core/button wrapper for layout declarations.
-	 *
-	 * @param string              $selector       Source selector.
-	 * @param array<string, true> $button_classes Classes observed on generated core/button wrappers.
-	 * @return string|null Bridge selector, or null when selector does not target a known button class.
-	 */
-	private static function button_wrapper_layout_bridge_selector( string $selector, array $button_classes ): ?string {
-		if ( '' === $selector || ! preg_match( '/^(.*?)([^\s>+~]+)$/', $selector, $selector_match ) ) {
-			return null;
-		}
-
-		$prefix = $selector_match[1];
-		$target = $selector_match[2];
-		if ( ! preg_match( '/^(?:(a|button))?((?:\.[A-Za-z_-][A-Za-z0-9_-]*)+)(?::[A-Za-z_-][A-Za-z0-9_-]*(?:\([^)]*\))?)*$/i', $target, $target_match ) ) {
-			return null;
-		}
-
-		$classes = array();
-		foreach ( explode( '.', ltrim( $target_match[2], '.' ) ) as $class ) {
-			if ( isset( $button_classes[ $class ] ) ) {
-				$classes[] = $class;
-			}
-		}
-
-		if ( empty( $classes ) ) {
-			return null;
-		}
-
-		return $prefix . '.wp-block-button.' . implode( '.', $classes );
-	}
-
-	/**
-	 * Keep layout-affecting declarations on the core/button wrapper.
-	 *
-	 * @param string $body CSS declaration body.
-	 * @return string Filtered declaration body.
-	 */
-	private static function button_wrapper_layout_declarations( string $body ): string {
-		$declarations = array();
-		foreach ( explode( ';', $body ) as $declaration ) {
-			$declaration = trim( $declaration );
-			if ( '' === $declaration || ! str_contains( $declaration, ':' ) ) {
-				continue;
-			}
-
-			list( $property ) = explode( ':', $declaration, 2 );
-			$property         = strtolower( trim( $property ) );
-			if ( preg_match( '/^(?:width|min-width|max-width|flex(?:-.+)?|margin(?:-.+)?|align-self|justify-self|place-self|order)$/', $property ) ) {
-				$declarations[] = $declaration;
-			}
-		}
-
-		return implode( ';', $declarations );
-	}
-
-	/**
-	 * Exclude generated core/button wrappers from a copied source selector.
-	 *
-	 * @param string              $selector       Source selector.
-	 * @param array<string, true> $button_classes Classes observed on generated core/button wrappers.
-	 * @return string|null Rewritten selector, or null when the selector cannot match a wrapper.
-	 */
-	private static function source_button_selector_without_wrapper_match( string $selector, array $button_classes ): ?string {
-		if ( '' === $selector || str_contains( $selector, '.wp-block-button' ) || ! preg_match( '/^(.*?)([^\s>+~]+)$/', $selector, $selector_match ) ) {
-			return null;
-		}
-
-		$target = $selector_match[2];
-		if ( ! preg_match( '/^([A-Za-z][A-Za-z0-9_-]*)?((?:\.[A-Za-z_-][A-Za-z0-9_-]*)+)((?::[A-Za-z_-][A-Za-z0-9_-]*(?:\([^)]*\))?)*)$/i', $target, $target_match ) ) {
-			return null;
-		}
-
-		$tag_name = strtolower( $target_match[1] );
-		if ( in_array( $tag_name, array( 'a', 'button' ), true ) ) {
-			return null;
-		}
-
-		foreach ( explode( '.', ltrim( $target_match[2], '.' ) ) as $class ) {
-			if ( isset( $button_classes[ $class ] ) ) {
-				return $selector_match[1] . $target_match[1] . $target_match[2] . ':not(.wp-block-button)' . $target_match[3];
 			}
 		}
 
