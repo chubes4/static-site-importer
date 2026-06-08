@@ -12,12 +12,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/chubes4/block-artifact-compiler",
-                "reference": "e67feb638286af3e67d59e4fb7b42c4fa1dcea6c"
+                "reference": "2f7c672991215e024ba83626073f216f684af2db"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/chubes4/block-artifact-compiler/zipball/e67feb638286af3e67d59e4fb7b42c4fa1dcea6c",
-                "reference": "e67feb638286af3e67d59e4fb7b42c4fa1dcea6c",
+                "url": "https://api.github.com/repos/chubes4/block-artifact-compiler/zipball/2f7c672991215e024ba83626073f216f684af2db",
+                "reference": "2f7c672991215e024ba83626073f216f684af2db",
                 "shasum": ""
             },
             "require": {
@@ -39,7 +39,7 @@
                 "GPL-2.0-or-later"
             ],
             "description": "Compile website artifacts into WordPress-native block artifact bundles.",
-            "time": "2026-06-07T21:17:08+00:00"
+            "time": "2026-06-08T02:21:14+00:00"
         },
         {
             "name": "chubes4/block-format-bridge",
@@ -95,12 +95,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/chubes4/html-to-blocks-converter",
-                "reference": "7336776a65393a1e6856de1c4dd87c0637d17ac2"
+                "reference": "315f35ef60c5a8211fe275dc9d7d6ebcc1d934f8"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/chubes4/html-to-blocks-converter/zipball/7336776a65393a1e6856de1c4dd87c0637d17ac2",
-                "reference": "7336776a65393a1e6856de1c4dd87c0637d17ac2",
+                "url": "https://api.github.com/repos/chubes4/html-to-blocks-converter/zipball/315f35ef60c5a8211fe275dc9d7d6ebcc1d934f8",
+                "reference": "315f35ef60c5a8211fe275dc9d7d6ebcc1d934f8",
                 "shasum": ""
             },
             "require": {
@@ -124,7 +124,7 @@
             ],
             "description": "Convert raw HTML into Gutenberg block arrays using WordPress' HTML API.",
             "homepage": "https://github.com/chubes4/html-to-blocks-converter",
-            "time": "2026-06-07T22:31:38+00:00"
+            "time": "2026-06-08T01:33:45+00:00"
         },
         {
             "name": "dflydev/dot-access-data",

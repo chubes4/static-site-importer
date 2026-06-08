@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: Static Site Importer
- * Description: Import static HTML sites into WordPress pages or block themes using Block Format Bridge.
+ * Description: Materialize compiled website artifacts into WordPress block themes.
  * Version: 1.1.3
  * Author: Chris Huber
  * Requires at least: 6.9
@@ -26,23 +26,8 @@ require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-do
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-source-page.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-url-fetcher.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-plugin-materializer.php';
+require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-theme-materializer.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-woo-product-seeder.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-wp-codebox-artifact-diagnostics-normalizer.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-theme-generator.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/abilities.php';
-require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-admin.php';
-
-if ( defined( 'WP_CLI' ) ) {
-	require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-cli-command.php';
-}
-
-add_action(
-	'plugins_loaded',
-	static function (): void {
-		Static_Site_Importer_Admin::register();
-
-		if ( defined( 'WP_CLI' ) ) {
-			WP_CLI::add_command( 'static-site-importer', 'Static_Site_Importer_CLI_Command' );
-		}
-	}
-);

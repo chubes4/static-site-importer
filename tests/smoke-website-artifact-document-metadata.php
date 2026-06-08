@@ -63,7 +63,6 @@ $result = Static_Site_Importer_Theme_Generator::import_website_artifact(
 		'slug'        => 'ember-rye-document-metadata-smoke',
 		'overwrite'   => true,
 		'activate'    => false,
-		'keep_source' => true,
 	)
 );
 
@@ -79,6 +78,7 @@ if ( ! is_wp_error( $result ) ) {
 	$documents = array();
 	$pattern_documents = array();
 	$scripts = $report['assets']['scripts'] ?? array();
+	$template_parts = $report['generated_theme']['template_parts'] ?? array();
 	foreach ( $report['generated_theme']['block_documents'] ?? array() as $document ) {
 		if ( is_array( $document ) && isset( $document['path'] ) ) {
 			$documents[ $document['path'] ] = $document;
@@ -91,6 +91,8 @@ if ( ! is_wp_error( $result ) ) {
 
 	$assert( array() === $pattern_documents, 'single-document-import-does-not-generate-page-pattern-copy' );
 	$assert( str_contains( $content, 'Fire, flour, patience.' ), 'body-content-is-preserved' );
+	$assert( str_contains( $read( $theme_dir . '/parts/header.html' ), 'Ember &amp; Rye' ), 'bac-header-template-part-is-materialized' );
+	$assert( isset( $template_parts[0]['path'] ) && 'parts/header.html' === $template_parts[0]['path'], 'bac-header-template-part-report-is-recorded' );
 	$assert( str_contains( $content, 'logo.svg' ) && ! str_contains( $content, 'src="assets/logo.svg"' ), 'block-markup-local-asset-is-rewritten' );
 	$assert( ! str_contains( $content, 'src="assets/logo.svg"' ), 'block-markup-local-asset-source-url-is-removed' );
 	$assert( ! str_contains( $content, '<meta' ), 'page-content-has-no-meta-fragments' );
@@ -114,6 +116,27 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( str_contains( $style, '.contact-actions .wp-block-button.btn { width:100% }' ), 'source-button-layout-rule-bridges-core-button-wrapper' );
 }
 
+$missing_template_parts_result = Static_Site_Importer_Theme_Generator::import_website_artifact(
+	array(
+		'schema' => 'block-artifact-compiler/website-artifact/v1',
+		'files'  => array(
+			array(
+				'path'    => 'no-header.html',
+				'content' => '<main><h1>No Header</h1><p>This artifact has no compiler template parts.</p></main>',
+			),
+		),
+	),
+	array(
+		'name'      => 'No Header Artifact',
+		'slug'      => 'no-header-artifact-smoke',
+		'overwrite' => true,
+		'activate'  => false,
+	)
+);
+
+$assert( is_wp_error( $missing_template_parts_result ), 'missing-template-parts-import-fails' );
+$assert( 'static_site_importer_bac_template_parts_missing' === ( is_wp_error( $missing_template_parts_result ) ? $missing_template_parts_result->get_error_code() : '' ), 'missing-template-parts-error-code' );
+
 $multi_page_result = Static_Site_Importer_Theme_Generator::import_website_artifact(
 	array(
 		'schema'     => 'block-artifact-compiler/website-artifact/v1',
@@ -121,11 +144,11 @@ $multi_page_result = Static_Site_Importer_Theme_Generator::import_website_artifa
 		'files'      => array(
 			array(
 				'path'    => 'website/index.html',
-				'content' => '<!doctype html><html><head><title>Home Page</title></head><body><main><h1>Home</h1><p>Welcome.</p></main></body></html>',
+				'content' => '<!doctype html><html><head><title>Home Page</title></head><body><header><a href="/">Ember Rye</a><nav><a href="/menu.html">Menu</a></nav></header><main><h1>Home</h1><p>Welcome.</p></main><footer><p>Open daily.</p></footer></body></html>',
 			),
 			array(
 				'path'    => 'website/menu.html',
-				'content' => '<!doctype html><html><head><title>Menu Page</title></head><body><main><h1>Menu</h1><p>Pizza and small plates.</p></main></body></html>',
+				'content' => '<!doctype html><html><head><title>Menu Page</title></head><body><header><a href="/">Ember Rye</a><nav><a href="/menu.html">Menu</a></nav></header><main><h1>Menu</h1><p>Pizza and small plates.</p></main><footer><p>Open daily.</p></footer></body></html>',
 			),
 			array(
 				'path'    => 'website/contact.html',
@@ -138,7 +161,6 @@ $multi_page_result = Static_Site_Importer_Theme_Generator::import_website_artifa
 		'slug'        => 'ember-rye-multi-page-artifact-smoke',
 		'overwrite'   => true,
 		'activate'    => false,
-		'keep_source' => true,
 	)
 );
 
@@ -150,8 +172,10 @@ if ( ! is_wp_error( $multi_page_result ) ) {
 	$bac_documents   = $source_docs['bac_documents'] ?? array();
 	$compiled_site   = $multi_report['block_artifact_compiler']['compiled_site'] ?? array();
 	$block_documents = $multi_report['generated_theme']['block_documents'] ?? array();
+	$template_parts  = $multi_report['generated_theme']['template_parts'] ?? array();
 	$documents_by_source = array();
 	$pattern_documents = array();
+	$template_parts_by_path = array();
 	foreach ( $bac_documents as $document ) {
 		if ( is_array( $document ) && isset( $document['source_path'] ) ) {
 			$documents_by_source[ $document['source_path'] ] = $document;
@@ -160,6 +184,11 @@ if ( ! is_wp_error( $multi_page_result ) ) {
 	foreach ( $block_documents as $document ) {
 		if ( is_array( $document ) && str_starts_with( (string) ( $document['path'] ?? '' ), 'patterns/page-' ) ) {
 			$pattern_documents[] = $document;
+		}
+	}
+	foreach ( $template_parts as $template_part ) {
+		if ( is_array( $template_part ) && isset( $template_part['path'] ) ) {
+			$template_parts_by_path[ $template_part['path'] ] = $template_part;
 		}
 	}
 
@@ -172,6 +201,11 @@ if ( ! is_wp_error( $multi_page_result ) ) {
 	$assert( 'block-artifact-compiler/compiled-site/v1' === ( $compiled_site['schema'] ?? '' ), 'compiled-site-contract-is-recorded' );
 	$assert( 3 === ( $compiled_site['page_count'] ?? null ), 'compiled-site-page-count-is-recorded' );
 	$assert( 'menu' === ( $compiled_site['pages'][1]['route_key'] ?? '' ), 'compiled-site-route-key-is-recorded' );
+	$assert( str_contains( $read( $multi_page_result['theme_dir'] . '/parts/header.html' ), 'Ember Rye' ), 'multi-page-bac-header-template-part-is-materialized' );
+	$assert( str_contains( $read( $multi_page_result['theme_dir'] . '/parts/footer.html' ), 'Open daily.' ), 'multi-page-bac-footer-template-part-is-materialized' );
+	$assert( isset( $template_parts_by_path['parts/header.html'] ), 'multi-page-header-template-part-is-recorded' );
+	$assert( isset( $template_parts_by_path['parts/footer.html'] ), 'multi-page-footer-template-part-is-recorded' );
+	$assert( str_contains( $read( $multi_page_result['theme_dir'] . '/templates/front-page.html' ), '"slug":"footer"' ), 'multi-page-template-references-bac-footer-part' );
 	$assert( array() === $pattern_documents, 'bac-document-import-does-not-generate-page-pattern-copies' );
 }
 

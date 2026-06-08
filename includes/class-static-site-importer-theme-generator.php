@@ -24,16 +24,6 @@ class Static_Site_Importer_Theme_Generator {
 	private static array $conversion_report = array();
 
 	/**
-	 * Validated commerce context for the active import.
-	 *
-	 * Static Site Importer does not validate product manifests here; callers that
-	 * own validation can supply the normalized context through import args.
-	 *
-	 * @var array<string, mixed>
-	 */
-	private static array $active_commerce_context = array();
-
-	/**
 	 * Generated theme directory for import-scoped asset writes.
 	 *
 	 * @var string
@@ -46,13 +36,6 @@ class Static_Site_Importer_Theme_Generator {
 	 * @var string
 	 */
 	private static string $active_theme_uri = '';
-
-	/**
-	 * Source site directory for import-scoped local asset reads.
-	 *
-	 * @var string
-	 */
-	private static string $active_source_dir = '';
 
 	/**
 	 * Caller-supplied asset map keyed by source-relative path.
@@ -81,20 +64,6 @@ class Static_Site_Importer_Theme_Generator {
 	 * @var array<string, array<string, mixed>>
 	 */
 	private static array $active_asset_metadata = array();
-
-	/**
-	 * Import-scoped local asset handling policy.
-	 *
-	 * @var string
-	 */
-	private static string $active_asset_policy = 'theme';
-
-	/**
-	 * Media-library imports keyed by normalized source-relative asset path.
-	 *
-	 * @var array<string, array<string, mixed>>
-	 */
-	private static array $active_imported_media_assets = array();
 
 	/**
 	 * Local asset report rows already recorded for this import.
@@ -137,238 +106,6 @@ class Static_Site_Importer_Theme_Generator {
 	 * @var array<string, true>
 	 */
 	private static array $decorative_empty_group_classes = array();
-
-	/**
-	 * Import a static-site HTML entry file as a block theme.
-	 *
-	 * @param string $html_path  HTML entry file path.
-	 * @param array  $args       Import args.
-	 * @return array{theme_slug:string,theme_name:string,theme_dir:string,report_path:string,external_report_path:string,source_dir:string,source_deleted:bool,source_cleanup_error:string,pages:array<string,int>,quality:array<string,mixed>,source_documents:array<string,mixed>}|WP_Error
-	 */
-	public static function import_theme( string $html_path, array $args = array() ) {
-		if ( ! function_exists( 'bfb_convert' ) ) {
-			return new WP_Error( 'static_site_importer_missing_bfb', 'Block Format Bridge is required to import a static site.' );
-		}
-
-		$document = Static_Site_Importer_Document::from_file( $html_path );
-		if ( is_wp_error( $document ) ) {
-			return $document;
-		}
-
-		$theme_name = isset( $args['name'] ) && '' !== trim( (string) $args['name'] ) ? sanitize_text_field( (string) $args['name'] ) : $document->title();
-		$theme_slug = isset( $args['slug'] ) && '' !== trim( (string) $args['slug'] ) ? sanitize_title( (string) $args['slug'] ) : sanitize_title( $theme_name );
-		if ( '' === $theme_slug ) {
-			$theme_slug = 'imported-static-site';
-		}
-
-		$theme_root = get_theme_root();
-		$theme_dir  = trailingslashit( $theme_root ) . $theme_slug;
-
-		if ( file_exists( $theme_dir ) && empty( $args['overwrite'] ) ) {
-			return new WP_Error( 'static_site_importer_theme_exists', sprintf( 'Theme already exists: %s', $theme_slug ) );
-		}
-
-		$result = self::ensure_dirs( $theme_dir );
-		if ( is_wp_error( $result ) ) {
-			return $result;
-		}
-
-		$site_dir = dirname( $html_path );
-		$pages    = isset( $args['bac_document_pages'] ) && is_array( $args['bac_document_pages'] ) ? $args['bac_document_pages'] : self::collect_pages( $site_dir );
-		if ( is_wp_error( $pages ) ) {
-			return $pages;
-		}
-
-		if ( empty( $pages ) ) {
-			$source_page = Static_Site_Importer_Source_Page::from_html_file( $site_dir, $html_path );
-			if ( is_wp_error( $source_page ) ) {
-				return $source_page;
-			}
-
-			$pages = array( $source_page->source_key() => $source_page );
-		}
-
-		$page_ids = self::create_page_shells( $pages );
-		if ( is_wp_error( $page_ids ) ) {
-			return $page_ids;
-		}
-
-		$permalinks              = self::page_permalinks( $page_ids );
-		$route_map               = self::source_route_map( $pages, $permalinks );
-		$fragments               = $document->fragments();
-		self::$conversion_report = self::new_conversion_report( $html_path, isset( $args['source_metadata'] ) && is_array( $args['source_metadata'] ) ? $args['source_metadata'] : array() );
-		if ( isset( $args['block_artifact_compiler'] ) && is_array( $args['block_artifact_compiler'] ) ) {
-			self::record_website_artifact_compiler_result( $args['block_artifact_compiler'] );
-		}
-		self::record_source_region_selection( $document, $html_path );
-		if ( isset( $args['bac_documents'] ) && is_array( $args['bac_documents'] ) ) {
-			self::record_bac_source_documents_summary( $args['bac_documents'], $pages, $page_ids, $permalinks );
-		} else {
-			self::record_source_documents_summary( $site_dir, $pages, $permalinks );
-		}
-		self::record_products_manifest( $site_dir );
-		$inferred_commerce_context     = self::should_infer_commerce_context( $args ) ? self::infer_commerce_context_from_pages( $pages ) : array();
-		self::$active_commerce_context = self::commerce_context_from_args( $args, $inferred_commerce_context );
-		self::suppress_manifest_diagnostic_when_html_supplies_products();
-		self::record_commerce_context_summary();
-
-		self::$active_theme_dir         = $theme_dir;
-		self::$active_theme_uri         = trailingslashit( get_theme_root_uri( $theme_slug ) ) . $theme_slug;
-		self::$active_source_dir        = $site_dir;
-		$asset_policy = self::normalize_asset_materialization_policy( $args['asset_materialization_policy'] ?? '' );
-		if ( is_wp_error( $asset_policy ) ) {
-			return $asset_policy;
-		}
-
-		self::$active_asset_map         = self::normalize_asset_map( isset( $args['asset_map'] ) && is_array( $args['asset_map'] ) ? $args['asset_map'] : array() );
-		self::$active_artifact_materialized_assets = array();
-		self::$active_asset_materialization_policy = $asset_policy;
-		self::$active_asset_metadata    = array();
-		self::$active_asset_policy      = self::normalize_asset_policy( isset( $args['asset_policy'] ) ? (string) $args['asset_policy'] : '' );
-		self::$active_imported_media_assets = array();
-		self::$recorded_local_asset_keys    = array();
-		self::$conversion_report['assets']['policy']         = self::$active_asset_policy;
-		self::$conversion_report['asset_map']['supplied']    = ! empty( self::$active_asset_map );
-		self::$conversion_report['asset_map']['entry_count'] = count( self::$active_asset_map );
-		self::$conversion_report['assets']['local_policy']   = self::$active_asset_materialization_policy;
-		self::$materialized_svg_assets  = array();
-		self::$svg_sprite_symbols       = array();
-		self::$materialized_svg_sprites = array();
-		self::$button_wrapper_classes   = array();
-
-		$site_css                             = self::site_css( $site_dir, $document, basename( $html_path ) );
-		self::$decorative_empty_group_classes = array_fill_keys(
-			self::decorative_empty_group_classes_from_css( $site_css ),
-			true
-		);
-		self::pre_register_svg_symbol_sprites( $fragments, $pages );
-
-		$entry_source        = basename( $html_path );
-		$background_source   = 'background:' . $entry_source;
-		$header_source       = 'header:' . $entry_source;
-		$footer_source       = 'footer:' . $entry_source;
-		$background_fragment = self::rewrite_local_asset_references( self::rewrite_internal_links( $fragments['background'], $route_map, $entry_source, $background_source ), $entry_source, $background_source );
-		$header_fragment     = self::rewrite_local_asset_references( self::rewrite_internal_links( $fragments['header'], $route_map, $entry_source, $header_source ), $entry_source, $header_source );
-		$footer_fragment     = self::rewrite_local_asset_references( self::rewrite_internal_links( $fragments['footer'], $route_map, $entry_source, $footer_source ), $entry_source, $footer_source );
-		$background_blocks   = self::convert_fragment( $background_fragment, 'background:index.html' );
-		$header_blocks       = self::convert_header_fragment( self::strip_active_classes( $header_fragment ), $theme_slug );
-		$has_footer_part     = '' !== trim( $fragments['footer'] );
-		$footer_blocks       = $has_footer_part ? self::convert_footer_fragment( $footer_fragment, $theme_slug ) : '';
-
-		$page_artifacts = self::page_artifacts( $pages, $route_map, $theme_slug );
-
-		$result = self::write_page_contents( $pages, $page_ids, $page_artifacts['contents'] );
-		if ( is_wp_error( $result ) ) {
-			return $result;
-		}
-
-		$writes = array(
-			$theme_dir . '/style.css'                   => self::style_css( $theme_name, $site_css, array_keys( self::$button_wrapper_classes ) ),
-			$theme_dir . '/assets/css/editor-style.css' => self::editor_style_css( $site_css, array_keys( self::$button_wrapper_classes ) ),
-			$theme_dir . '/functions.php'               => self::functions_php( $theme_slug ),
-			$theme_dir . '/theme.json'                  => self::theme_json( $theme_name, $site_css ),
-			$theme_dir . '/parts/header.html'           => $header_blocks,
-			$theme_dir . '/templates/front-page.html'   => self::content_template( $background_blocks, $has_footer_part ),
-			$theme_dir . '/templates/page.html'         => self::content_template( $background_blocks, $has_footer_part ),
-			$theme_dir . '/templates/index.html'        => self::content_template( $background_blocks, $has_footer_part ),
-		);
-		if ( $has_footer_part ) {
-			$writes[ $theme_dir . '/parts/footer.html' ] = $footer_blocks;
-		}
-
-		foreach ( $page_artifacts['patterns'] as $filename => $pattern_slug ) {
-			$page = $pages[ $filename ] ?? null;
-			$slug = $page instanceof Static_Site_Importer_Source_Page ? self::page_slug( $filename, $page ) : self::page_slug( $filename );
-			if ( '' === $pattern_slug || '' === $slug ) {
-				continue;
-			}
-
-			$writes[ $theme_dir . '/templates/page-' . $slug . '.html' ] = self::content_template( $background_blocks, $has_footer_part );
-			$writes[ $theme_dir . '/patterns/page-' . $slug . '.php' ]   = $page_artifacts['files'][ $filename ] ?? '';
-		}
-
-		$inline_js = $document->inline_js();
-		if ( '' !== $inline_js ) {
-			$writes[ $theme_dir . '/assets/site.js' ] = $inline_js;
-		}
-
-		self::analyze_generated_theme_block_documents( $writes, $theme_dir );
-		self::record_visual_fidelity_targets( $pages, $page_ids, $permalinks, $writes, $theme_dir );
-		self::record_semantic_fidelity_targets( $pages, $page_ids, $permalinks, $writes, $theme_dir );
-		self::$conversion_report['theme_slug'] = $theme_slug;
-		self::materialize_required_plugins( $args );
-		self::record_product_seeding_report( $args );
-		self::record_commerce_dependency_check( $args );
-		$quality     = self::finalize_quality_report( $args );
-		$summary     = self::import_report_summary( self::$conversion_report, $quality );
-		self::$conversion_report['compact_summary'] = $summary;
-		$report_json = wp_json_encode( self::$conversion_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
-		if ( false === $report_json ) {
-			return new WP_Error( 'static_site_importer_report_encode_failed', 'Failed to encode import report JSON.' );
-		}
-
-		if ( ! $has_footer_part && file_exists( $theme_dir . '/parts/footer.html' ) && ! wp_delete_file( $theme_dir . '/parts/footer.html' ) ) {
-			return new WP_Error( 'static_site_importer_stale_footer_delete_failed', 'Failed to remove stale footer template part.' );
-		}
-
-		$writes[ $theme_dir . '/import-report.json' ] = $report_json . "\n";
-
-		foreach ( $writes as $path => $content ) {
-			$result = self::write_file( $path, $content );
-			if ( is_wp_error( $result ) ) {
-				return $result;
-			}
-		}
-
-		$external_report_path = '';
-		if ( isset( $args['report'] ) && '' !== trim( (string) $args['report'] ) ) {
-			$external_report_path = (string) $args['report'];
-			$result               = self::write_external_report( $external_report_path, $report_json . "\n" );
-			if ( is_wp_error( $result ) ) {
-				return $result;
-			}
-		}
-
-		if ( ! empty( $args['activate'] ) ) {
-			switch_theme( $theme_slug );
-
-			$front_page_id = self::front_page_id( $page_ids );
-			if ( $front_page_id > 0 ) {
-				update_option( 'show_on_front', 'page' );
-				update_option( 'page_on_front', $front_page_id );
-			}
-		}
-
-		$source_deleted       = false;
-		$source_cleanup_error = '';
-		if ( empty( $args['keep_source'] ) ) {
-			if ( ! empty( $quality['pass'] ) ) {
-				$cleanup_result = self::delete_source_dir( $site_dir, $html_path );
-				if ( is_wp_error( $cleanup_result ) ) {
-					$source_cleanup_error = $cleanup_result->get_error_message();
-				} else {
-					$source_deleted = true;
-				}
-			} else {
-				$source_cleanup_error = 'import quality checks reported issues';
-			}
-		}
-
-		return array(
-			'theme_slug'            => $theme_slug,
-			'theme_name'            => $theme_name,
-			'theme_dir'             => $theme_dir,
-			'report_path'           => $theme_dir . '/import-report.json',
-			'external_report_path'  => $external_report_path,
-			'import_report_summary' => $summary,
-			'source_dir'            => $site_dir,
-			'source_deleted'        => $source_deleted,
-			'source_cleanup_error'  => $source_cleanup_error,
-			'pages'                 => $page_ids,
-			'quality'               => $quality,
-			'source_documents'      => self::$conversion_report['source_documents'],
-		);
-	}
 
 	/**
 	 * Import a website artifact bundle as a block theme.
@@ -417,7 +154,7 @@ class Static_Site_Importer_Theme_Generator {
 			return new WP_Error( 'static_site_importer_theme_exists', sprintf( 'Theme already exists: %s', $theme_slug ) );
 		}
 
-		$result = self::ensure_dirs( $theme_dir );
+		$result = Static_Site_Importer_Theme_Materializer::ensure_dirs( $theme_dir );
 		if ( is_wp_error( $result ) ) {
 			return $result;
 		}
@@ -431,7 +168,6 @@ class Static_Site_Importer_Theme_Generator {
 
 		self::$active_theme_dir         = $theme_dir;
 		self::$active_theme_uri         = trailingslashit( get_theme_root_uri( $theme_slug ) ) . $theme_slug;
-		self::$active_source_dir        = '';
 		$asset_policy = self::normalize_asset_materialization_policy( $args['asset_materialization_policy'] ?? '' );
 		if ( is_wp_error( $asset_policy ) ) {
 			return $asset_policy;
@@ -441,10 +177,8 @@ class Static_Site_Importer_Theme_Generator {
 		self::$active_artifact_materialized_assets = array();
 		self::$active_asset_materialization_policy = $asset_policy;
 		self::$active_asset_metadata    = array();
-		self::$active_asset_policy      = self::normalize_asset_policy( isset( $args['asset_policy'] ) ? (string) $args['asset_policy'] : '' );
-		self::$active_imported_media_assets = array();
 		self::$recorded_local_asset_keys    = array();
-		self::$conversion_report['assets']['policy']         = self::$active_asset_policy;
+		self::$conversion_report['assets']['policy']         = 'theme';
 		self::$conversion_report['asset_map']['supplied']    = ! empty( self::$active_asset_map );
 		self::$conversion_report['asset_map']['entry_count'] = count( self::$active_asset_map );
 		self::$conversion_report['assets']['local_policy']   = self::$active_asset_materialization_policy;
@@ -473,16 +207,22 @@ class Static_Site_Importer_Theme_Generator {
 		}
 		self::record_website_artifact_document_metadata( $artifacts );
 
+		$template_part_writes = self::template_part_artifact_writes( $theme_dir, $artifacts );
+		if ( is_wp_error( $template_part_writes ) ) {
+			return $template_part_writes;
+		}
+		$has_footer_part      = isset( $template_part_writes[ $theme_dir . '/parts/footer.html' ] );
+
 		$writes = array(
 			$theme_dir . '/style.css'                   => self::style_css( $theme_name, $materialized['css'], array_keys( self::$button_wrapper_classes ) ),
 			$theme_dir . '/assets/css/editor-style.css' => self::editor_style_css( $materialized['css'], array_keys( self::$button_wrapper_classes ) ),
 			$theme_dir . '/functions.php'               => self::functions_php( $theme_slug ),
 			$theme_dir . '/theme.json'                  => self::theme_json( $theme_name, $materialized['css'] ),
-			$theme_dir . '/parts/header.html'           => '',
-			$theme_dir . '/templates/front-page.html'   => self::content_template( '', false ),
-			$theme_dir . '/templates/page.html'         => self::content_template( '', false ),
-			$theme_dir . '/templates/index.html'        => self::content_template( '', false ),
+			$theme_dir . '/templates/front-page.html'   => self::content_template( '', $has_footer_part ),
+			$theme_dir . '/templates/page.html'         => self::content_template( '', $has_footer_part ),
+			$theme_dir . '/templates/index.html'        => self::content_template( '', $has_footer_part ),
 		);
+		$writes = array_merge( $writes, $template_part_writes );
 		$result         = self::write_page_contents( $document_pages, $page_ids, $page_artifacts['contents'] );
 		if ( is_wp_error( $result ) ) {
 			return $result;
@@ -497,7 +237,7 @@ class Static_Site_Importer_Theme_Generator {
 				continue;
 			}
 
-			$writes[ $theme_dir . '/templates/page-' . $slug . '.html' ] = self::content_template( '', false );
+			$writes[ $theme_dir . '/templates/page-' . $slug . '.html' ] = self::content_template( '', $has_footer_part );
 		}
 
 		if ( '' !== trim( $materialized['js'] ) ) {
@@ -518,7 +258,7 @@ class Static_Site_Importer_Theme_Generator {
 
 		$writes[ $theme_dir . '/import-report.json' ] = $report_json . "\n";
 		foreach ( $writes as $path => $content ) {
-			$result = self::write_file( $path, $content );
+			$result = Static_Site_Importer_Theme_Materializer::write_file( $path, $content );
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}
@@ -527,7 +267,7 @@ class Static_Site_Importer_Theme_Generator {
 		$external_report_path = '';
 		if ( isset( $args['report'] ) && '' !== trim( (string) $args['report'] ) ) {
 			$external_report_path = (string) $args['report'];
-			$result               = self::write_external_report( $external_report_path, $report_json . "\n" );
+			$result               = Static_Site_Importer_Theme_Materializer::write_external_report( $external_report_path, $report_json . "\n" );
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}
@@ -553,9 +293,6 @@ class Static_Site_Importer_Theme_Generator {
 			'report_path'           => $theme_dir . '/import-report.json',
 			'external_report_path'  => $external_report_path,
 			'import_report_summary' => $summary,
-			'source_dir'            => '',
-			'source_deleted'        => false,
-			'source_cleanup_error'  => '',
 			'pages'                 => $page_ids,
 			'quality'               => $quality,
 			'source_documents'      => self::$conversion_report['source_documents'],
@@ -1324,60 +1061,6 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Collect importable source pages from a static site directory.
-	 *
-	 * @param string $site_dir Site directory.
-	 * @return array<string, Static_Site_Importer_Source_Page>|WP_Error
-	 */
-	private static function collect_pages( string $site_dir ) {
-		$pages = array();
-		foreach ( self::collect_html_paths( $site_dir ) as $path ) {
-			$page = Static_Site_Importer_Source_Page::from_html_file( $site_dir, $path );
-			if ( is_wp_error( $page ) ) {
-				continue;
-			}
-
-			$pages[ $page->source_key() ] = $page;
-		}
-
-		foreach ( self::collect_markdown_paths( $site_dir ) as $path ) {
-			$page = Static_Site_Importer_Source_Page::from_markdown_file( $site_dir, $path );
-			if ( is_wp_error( $page ) ) {
-				return $page;
-			}
-
-			$pages[ $page->source_key() ] = $page;
-		}
-
-		uksort(
-			$pages,
-			static function ( string $left, string $right ): int {
-				$left_is_root_index  = self::is_root_index_source_filename( $left );
-				$right_is_root_index = self::is_root_index_source_filename( $right );
-				if ( $left_is_root_index && ! $right_is_root_index ) {
-					return -1;
-				}
-				if ( ! $left_is_root_index && $right_is_root_index ) {
-					return 1;
-				}
-
-				$left_is_index  = self::is_index_source_filename( $left );
-				$right_is_index = self::is_index_source_filename( $right );
-				if ( $left_is_index && ! $right_is_index ) {
-					return -1;
-				}
-				if ( ! $left_is_index && $right_is_index ) {
-					return 1;
-				}
-
-				return strnatcasecmp( $left, $right );
-			}
-		);
-
-		return $pages;
-	}
-
-	/**
 	 * Normalize BAC WordPress document artifacts into source pages.
 	 *
 	 * SSI consumes BAC's compiled-site page contract when available, then attaches
@@ -1476,103 +1159,23 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Collect HTML source files anywhere under the static site root.
+	 * Normalize BAC template part artifacts into generated theme writes.
 	 *
-	 * @param string $site_dir Site directory.
-	 * @return array<int, string>
+	 * @param string              $theme_dir Theme directory.
+	 * @param array<string,mixed> $artifacts WordPress artifacts from BAC.
+	 * @return array<string,string>|WP_Error Absolute write paths keyed to serialized block markup.
 	 */
-	private static function collect_html_paths( string $site_dir ): array {
-		$paths = array();
-		if ( ! is_dir( $site_dir ) ) {
-			return $paths;
+	private static function template_part_artifact_writes( string $theme_dir, array $artifacts ) {
+		$result = Static_Site_Importer_Theme_Materializer::template_part_artifact_writes( $theme_dir, $artifacts );
+		if ( is_wp_error( $result ) ) {
+			return $result;
 		}
 
-		$iterator = new RecursiveIteratorIterator(
-			new RecursiveCallbackFilterIterator(
-				new RecursiveDirectoryIterator( $site_dir, FilesystemIterator::SKIP_DOTS ),
-				static function ( SplFileInfo $file ): bool {
-					if ( $file->isDir() ) {
-						return self::is_importable_source_directory( $file->getFilename() );
-					}
-
-					return self::is_html_source_path( $file->getFilename() );
-				}
-			)
-		);
-
-		foreach ( $iterator as $file ) {
-			if ( $file instanceof SplFileInfo && $file->isFile() ) {
-				$paths[] = $file->getPathname();
-			}
+		foreach ( $result['reports'] as $report ) {
+			self::$conversion_report['generated_theme']['template_parts'][] = $report;
 		}
 
-		sort( $paths, SORT_NATURAL | SORT_FLAG_CASE );
-		return $paths;
-	}
-
-	/**
-	 * Collect Markdown source files anywhere under the static site root.
-	 *
-	 * @param string $site_dir Site directory.
-	 * @return array<int, string>
-	 */
-	private static function collect_markdown_paths( string $site_dir ): array {
-		$paths = array();
-		if ( ! is_dir( $site_dir ) ) {
-			return $paths;
-		}
-
-		$iterator = new RecursiveIteratorIterator(
-			new RecursiveCallbackFilterIterator(
-				new RecursiveDirectoryIterator( $site_dir, FilesystemIterator::SKIP_DOTS ),
-				static function ( SplFileInfo $file ): bool {
-					if ( $file->isDir() ) {
-						return self::is_importable_source_directory( $file->getFilename() );
-					}
-
-					return self::is_markdown_source_path( $file->getFilename() );
-				}
-			)
-		);
-
-		foreach ( $iterator as $file ) {
-			if ( $file instanceof SplFileInfo && $file->isFile() ) {
-				$paths[] = $file->getPathname();
-			}
-		}
-
-		sort( $paths, SORT_NATURAL | SORT_FLAG_CASE );
-		return $paths;
-	}
-
-	/**
-	 * Check whether a path is a Markdown content source.
-	 *
-	 * @param string $path File path or basename.
-	 * @return bool
-	 */
-	private static function is_markdown_source_path( string $path ): bool {
-		return 1 === preg_match( '/\.mark?down$/i', $path ) || 1 === preg_match( '/\.md$/i', $path );
-	}
-
-	/**
-	 * Check whether a path is an HTML content source.
-	 *
-	 * @param string $path File path or basename.
-	 * @return bool
-	 */
-	private static function is_html_source_path( string $path ): bool {
-		return 1 === preg_match( '/\.html?$/i', $path );
-	}
-
-	/**
-	 * Check whether a source directory should be scanned for importable pages.
-	 *
-	 * @param string $name Directory basename.
-	 * @return bool
-	 */
-	private static function is_importable_source_directory( string $name ): bool {
-		return ! in_array( $name, array( '.git', 'node_modules', 'vendor' ), true ) && ! str_starts_with( $name, '.' );
+		return $result['writes'];
 	}
 
 	/**
@@ -1851,124 +1454,6 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Rewrite local image references through the caller-supplied asset map.
-	 *
-	 * @param string $html        HTML fragment.
-	 * @param string $source_path Source-relative source path.
-	 * @param string $source      Diagnostic source label.
-	 * @return string
-	 */
-	private static function rewrite_asset_map_image_references( string $html, string $source_path, string $source ): string {
-		if ( 'use_map' !== self::$active_asset_materialization_policy || '' === trim( $html ) || empty( self::$active_asset_map ) || ! str_contains( strtolower( $html ), '<img' ) ) {
-			return $html;
-		}
-
-		$doc = self::load_fragment_document( $html );
-		$root = $doc->documentElement;
-		if ( ! $root instanceof DOMElement ) {
-			return $html;
-		}
-
-		$changed = false;
-		foreach ( $root->getElementsByTagName( 'img' ) as $image ) {
-			$src = trim( $image->getAttribute( 'src' ) );
-			if ( '' === $src || ! self::is_local_url( $src ) ) {
-				continue;
-			}
-
-			$lookup = self::resolve_asset_map_reference( $src, $source_path, $source );
-			if ( null === $lookup ) {
-				continue;
-			}
-
-			$entry = $lookup['entry'];
-			if ( isset( $entry['url'] ) && '' !== trim( (string) $entry['url'] ) ) {
-				$image->setAttribute( 'src', esc_url_raw( (string) $entry['url'] ) );
-				$changed = true;
-			}
-
-			if ( isset( $entry['attachment_id'] ) && (int) $entry['attachment_id'] > 0 ) {
-				$attachment_id = (int) $entry['attachment_id'];
-				$image->setAttribute( 'data-id', (string) $attachment_id );
-				$image->setAttribute( 'class', self::append_class_token( $image->getAttribute( 'class' ), 'wp-image-' . $attachment_id ) );
-				$changed = true;
-			}
-
-			foreach ( array( 'width', 'height' ) as $dimension ) {
-				if ( isset( $entry[ $dimension ] ) && (int) $entry[ $dimension ] > 0 && ! $image->hasAttribute( $dimension ) ) {
-					$image->setAttribute( $dimension, (string) (int) $entry[ $dimension ] );
-					$changed = true;
-				}
-			}
-
-			if ( isset( $entry['alt'] ) && '' !== trim( (string) $entry['alt'] ) && '' === trim( $image->getAttribute( 'alt' ) ) ) {
-				$image->setAttribute( 'alt', (string) $entry['alt'] );
-				$changed = true;
-			}
-		}
-
-		return $changed ? self::node_inner_html( $doc, $root ) : $html;
-	}
-
-	/**
-	 * Rewrite local HTML asset references after materializing safe source files.
-	 *
-	 * @param string $html        HTML fragment.
-	 * @param string $source_path Source-relative source path.
-	 * @param string $source      Diagnostic source label.
-	 * @return string
-	 */
-	private static function rewrite_local_asset_references( string $html, string $source_path, string $source ): string {
-		if ( '' === trim( $html ) ) {
-			return $html;
-		}
-
-		if ( ! preg_match( '/\b(?:src|poster|srcset)\s*=|<source\b|<img\b|<video\b|<audio\b/i', $html ) ) {
-			return $html;
-		}
-
-		$doc  = self::load_fragment_document( $html );
-		$root = $doc->documentElement;
-		if ( ! $root instanceof DOMElement ) {
-			return $html;
-		}
-
-		$changed = false;
-		foreach ( $root->getElementsByTagName( '*' ) as $element ) {
-			foreach ( array( 'src', 'poster' ) as $attribute ) {
-				$value = trim( $element->getAttribute( $attribute ) );
-				if ( '' === $value || ! self::is_local_url( $value ) ) {
-					continue;
-				}
-
-				$asset = self::resolve_local_asset_reference( $value, $source_path, $source );
-				if ( null === $asset ) {
-					continue;
-				}
-
-				if ( 0 === strcasecmp( $element->tagName, 'img' ) && '' !== trim( $element->getAttribute( 'alt' ) ) ) {
-					$asset = self::add_local_asset_alt_metadata( $value, $asset, $element->getAttribute( 'alt' ) );
-				}
-
-				$element->setAttribute( $attribute, $asset['url'] );
-				self::apply_asset_metadata_to_media_element( $element, $asset );
-				$changed = true;
-			}
-
-			$srcset = trim( $element->getAttribute( 'srcset' ) );
-			if ( '' !== $srcset ) {
-				$rewritten = self::rewrite_srcset_asset_references( $srcset, $source_path, $source );
-				if ( $rewritten !== $srcset ) {
-					$element->setAttribute( 'srcset', $rewritten );
-					$changed = true;
-				}
-			}
-		}
-
-		return $changed ? self::node_inner_html( $doc, $root ) : $html;
-	}
-
-	/**
 	 * Rewrite local media URLs inside already-converted block markup.
 	 *
 	 * BAC document artifacts already contain block comments. DOM-based rewriting would
@@ -2165,221 +1650,6 @@ class Static_Site_Importer_Theme_Generator {
 			},
 			$html
 		) ?? $html;
-	}
-
-	/**
-	 * Convert shared header chrome while preserving navigation as an editable entity.
-	 *
-	 * @param string $html       Header HTML fragment.
-	 * @param string $theme_slug Imported theme slug.
-	 * @return string
-	 */
-	private static function convert_header_fragment( string $html, string $theme_slug ): string {
-		$html   = self::materialize_inline_svg_icons( $html, 'theme-part:header' );
-		$doc    = self::load_fragment_document( $html );
-		$header = self::sole_child_element( $doc );
-		$root   = $doc->documentElement;
-		if ( ! $header instanceof DOMElement && $root instanceof DOMElement ) {
-			$children = self::direct_element_children( $root );
-			if ( count( $children ) > 1 ) {
-				return implode(
-					'',
-					array_map(
-						static fn ( DOMElement $child ): string => self::theme_part_element_block( $doc, $child, $theme_slug, 'header' ),
-						$children
-					)
-				);
-			}
-		}
-
-		if ( $header instanceof DOMElement && 'nav' === strtolower( $header->tagName ) ) {
-			return self::theme_part_element_block( $doc, $header, $theme_slug, 'header' );
-		}
-		if ( ! $header instanceof DOMElement || 'header' !== strtolower( $header->tagName ) ) {
-			return self::convert_fragment( $html, 'theme-part:header' );
-		}
-
-		$header_children = self::direct_element_children( $header );
-		if ( 1 !== count( $header_children ) || 'div' !== strtolower( $header_children[0]->tagName ) ) {
-			return self::theme_part_element_block( $doc, $header, $theme_slug, 'header' );
-		}
-
-		$inner          = $header_children[0];
-		$inner_children = self::direct_element_children( $inner );
-		if ( 2 !== count( $inner_children ) || 'a' !== strtolower( $inner_children[0]->tagName ) || 'nav' !== strtolower( $inner_children[1]->tagName ) ) {
-			return self::theme_part_element_block( $doc, $header, $theme_slug, 'header' );
-		}
-
-		$navigation_blocks = self::navigation_ref_block( $inner_children[1], $theme_slug, 'header' );
-		if ( null === $navigation_blocks ) {
-			return self::theme_part_element_block( $doc, $header, $theme_slug, 'header' );
-		}
-
-		$inner_blocks = self::theme_part_element_block( $doc, $inner_children[0], $theme_slug, 'header' ) . $navigation_blocks;
-		return self::group_block( self::group_block( $inner_blocks, $inner->getAttribute( 'class' ), 'div', $inner->getAttribute( 'id' ) ), $header->getAttribute( 'class' ), 'header', $header->getAttribute( 'id' ) );
-	}
-
-	/**
-	 * Convert shared footer chrome while preserving navigation as an editable entity.
-	 *
-	 * @param string $html       Footer HTML fragment.
-	 * @param string $theme_slug Imported theme slug.
-	 * @return string
-	 */
-	private static function convert_footer_fragment( string $html, string $theme_slug ): string {
-		$html   = self::materialize_inline_svg_icons( $html, 'theme-part:footer' );
-		$doc    = self::load_fragment_document( $html );
-		$footer = self::sole_child_element( $doc );
-		if ( ! $footer instanceof DOMElement || 'footer' !== strtolower( $footer->tagName ) ) {
-			return self::convert_fragment( $html, 'theme-part:footer' );
-		}
-
-		$footer_children = self::direct_element_children( $footer );
-		if ( 1 !== count( $footer_children ) || 'div' !== strtolower( $footer_children[0]->tagName ) ) {
-			return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
-		}
-
-		$container          = $footer_children[0];
-		$container_children = self::direct_element_children( $container );
-		if ( 2 === count( $container_children ) && 'div' === strtolower( $container_children[0]->tagName ) && 'ul' === strtolower( $container_children[1]->tagName ) ) {
-			$list_blocks = self::footer_navigation_or_list_block( $doc, $container_children[1], $theme_slug, 'footer' );
-			if ( null === $list_blocks ) {
-				return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
-			}
-
-			$container_blocks = self::theme_part_element_block( $doc, $container_children[0], $theme_slug, 'footer' ) . $list_blocks;
-			return self::group_block( self::group_block( $container_blocks, $container->getAttribute( 'class' ) ), $footer->getAttribute( 'class' ), 'footer' );
-		}
-
-		if ( 1 !== count( $container_children ) || 'div' !== strtolower( $container_children[0]->tagName ) ) {
-			return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
-		}
-
-		$row          = $container_children[0];
-		$row_children = self::direct_element_children( $row );
-		if ( 2 !== count( $row_children ) || 'div' !== strtolower( $row_children[0]->tagName ) || 'ul' !== strtolower( $row_children[1]->tagName ) ) {
-			return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
-		}
-
-		$list_blocks = self::footer_navigation_or_list_block( $doc, $row_children[1], $theme_slug, 'footer' );
-		if ( null === $list_blocks ) {
-			return self::theme_part_element_block( $doc, $footer, $theme_slug, 'footer' );
-		}
-
-		$row_blocks       = self::theme_part_element_block( $doc, $row_children[0], $theme_slug, 'footer' ) . $list_blocks;
-		$container_blocks = self::group_block( $row_blocks, $row->getAttribute( 'class' ), 'div', $row->getAttribute( 'id' ) );
-		return self::group_block( self::group_block( $container_blocks, $container->getAttribute( 'class' ), 'div', $container->getAttribute( 'id' ) ), $footer->getAttribute( 'class' ), 'footer', $footer->getAttribute( 'id' ) );
-	}
-
-	/**
-	 * Build editable-enough block markup for shared theme chrome without delegating the whole part to core/html.
-	 *
-	 * @param DOMDocument $doc        Source DOM document.
-	 * @param DOMElement  $element    Source element.
-	 * @param string      $theme_slug Imported theme slug.
-	 * @param string      $location   Theme part location.
-	 * @return string
-	 */
-	private static function theme_part_element_block( DOMDocument $doc, DOMElement $element, string $theme_slug, string $location ): string {
-		$tag = strtolower( $element->tagName );
-		if ( 'footer' === $location && in_array( $tag, array( 'ul', 'ol' ), true ) && self::can_convert_element_to_navigation( $element ) ) {
-			$list = self::footer_link_list_block( $doc, $element );
-			if ( null !== $list ) {
-				return $list;
-			}
-		}
-
-		if ( self::should_preserve_navigation_list_owner_classes( $element ) ) {
-			$list = self::footer_link_list_block( $doc, $element );
-			if ( null !== $list ) {
-				return $list;
-			}
-		}
-
-		if ( self::can_convert_element_to_navigation( $element ) ) {
-			$navigation = self::navigation_ref_block( $element, $theme_slug, $location );
-			if ( null !== $navigation ) {
-				return $navigation;
-			}
-		}
-
-		if ( 'a' === $tag ) {
-			return self::link_element_block( $doc, $element );
-		}
-
-		if ( 'img' === $tag ) {
-			return self::image_element_block( $doc, $element );
-		}
-
-		if ( self::should_preserve_theme_part_phrasing_element( $element ) ) {
-			return self::paragraph_block( self::node_inner_html( $doc, $element ), $element->getAttribute( 'class' ) );
-		}
-
-		if ( self::is_link_cluster_container( $element ) ) {
-			return self::group_block( self::theme_part_child_blocks( $doc, $element, $theme_slug, $location ), $element->getAttribute( 'class' ), 'div', $element->getAttribute( 'id' ) );
-		}
-
-		if ( self::element_has_only_phrasing_content( $element ) ) {
-			return self::paragraph_block( self::node_inner_html( $doc, $element ), $element->getAttribute( 'class' ) );
-		}
-
-		$children = self::theme_part_child_blocks( $doc, $element, $theme_slug, $location );
-		if ( '' === trim( $children ) ) {
-			if ( self::is_empty_decorative_theme_part_element( $element ) ) {
-				return self::group_block( '', self::append_class_token( $element->getAttribute( 'class' ), 'static-site-importer-decorative-layer' ), 'div', $element->getAttribute( 'id' ) );
-			}
-
-			$text = trim( $element->textContent );
-			if ( '' !== $text ) {
-				return self::paragraph_block( esc_html( $text ), $element->getAttribute( 'class' ) );
-			}
-
-			return self::html_block( self::node_html( $doc, $element ) );
-		}
-
-		$wrapper_tag = in_array( $tag, array( 'header', 'footer' ), true ) ? $tag : 'div';
-		if ( 'nav' === $tag && ! str_contains( $children, '<!-- wp:navigation ' ) ) {
-			$wrapper_tag = 'nav';
-		}
-
-		$class_name = $element->getAttribute( 'class' );
-		if ( 'nav' === $tag ) {
-			$class_name = self::append_class_token( $class_name, 'static-site-importer-source-nav' );
-		}
-
-		return self::group_block( $children, $class_name, $wrapper_tag, $element->getAttribute( 'id' ) );
-	}
-
-	/**
-	 * Convert direct child nodes for a shared theme part.
-	 *
-	 * @param DOMDocument $doc        Source DOM document.
-	 * @param DOMElement  $element    Source element.
-	 * @param string      $theme_slug Imported theme slug.
-	 * @param string      $location   Theme part location.
-	 * @return string
-	 */
-	private static function theme_part_child_blocks( DOMDocument $doc, DOMElement $element, string $theme_slug, string $location ): string {
-		$blocks = array();
-		foreach ( $element->childNodes as $child ) {
-			if ( $child instanceof DOMText && '' !== trim( $child->textContent ) ) {
-				$blocks[] = self::paragraph_block( esc_html( trim( $child->textContent ) ) );
-				continue;
-			}
-
-			if ( ! $child instanceof DOMElement ) {
-				continue;
-			}
-
-			if ( self::element_contains_svg_or_form( $child ) ) {
-				$blocks[] = self::html_block( self::node_html( $doc, $child ) );
-				continue;
-			}
-
-			$blocks[] = self::theme_part_element_block( $doc, $child, $theme_slug, $location );
-		}
-
-		return implode( '', array_filter( $blocks ) );
 	}
 
 	/**
@@ -2611,175 +1881,6 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Convert an anchor in shared chrome to a button block when it visually acts like a CTA.
-	 *
-	 * @param DOMDocument $doc     Source DOM document.
-	 * @param DOMElement  $element Anchor element.
-	 * @return string
-	 */
-	private static function link_element_block( DOMDocument $doc, DOMElement $element ): string {
-		$href  = trim( $element->getAttribute( 'href' ) );
-		$label = trim( $element->textContent );
-		if ( '' === $href || '' === $label ) {
-			return self::html_block( self::node_html( $doc, $element ) );
-		}
-
-		$class = trim( $element->getAttribute( 'class' ) );
-		if ( preg_match( '/(^|[-_\s])(brand|logo)([-_\s]|$)/i', $class ) ) {
-			return self::convert_fragment( self::node_html( $doc, $element ), 'theme-part:brand-anchor' );
-		}
-
-		if ( preg_match( '/(^|[-_\s])(btn|button|cta|pill)([-_\s]|$)/i', $class ) ) {
-			$attrs = array( 'url' => esc_url_raw( $href ) );
-			if ( '' !== $class ) {
-				$attrs['className'] = $class;
-				self::record_button_wrapper_classes( $class );
-			}
-
-			return '<!-- wp:buttons --><div class="wp-block-buttons"><!-- wp:button ' . wp_json_encode( $attrs, JSON_UNESCAPED_SLASHES ) . ' --><div class="wp-block-button ' . esc_attr( $class ) . '"><a class="wp-block-button__link wp-element-button" href="' . esc_url( $href ) . '">' . esc_html( $label ) . '</a></div><!-- /wp:button --></div><!-- /wp:buttons -->';
-		}
-
-		return self::paragraph_block( '<a href="' . esc_url( $href ) . '"' . ( '' !== $class ? ' class="' . esc_attr( $class ) . '"' : '' ) . '>' . esc_html( $label ) . '</a>' );
-	}
-
-	/**
-	 * Convert an image in shared chrome to a native image block.
-	 *
-	 * @param DOMDocument $doc        Source DOM document.
-	 * @param DOMElement  $element    Image element.
-	 * @param string      $class_name Optional class override.
-	 * @param string      $href       Optional link href.
-	 * @return string
-	 */
-	private static function image_element_block( DOMDocument $doc, DOMElement $element, string $class_name = '', string $href = '' ): string {
-		$src = trim( $element->getAttribute( 'src' ) );
-		if ( '' === $src ) {
-			return self::html_block( self::node_html( $doc, $element ) );
-		}
-
-		$materialized_src = self::materialize_local_image_asset( $src, 'theme-part:image' );
-		if ( null !== $materialized_src ) {
-			$src = $materialized_src;
-		}
-
-		$class = trim( '' !== $class_name ? $class_name : $element->getAttribute( 'class' ) );
-		$attrs = array(
-			'url'      => esc_url_raw( $src ),
-			'sizeSlug' => 'large',
-		);
-		if ( '' !== $class ) {
-			$attrs['className'] = $class;
-		}
-		if ( (int) $element->getAttribute( 'data-id' ) > 0 ) {
-			$attrs['id'] = (int) $element->getAttribute( 'data-id' );
-			$class       = self::append_class_token( $class, 'wp-image-' . $attrs['id'] );
-			if ( '' !== $class ) {
-				$attrs['className'] = $class;
-			}
-		}
-		if ( '' !== $href ) {
-			$attrs['href']            = esc_url_raw( $href );
-			$attrs['linkDestination'] = 'custom';
-		}
-
-		$figure_class = trim( 'wp-block-image size-large ' . $class );
-		$alt = $element->getAttribute( 'alt' );
-
-		$img_attrs = array(
-			'src' => esc_url( $src ),
-			'alt' => esc_attr( $alt ),
-		);
-		if ( isset( $attrs['id'] ) ) {
-			$img_attrs['class'] = esc_attr( 'wp-image-' . $attrs['id'] );
-		}
-		foreach ( array( 'width', 'height' ) as $dimension ) {
-			if ( (int) $element->getAttribute( $dimension ) > 0 ) {
-				$img_attrs[ $dimension ] = (string) (int) $element->getAttribute( $dimension );
-			}
-		}
-
-		$img_markup = '<img';
-		foreach ( $img_attrs as $name => $value ) {
-			$img_markup .= ' ' . $name . '="' . $value . '"';
-		}
-		$img_markup .= '/>';
-
-		if ( '' !== $href ) {
-			$img_markup = '<a href="' . esc_url( $href ) . '">' . $img_markup . '</a>';
-		}
-
-		return '<!-- wp:image ' . wp_json_encode( $attrs, JSON_UNESCAPED_SLASHES ) . ' --><figure class="' . esc_attr( $figure_class ) . '">' . $img_markup . '</figure><!-- /wp:image -->';
-	}
-
-	/**
-	 * Copy a local image referenced by a theme part into the generated theme.
-	 *
-	 * @param string $src    Source image URL/path.
-	 * @param string $source Diagnostic source label.
-	 * @return string|null Generated theme URL, or null when the source should be left unchanged.
-	 */
-	private static function materialize_local_image_asset( string $src, string $source ): ?string {
-		if ( '' === self::$active_source_dir || '' === self::$active_theme_dir || '' === self::$active_theme_uri || ! self::is_local_url( $src ) ) {
-			return null;
-		}
-
-		$path = wp_parse_url( $src, PHP_URL_PATH );
-		if ( ! is_string( $path ) || '' === trim( $path ) ) {
-			return null;
-		}
-
-		$path = ltrim( rawurldecode( $path ), '/' );
-		if ( '' === $path || str_contains( $path, '..' ) ) {
-			return null;
-		}
-
-		$extension = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
-		if ( ! in_array( $extension, array( 'svg', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif' ), true ) ) {
-			return null;
-		}
-
-		$source_file = realpath( trailingslashit( self::$active_source_dir ) . $path );
-		$source_root = realpath( self::$active_source_dir );
-		if ( false === $source_file || false === $source_root || ! is_file( $source_file ) || 0 !== strpos( $source_file, trailingslashit( $source_root ) ) ) {
-			return null;
-		}
-
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads a local static-site asset selected for import.
-		$contents = file_get_contents( $source_file );
-		if ( false === $contents || '' === $contents ) {
-			return null;
-		}
-
-		if ( 'svg' === $extension ) {
-			$contents = self::sanitize_inline_svg( $contents );
-			if ( null === $contents ) {
-				self::record_unsafe_inline_svg( $source, $src );
-				return null;
-			}
-		}
-
-		$hash     = substr( md5( $contents ), 0, 12 );
-		$basename = sanitize_file_name( pathinfo( $path, PATHINFO_FILENAME ) );
-		if ( '' === $basename ) {
-			$basename = 'image';
-		}
-
-		$relative = 'assets/media/' . $basename . '-' . $hash . '.' . $extension;
-		$target   = trailingslashit( self::$active_theme_dir ) . $relative;
-		$dir      = dirname( $target );
-		if ( ! wp_mkdir_p( $dir ) ) {
-			return null;
-		}
-
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Writes generated theme asset files during import.
-		if ( false === file_put_contents( $target, $contents ) ) {
-			return null;
-		}
-
-		return trailingslashit( self::$active_theme_uri ) . $relative;
-	}
-
-	/**
 	 * Normalize caller-supplied asset map entries by source-relative key.
 	 *
 	 * @param array<string, mixed> $asset_map Raw asset map.
@@ -2804,18 +1905,6 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Normalize the optional local asset handling policy.
-	 *
-	 * @param string $policy Raw policy value.
-	 * @return string
-	 */
-	private static function normalize_asset_policy( string $policy ): string {
-		$policy = sanitize_key( $policy );
-
-		return 'media-library' === $policy ? 'media-library' : 'theme';
-	}
-
-	/**
 	 * Normalize and validate the local asset materialization policy.
 	 *
 	 * @param mixed $policy Raw policy value.
@@ -2827,11 +1916,11 @@ class Static_Site_Importer_Theme_Generator {
 			return 'copy_to_theme';
 		}
 
-		if ( in_array( $policy, array( 'copy_to_theme', 'preserve', 'use_map' ), true ) ) {
+		if ( in_array( $policy, array( 'copy_to_theme', 'use_map' ), true ) ) {
 			return $policy;
 		}
 
-		return new WP_Error( 'static_site_importer_invalid_asset_materialization_policy', 'Asset materialization policy must be one of: copy_to_theme, preserve, use_map.' );
+		return new WP_Error( 'static_site_importer_invalid_asset_materialization_policy', 'Asset materialization policy must be one of: copy_to_theme, use_map.' );
 	}
 
 	/**
@@ -2972,7 +2061,7 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Resolve a source-local asset URL, materialize it into the generated theme, and return metadata.
+	 * Resolve a source-local asset URL from the explicit map or BAC file artifacts.
 	 *
 	 * @param string $url         Source URL or path.
 	 * @param string $source_path Source-relative document path.
@@ -3008,129 +2097,15 @@ class Static_Site_Importer_Theme_Generator {
 			return $entry;
 		}
 
-		if ( '' === self::$active_source_dir || '' === self::$active_theme_dir || '' === self::$active_theme_uri ) {
-			if ( isset( self::$active_artifact_materialized_assets[ $key ] ) ) {
-				$asset = self::$active_artifact_materialized_assets[ $key ];
-				self::record_local_asset_outcome( 'copied', $source, $source_path, $url, $key, $asset );
-				self::remember_asset_metadata( $url, $key, $asset );
-				return $asset;
-			}
-
-			self::record_local_asset_diagnostic( 'local_asset_not_materialized', $source, $source_path, $url, $key, 'Local asset reference could not be materialized because the import has no active source/theme context.' );
-			return null;
-		}
-
-		$real_source_dir = realpath( self::$active_source_dir );
-		$real_source     = false === $real_source_dir ? '' : realpath( trailingslashit( $real_source_dir ) . $key );
-		if ( '' === $real_source_dir || false === $real_source || ! self::path_is_under( $real_source, $real_source_dir ) || ! is_readable( $real_source ) || ! is_file( $real_source ) ) {
-			self::record_local_asset_diagnostic( 'local_asset_not_found', $source, $source_path, $url, $key, 'Local asset reference did not resolve to a readable file under the static source root; leaving it unchanged.' );
-			return null;
-		}
-
-		$extension = strtolower( pathinfo( $real_source, PATHINFO_EXTENSION ) );
-		if ( ! self::is_local_asset_supported( $extension ) ) {
-			self::record_local_asset_diagnostic( 'local_asset_unsupported_type', $source, $source_path, $url, $key, 'Local asset reference uses an unsupported file type for theme materialization; leaving it unchanged.' );
-			return null;
-		}
-
-		if ( 'preserve' === self::$active_asset_materialization_policy ) {
-			$asset = array(
-				'source'      => $url,
-				'source_path' => $source_path,
-				'path'        => $key,
-				'url'         => $url,
-				'mime_type'   => self::export_mime_type( $real_source ),
-			);
-
-			$dimensions = self::image_dimensions( $real_source );
-			if ( ! empty( $dimensions ) ) {
-				$asset = array_merge( $asset, $dimensions );
-			}
-
-			self::record_local_asset_outcome( 'preserved', $source, $source_path, $url, $key, $asset );
-			return null;
-		}
-
-		if ( 'media-library' === self::$active_asset_policy ) {
-			$asset = self::import_local_asset_to_media_library( $real_source, $key, $url, $source_path, $source );
-			if ( null === $asset ) {
-				return null;
-			}
-
+		if ( isset( self::$active_artifact_materialized_assets[ $key ] ) ) {
+			$asset = self::$active_artifact_materialized_assets[ $key ];
 			self::record_local_asset_outcome( 'copied', $source, $source_path, $url, $key, $asset );
 			self::remember_asset_metadata( $url, $key, $asset );
-
 			return $asset;
 		}
 
-		$target_relative = self::materialized_asset_relative_path( $key, $real_source );
-		if ( '' === $target_relative ) {
-			self::record_local_asset_diagnostic( 'local_asset_unsafe_path', $source, $source_path, $url, $key, 'Local asset reference could not be converted to a safe generated theme asset path; leaving it unchanged.' );
-			return null;
-		}
-
-		$target_path = trailingslashit( self::$active_theme_dir ) . $target_relative;
-		if ( ! is_file( $target_path ) ) {
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads local static-site assets selected for materialization.
-			$contents = file_get_contents( $real_source );
-			if ( false === $contents ) {
-				self::record_local_asset_diagnostic( 'local_asset_read_failed', $source, $source_path, $url, $key, 'Local asset reference could not be read; leaving it unchanged.' );
-				return null;
-			}
-
-			$result = self::write_file( $target_path, $contents );
-			if ( is_wp_error( $result ) ) {
-				self::record_local_asset_diagnostic( 'local_asset_write_failed', $source, $source_path, $url, $key, 'Local asset reference could not be written to the generated theme; leaving it unchanged.' );
-				return null;
-			}
-		}
-
-		$asset = array(
-			'source'      => $url,
-			'source_path' => $source_path,
-			'path'        => $key,
-			'url'         => trailingslashit( self::$active_theme_uri ) . $target_relative,
-			'final_url'   => trailingslashit( self::$active_theme_uri ) . $target_relative,
-			'mime_type'   => self::export_mime_type( $real_source ),
-			'theme_path'  => $target_relative,
-			'policy'      => 'theme',
-		);
-
-		$dimensions = self::image_dimensions( $real_source );
-		if ( ! empty( $dimensions ) ) {
-			$asset = array_merge( $asset, $dimensions );
-		}
-
-		self::record_local_asset_outcome( 'copied', $source, $source_path, $url, $key, $asset );
-		self::remember_asset_metadata( $url, $key, $asset );
-
-		return $asset;
-	}
-
-	/**
-	 * Build a deterministic safe theme-relative path for a materialized source asset.
-	 *
-	 * @param string $key         Source-relative key.
-	 * @param string $source_path Absolute source path.
-	 * @return string
-	 */
-	private static function materialized_asset_relative_path( string $key, string $source_path ): string {
-		$normalized = self::normalize_artifact_materialization_path( 'assets/media/' . $key );
-		if ( '' === $normalized ) {
-			$basename = sanitize_file_name( basename( $source_path ) );
-			if ( '' === $basename ) {
-				return '';
-			}
-
-			$normalized = 'assets/media/' . md5( $key ) . '-' . $basename;
-		}
-
-		$directory = dirname( trailingslashit( self::$active_theme_dir ) . $normalized );
-		if ( ! is_dir( $directory ) && ! wp_mkdir_p( $directory ) ) {
-			return '';
-		}
-
-		return $normalized;
+		self::record_local_asset_diagnostic( 'local_asset_not_materialized', $source, $source_path, $url, $key, 'Local asset reference was not present in BAC file artifacts or the supplied asset_map; leaving it unchanged.' );
+		return null;
 	}
 
 	/**
@@ -3162,129 +2137,6 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Check whether a local asset extension is supported by SSI materialization.
-	 *
-	 * @param string $extension File extension without dot.
-	 * @return bool
-	 */
-	private static function is_local_asset_supported( string $extension ): bool {
-		return in_array( $extension, array( 'svg', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'woff', 'woff2' ), true );
-	}
-
-	/**
-	 * Check whether a local asset can become a WordPress media attachment.
-	 *
-	 * @param string $path Absolute file path.
-	 * @return bool
-	 */
-	private static function is_media_library_asset_supported( string $path ): bool {
-		$extension = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
-		if ( ! in_array( $extension, array( 'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'svg' ), true ) ) {
-			return false;
-		}
-
-		if ( function_exists( 'wp_check_filetype' ) ) {
-			$type = wp_check_filetype( basename( $path ) );
-			return ! empty( $type['type'] );
-		}
-
-		return true;
-	}
-
-	/**
-	 * Import a resolved local asset into the WordPress media library.
-	 *
-	 * @param string $real_source Absolute source file path.
-	 * @param string $key         Source-relative key.
-	 * @param string $url         Original source URL.
-	 * @param string $source_path Source-relative document path.
-	 * @param string $source      Diagnostic source label.
-	 * @return array<string,mixed>|null
-	 */
-	private static function import_local_asset_to_media_library( string $real_source, string $key, string $url, string $source_path, string $source ): ?array {
-		if ( isset( self::$active_imported_media_assets[ $key ] ) ) {
-			return self::$active_imported_media_assets[ $key ];
-		}
-
-		if ( ! self::is_media_library_asset_supported( $real_source ) ) {
-			self::record_local_asset_diagnostic( 'local_asset_unsupported_type', $source, $source_path, $url, $key, 'Local asset reference uses a file type unsupported by the media-library asset policy; leaving it unchanged.' );
-			return null;
-		}
-
-		if ( ! function_exists( 'wp_upload_bits' ) || ! function_exists( 'wp_insert_attachment' ) ) {
-			self::record_local_asset_diagnostic( 'local_asset_upload_failed', $source, $source_path, $url, $key, 'Local asset reference could not be imported because WordPress media upload functions are unavailable; leaving it unchanged.' );
-			return null;
-		}
-
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads a validated local source asset for media upload.
-		$contents = file_get_contents( $real_source );
-		if ( false === $contents ) {
-			self::record_local_asset_diagnostic( 'local_asset_read_failed', $source, $source_path, $url, $key, 'Local asset reference could not be read; leaving it unchanged.' );
-			return null;
-		}
-
-		$filename = sanitize_file_name( basename( $real_source ) );
-		if ( '' === $filename ) {
-			self::record_local_asset_diagnostic( 'local_asset_unsafe_path', $source, $source_path, $url, $key, 'Local asset reference could not be converted to a safe media filename; leaving it unchanged.' );
-			return null;
-		}
-
-		$upload = wp_upload_bits( $filename, null, $contents );
-		if ( ! is_array( $upload ) || ! empty( $upload['error'] ) || empty( $upload['file'] ) || empty( $upload['url'] ) ) {
-			$error = is_array( $upload ) && isset( $upload['error'] ) ? (string) $upload['error'] : 'Unknown upload error.';
-			self::record_local_asset_diagnostic( 'local_asset_upload_failed', $source, $source_path, $url, $key, 'Local asset reference could not be uploaded to the media library: ' . $error );
-			return null;
-		}
-
-		$file = (string) $upload['file'];
-		$type = function_exists( 'wp_check_filetype' ) ? wp_check_filetype( $file ) : array( 'type' => self::export_mime_type( $file ) );
-		$mime = isset( $type['type'] ) ? (string) $type['type'] : self::export_mime_type( $file );
-		$id   = wp_insert_attachment(
-			array(
-				'post_mime_type' => $mime,
-				'post_title'     => preg_replace( '/\.[^.]+$/', '', $filename ),
-				'post_content'   => '',
-				'post_status'    => 'inherit',
-			),
-			$file
-		);
-		if ( is_wp_error( $id ) || (int) $id <= 0 ) {
-			$message = is_wp_error( $id ) ? $id->get_error_message() : 'WordPress did not return an attachment ID.';
-			self::record_local_asset_diagnostic( 'local_asset_upload_failed', $source, $source_path, $url, $key, 'Local asset reference uploaded but attachment creation failed: ' . $message );
-			return null;
-		}
-
-		if ( function_exists( 'wp_generate_attachment_metadata' ) && function_exists( 'wp_update_attachment_metadata' ) ) {
-			$metadata = wp_generate_attachment_metadata( (int) $id, $file );
-			if ( is_array( $metadata ) ) {
-				wp_update_attachment_metadata( (int) $id, $metadata );
-			}
-		}
-
-		$asset = array(
-			'id'            => (int) $id,
-			'attachment_id' => (int) $id,
-			'source'        => $url,
-			'source_path'   => $source_path,
-			'path'          => $key,
-			'url'           => function_exists( 'wp_get_attachment_url' ) ? (string) wp_get_attachment_url( (int) $id ) : (string) $upload['url'],
-			'final_url'     => function_exists( 'wp_get_attachment_url' ) ? (string) wp_get_attachment_url( (int) $id ) : (string) $upload['url'],
-			'mime_type'     => $mime,
-			'file'          => $file,
-			'policy'        => 'media-library',
-		);
-
-		$dimensions = self::image_dimensions( $file );
-		if ( ! empty( $dimensions ) ) {
-			$asset = array_merge( $asset, $dimensions );
-		}
-
-		self::$active_imported_media_assets[ $key ] = $asset;
-
-		return $asset;
-	}
-
-	/**
 	 * Add available alt text to cached asset metadata.
 	 *
 	 * @param string              $url   Original source reference.
@@ -3306,10 +2158,6 @@ class Static_Site_Importer_Theme_Generator {
 		$asset['alt'] = $alt;
 		if ( isset( $asset['attachment_id'] ) && (int) $asset['attachment_id'] > 0 && function_exists( 'update_post_meta' ) ) {
 			update_post_meta( (int) $asset['attachment_id'], '_wp_attachment_image_alt', $alt );
-		}
-
-		if ( isset( self::$active_imported_media_assets[ $key ] ) ) {
-			self::$active_imported_media_assets[ $key ] = $asset;
 		}
 
 		self::remember_asset_metadata( $url, $key, $asset );
@@ -3349,7 +2197,7 @@ class Static_Site_Importer_Theme_Generator {
 			self::$conversion_report['assets']['local'] = array();
 		}
 
-		$report_key = self::$active_asset_materialization_policy . ':' . (string) ( $asset['policy'] ?? self::$active_asset_policy ) . ':' . $key;
+		$report_key = self::$active_asset_materialization_policy . ':' . (string) ( $asset['policy'] ?? 'theme' ) . ':' . $key;
 		if ( isset( self::$recorded_local_asset_keys[ $report_key ] ) ) {
 			return;
 		}
@@ -3360,7 +2208,7 @@ class Static_Site_Importer_Theme_Generator {
 			'source_path'            => $source_path,
 			'url'                    => $url,
 			'key'                    => $key,
-			'policy'                 => $asset['policy'] ?? self::$active_asset_policy,
+			'policy'                 => $asset['policy'] ?? 'theme',
 			'materialization_policy' => self::$active_asset_materialization_policy,
 			'outcome'                => $outcome,
 			'rewritten_url'          => $asset['url'] ?? '',
@@ -3516,132 +2364,6 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Build a visible editable list block for footer utility links.
-	 *
-	 * @param DOMDocument $doc     Source DOM document.
-	 * @param DOMElement  $element Source list element.
-	 * @return string|null
-	 */
-	private static function footer_link_list_block( DOMDocument $doc, DOMElement $element ): ?string {
-		$tag = strtolower( $element->tagName );
-		if ( ! in_array( $tag, array( 'ul', 'ol' ), true ) ) {
-			return null;
-		}
-
-		$items = array();
-		foreach ( self::direct_element_children( $element ) as $child ) {
-			if ( 'li' !== strtolower( $child->tagName ) || 0 === $child->getElementsByTagName( 'a' )->length ) {
-				return null;
-			}
-
-			$item_attrs = array();
-			$class      = trim( $child->getAttribute( 'class' ) );
-			if ( '' !== $class ) {
-				$item_attrs['className'] = $class;
-			}
-
-			$comment_attrs = empty( $item_attrs ) ? '' : ' ' . wp_json_encode( $item_attrs, JSON_UNESCAPED_SLASHES );
-			$class_attr    = '' === $class ? '' : ' class="' . esc_attr( $class ) . '"';
-			$items[]       = '<!-- wp:list-item' . $comment_attrs . ' --><li' . $class_attr . '>' . self::node_inner_html( $doc, $child ) . '</li><!-- /wp:list-item -->';
-		}
-
-		if ( empty( $items ) ) {
-			return null;
-		}
-
-		$attrs = array();
-		if ( 'ol' === $tag ) {
-			$attrs['ordered'] = true;
-		}
-
-		$class = trim( $element->getAttribute( 'class' ) );
-		if ( '' !== $class ) {
-			$attrs['className'] = $class;
-		}
-
-		$comment_attrs = empty( $attrs ) ? '' : ' ' . wp_json_encode( $attrs, JSON_UNESCAPED_SLASHES );
-		$class_attr    = trim( 'wp-block-list ' . $class );
-
-		return '<!-- wp:list' . $comment_attrs . ' --><' . $tag . ' class="' . esc_attr( $class_attr ) . '">' . implode( '', $items ) . '</' . $tag . '><!-- /wp:list -->';
-	}
-
-	/**
-	 * Build a footer navigation entity when the row owns one utility menu, otherwise a visible list.
-	 *
-	 * @param DOMDocument $doc        Source DOM document.
-	 * @param DOMElement  $element    Source list element.
-	 * @param string      $theme_slug Imported theme slug.
-	 * @param string      $location   Theme part location.
-	 * @return string|null
-	 */
-	private static function footer_navigation_or_list_block( DOMDocument $doc, DOMElement $element, string $theme_slug, string $location ): ?string {
-		if ( self::can_convert_element_to_navigation( $element ) ) {
-			$navigation = self::navigation_ref_block( $element, $theme_slug, $location );
-			if ( null !== $navigation ) {
-				return $navigation;
-			}
-		}
-
-		return self::footer_link_list_block( $doc, $element );
-	}
-
-	/**
-	 * Build a group block wrapper.
-	 *
-	 * @param string $inner     Inner block markup.
-	 * @param string $class_name Source class attribute.
-	 * @param string $tag_name   Wrapper tag name.
-	 * @param string $anchor     Source ID attribute for native group anchor support.
-	 * @return string
-	 */
-	private static function group_block( string $inner, string $class_name = '', string $tag_name = 'div', string $anchor = '' ): string {
-		$class_name = trim( $class_name );
-		$tag_name   = strtolower( $tag_name );
-		$anchor     = trim( $anchor );
-		$attrs      = array();
-		if ( '' !== $class_name ) {
-			$attrs['className'] = $class_name;
-		}
-		if ( 'div' !== $tag_name ) {
-			$attrs['tagName'] = $tag_name;
-		}
-		if ( '' !== $anchor ) {
-			$attrs['anchor'] = $anchor;
-		}
-
-		$comment_attrs = empty( $attrs ) ? '' : ' ' . wp_json_encode( $attrs, JSON_UNESCAPED_SLASHES );
-		$class_attr    = trim( 'wp-block-group ' . $class_name );
-		$id_attr       = '' === $anchor ? '' : ' id="' . esc_attr( $anchor ) . '"';
-
-		return '<!-- wp:group' . $comment_attrs . ' --><' . $tag_name . $id_attr . ' class="' . esc_attr( $class_attr ) . '">' . $inner . '</' . $tag_name . '><!-- /wp:group -->';
-	}
-
-	/**
-	 * Build an HTML block.
-	 *
-	 * @param string $html Raw HTML.
-	 * @return string
-	 */
-	private static function html_block( string $html ): string {
-		return '<!-- wp:html -->' . $html . '<!-- /wp:html -->';
-	}
-
-	/**
-	 * Build a paragraph block.
-	 *
-	 * @param string $inner_html  Paragraph inner HTML.
-	 * @param string $class_name  Source class attribute.
-	 * @return string
-	 */
-	private static function paragraph_block( string $inner_html, string $class_name = '' ): string {
-		$class_name = trim( $class_name );
-		$attrs      = '' === $class_name ? '' : ' ' . wp_json_encode( array( 'className' => $class_name ), JSON_UNESCAPED_SLASHES );
-		$class_attr = '' === $class_name ? '' : ' class="' . esc_attr( $class_name ) . '"';
-
-		return '<!-- wp:paragraph' . $attrs . ' --><p' . $class_attr . '>' . $inner_html . '</p><!-- /wp:paragraph -->';
-	}
-
-	/**
 	 * Parse an HTML fragment into a wrapper document.
 	 *
 	 * @param string $html HTML fragment.
@@ -3733,19 +2455,20 @@ class Static_Site_Importer_Theme_Generator {
 		$source      = 'main:' . $source_path;
 		$body        = self::route_external_script_tags_from_page_body( $page->body(), $source_path, $source );
 		$body        = self::rewrite_internal_links( $body, $route_map, $source_path, $source );
-		if ( 'blocks' === $page->body_format() ) {
-			$body = self::rewrite_block_markup_local_asset_references( $body, $source_path, $source );
-			$body = self::repair_image_block_class_markup( $body );
-			return trim( $body );
+		if ( 'blocks' !== $page->body_format() ) {
+			self::$conversion_report['diagnostics'][] = array(
+				'type'        => 'unsupported_document_artifact_format',
+				'source'      => $source,
+				'source_path' => $source_path,
+				'format'      => $page->body_format(),
+				'message'     => 'Website artifact imports require BAC document artifacts with serialized block markup.',
+			);
+			return '';
 		}
 
-		if ( 'markdown' === $page->body_format() ) {
-			$body = self::rewrite_markdown_links( $body, $route_map, $source_path, $source );
-		} else {
-			$body = self::rewrite_local_asset_references( $body, $source_path, $source );
-		}
-
-		return self::convert_fragment( $body, $source, $page->body_format() );
+		$body = self::rewrite_block_markup_local_asset_references( $body, $source_path, $source );
+		$body = self::repair_image_block_class_markup( $body );
+		return trim( $body );
 	}
 
 	/**
@@ -3844,50 +2567,6 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		self::$conversion_report['assets']['scripts'][] = $row;
-	}
-
-	/**
-	 * Rewrite Markdown inline links/images using the shared source route map.
-	 *
-	 * @param string               $markdown    Markdown source.
-	 * @param array<string,string> $route_map   Route map.
-	 * @param string               $source_path Source-relative source path.
-	 * @param string               $source      Diagnostic source label.
-	 * @return string
-	 */
-	private static function rewrite_markdown_links( string $markdown, array $route_map, string $source_path, string $source ): string {
-		if ( '' === trim( $markdown ) ) {
-			return $markdown;
-		}
-
-		return preg_replace_callback(
-			'/(\!?)\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/',
-			static function ( array $matches ) use ( $route_map, $source_path, $source ): string {
-				$prefix      = $matches[1];
-				$label       = $matches[2];
-				$destination = trim( $matches[3], '<>' );
-
-				if ( '!' === $prefix ) {
-					$asset = self::resolve_local_asset_reference( $destination, $source_path, $source );
-					if ( null !== $asset ) {
-						if ( '' !== trim( $label ) ) {
-							$asset = self::add_local_asset_alt_metadata( $destination, $asset, $label );
-						}
-						return '![' . $label . '](' . $asset['url'] . ')';
-					}
-					return $matches[0];
-				}
-
-				$replacement = self::resolve_route_href( $destination, $source_path, $route_map );
-				if ( null === $replacement ) {
-					self::record_unresolved_internal_link( $source, $source_path, $destination );
-					return $matches[0];
-				}
-
-				return '[' . $label . '](' . $replacement . ')';
-			},
-			$markdown
-		) ?? $markdown;
 	}
 
 	/**
@@ -4655,7 +3334,7 @@ class Static_Site_Importer_Theme_Generator {
 			return new WP_Error( 'static_site_importer_svg_sprite_mkdir_failed', sprintf( 'Failed to create SVG sprite directory: %s', $dir ) );
 		}
 
-		$result = self::write_file( $path, $svg . "\n" );
+		$result = Static_Site_Importer_Theme_Materializer::write_file( $path, $svg . "\n" );
 		if ( is_wp_error( $result ) ) {
 			return $result;
 		}
@@ -4703,7 +3382,7 @@ class Static_Site_Importer_Theme_Generator {
 			return new WP_Error( 'static_site_importer_svg_icon_mkdir_failed', sprintf( 'Failed to create SVG icon directory: %s', $dir ) );
 		}
 
-		$result = self::write_file( $path, $svg . "\n" );
+		$result = Static_Site_Importer_Theme_Materializer::write_file( $path, $svg . "\n" );
 		if ( is_wp_error( $result ) ) {
 			return $result;
 		}
@@ -4796,232 +3475,6 @@ class Static_Site_Importer_Theme_Generator {
 			'html_length'  => strlen( $svg_html ),
 			'html_excerpt' => self::diagnostic_excerpt( $svg_html ),
 		);
-	}
-
-	/**
-	 * Convert source content to block markup.
-	 *
-	 * @param string $html   Source content.
-	 * @param string $source Source label.
-	 * @param string $format Source format.
-	 * @return string
-	 */
-	private static function convert_fragment( string $html, string $source = 'fragment', string $format = 'html' ): string {
-		if ( '' === trim( $html ) ) {
-			return '';
-		}
-
-		if ( 'html' === $format ) {
-			$html = self::materialize_inline_svg_icons( $html, $source );
-		}
-
-		self::start_conversion_fragment( $source, $html );
-		$commerce_metadata_listener = static function ( array $metadata ) use ( $source ): void {
-			self::record_commerce_conversion_metadata( $source, $metadata );
-		};
-		$commerce_request_listener  = static function ( array $request ) use ( $source ): void {
-			self::record_commerce_conversion_metadata( $source, array_merge( array( 'type' => 'materialization_request' ), $request ) );
-		};
-
-		add_action( 'bfb_conversion_metadata', $commerce_metadata_listener, 10, 1 );
-		add_action( 'bfb_materialization_request', $commerce_request_listener, 10, 1 );
-		$conversion_options = self::conversion_options( $source );
-		$blocks             = self::compile_fragment_to_blocks( $html, $source, $format, $conversion_options );
-		remove_action( 'bfb_conversion_metadata', $commerce_metadata_listener, 10 );
-		remove_action( 'bfb_materialization_request', $commerce_request_listener, 10 );
-
-		if ( '' === $blocks ) {
-			self::record_conversion_empty( $source, $html );
-		}
-		$blocks = self::restore_dropped_empty_decorative_groups( $html, self::mark_empty_decorative_group_blocks( $blocks, $source ) );
-		self::finish_conversion_fragment( $source, $blocks );
-
-		return '' === $blocks ? '<!-- wp:html -->' . "\n" . $html . "\n" . '<!-- /wp:html -->' : $blocks;
-	}
-
-	/**
-	 * Compile one source fragment into serialized block markup.
-	 *
-	 * Block Artifact Compiler owns the semantic artifact envelope. SSI remains the
-	 * materializer that writes the compiler result into WordPress theme artifacts.
-	 *
-	 * @param string               $html    Source fragment.
-	 * @param string               $source  Source label.
-	 * @param string               $format  Source format.
-	 * @param array<string, mixed> $options Conversion options.
-	 * @return string Serialized block markup.
-	 */
-	private static function compile_fragment_to_blocks( string $html, string $source, string $format, array $options ): string {
-		if ( 'html' !== $format ) {
-			// @phpstan-ignore-next-line function.notFound -- Loaded by the bundled Block Format Bridge runtime.
-			return (string) bfb_convert( $html, $format, 'blocks', $options );
-		}
-
-		$compiled = bac_compile_fragment( $html, $source, $format, $options );
-		self::record_block_artifact_compiler_result( $source, $compiled );
-
-		$artifacts = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
-		return isset( $artifacts['block_markup'] ) ? (string) $artifacts['block_markup'] : '';
-	}
-
-	/**
-	 * Record a compact Block Artifact Compiler summary on the import report.
-	 *
-	 * @param string              $source   Source label.
-	 * @param array<string,mixed> $compiled Compiler result envelope.
-	 * @return void
-	 */
-	private static function record_block_artifact_compiler_result( string $source, array $compiled ): void {
-		$summary           = bac_summarize_result( $compiled );
-		$summary['source'] = '' !== (string) ( $summary['source'] ?? '' ) ? (string) $summary['source'] : $source;
-		$payload           = self::compiler_report_payload( $compiled, $summary );
-
-		self::$conversion_report['block_artifact_compiler']['available']      = true;
-		self::$conversion_report['block_artifact_compiler']['fragments'][]    = $payload;
-		self::$conversion_report['block_artifact_compiler']['fragment_count'] = count( self::$conversion_report['block_artifact_compiler']['fragments'] );
-
-		if ( isset( self::$conversion_report['conversion_fragments'][ $source ] ) ) {
-			self::$conversion_report['conversion_fragments'][ $source ]['compiler'] = $payload;
-		}
-
-		self::record_compiler_conversion_diagnostics( $source, $compiled );
-	}
-
-	/**
-	 * Record conversion diagnostics surfaced by the BAC/BFB result envelope.
-	 *
-	 * @param string              $source   Source fragment label.
-	 * @param array<string,mixed> $compiled Compiler result envelope.
-	 * @return void
-	 */
-	private static function record_compiler_conversion_diagnostics( string $source, array $compiled ): void {
-		$report = isset( $compiled['bfb_report'] ) && is_array( $compiled['bfb_report'] ) ? $compiled['bfb_report'] : array();
-		if ( empty( $report ) ) {
-			return;
-		}
-
-		$fallbacks = isset( $report['fallback_events'] ) && is_array( $report['fallback_events'] ) ? $report['fallback_events'] : array();
-		if ( empty( $fallbacks ) && isset( $report['fallback_diagnostics'] ) && is_array( $report['fallback_diagnostics'] ) ) {
-			$fallbacks = $report['fallback_diagnostics'];
-		}
-
-		foreach ( $fallbacks as $fallback ) {
-			if ( ! is_array( $fallback ) ) {
-				continue;
-			}
-
-			self::record_compiler_unsupported_fallback( $source, $fallback );
-		}
-
-		$diagnostics = isset( $report['diagnostics'] ) && is_array( $report['diagnostics'] ) ? $report['diagnostics'] : array();
-		foreach ( $diagnostics as $diagnostic ) {
-			if ( ! is_array( $diagnostic ) || 'possible_text_loss' !== (string) ( $diagnostic['code'] ?? '' ) ) {
-				continue;
-			}
-
-			$details                = isset( $diagnostic['details'] ) && is_array( $diagnostic['details'] ) ? $diagnostic['details'] : array();
-			$original_text_length   = isset( $details['source_text_bytes'] ) ? (int) $details['source_text_bytes'] : (int) ( $report['source_text_bytes'] ?? 0 );
-			$serialized_text_length = isset( $details['converted_text_bytes'] ) ? (int) $details['converted_text_bytes'] : (int) ( $report['converted_text_bytes'] ?? 0 );
-			self::record_content_loss( $source, $original_text_length, $serialized_text_length );
-		}
-	}
-
-	/**
-	 * Record one unsupported fallback from the compiler report surface.
-	 *
-	 * @param string              $source   Source fragment label.
-	 * @param array<string,mixed> $fallback Normalized BFB fallback diagnostic.
-	 * @return void
-	 */
-	private static function record_compiler_unsupported_fallback( string $source, array $fallback ): void {
-		$preview = isset( $fallback['preview'] ) && is_scalar( $fallback['preview'] ) ? (string) $fallback['preview'] : '';
-		if ( '' === $preview && isset( $fallback['html_excerpt'] ) && is_scalar( $fallback['html_excerpt'] ) ) {
-			$preview = (string) $fallback['html_excerpt'];
-		}
-
-		$context = array(
-			'reason'   => isset( $fallback['reason_code'] ) && is_scalar( $fallback['reason_code'] ) ? (string) $fallback['reason_code'] : (string) ( $fallback['reason'] ?? 'unknown' ),
-			'tag_name' => isset( $fallback['tag_name'] ) && is_scalar( $fallback['tag_name'] ) ? (string) $fallback['tag_name'] : (string) ( $fallback['source_tag'] ?? '' ),
-		);
-
-		if ( isset( $fallback['occurrence'] ) && is_numeric( $fallback['occurrence'] ) ) {
-			$context['occurrence'] = (int) $fallback['occurrence'];
-		}
-
-		$selector = self::fallback_selector_from_compiler_diagnostic( $fallback );
-		if ( '' !== $selector ) {
-			$context['selector'] = $selector;
-		}
-
-		$block_name = isset( $fallback['generated_block_type'] ) && is_scalar( $fallback['generated_block_type'] ) ? (string) $fallback['generated_block_type'] : (string) ( $fallback['block_name'] ?? 'core/html' );
-		$block      = array(
-			'blockName'    => '' !== $block_name ? $block_name : 'core/html',
-			'attrs'        => array( 'content' => $preview ),
-			'innerHTML'    => $preview,
-			'innerContent' => array( $preview ),
-		);
-
-		self::record_unsupported_fallback( $source, $preview, $context, $block );
-	}
-
-	/**
-	 * Build a best-effort selector from a normalized compiler fallback diagnostic.
-	 *
-	 * @param array<string,mixed> $fallback Normalized BFB fallback diagnostic.
-	 * @return string
-	 */
-	private static function fallback_selector_from_compiler_diagnostic( array $fallback ): string {
-		$tag        = isset( $fallback['source_tag'] ) && is_scalar( $fallback['source_tag'] ) ? strtolower( (string) $fallback['source_tag'] ) : '';
-		$attributes = isset( $fallback['attributes'] ) && is_array( $fallback['attributes'] ) ? $fallback['attributes'] : array();
-		$id         = isset( $attributes['id'] ) && is_scalar( $attributes['id'] ) ? sanitize_html_class( (string) $attributes['id'] ) : '';
-		$classes    = isset( $fallback['classes'] ) && is_array( $fallback['classes'] ) ? $fallback['classes'] : array();
-		$selector   = '' !== $tag ? $tag : 'html';
-
-		if ( '' !== $id ) {
-			$selector .= '#' . $id;
-		}
-
-		foreach ( $classes as $class ) {
-			$class = is_scalar( $class ) ? sanitize_html_class( (string) $class ) : '';
-			if ( '' !== $class ) {
-				$selector .= '.' . $class;
-			}
-		}
-
-		return $selector;
-	}
-
-	/**
-	 * Preserve upstream compiler evidence without embedding full block markup bodies.
-	 *
-	 * @param array<string,mixed> $compiled Compiler result envelope.
-	 * @param array<string,mixed> $summary  Compact compiler summary.
-	 * @return array<string,mixed>
-	 */
-	private static function compiler_report_payload( array $compiled, array $summary ): array {
-		$artifacts = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
-		$payload   = array_merge( $summary, array(
-			'summary'             => $summary,
-			'input'               => isset( $compiled['input'] ) && is_array( $compiled['input'] ) ? $compiled['input'] : array(),
-			'provenance'          => isset( $compiled['provenance'] ) && is_array( $compiled['provenance'] ) ? $compiled['provenance'] : array(),
-			'diagnostics'         => isset( $compiled['diagnostics'] ) && is_array( $compiled['diagnostics'] ) ? $compiled['diagnostics'] : array(),
-			'bfb_report'          => isset( $compiled['bfb_report'] ) && is_array( $compiled['bfb_report'] ) ? $compiled['bfb_report'] : array(),
-			'wordpress_artifacts' => array(
-				'block_tree'  => isset( $artifacts['block_tree'] ) && is_array( $artifacts['block_tree'] ) ? $artifacts['block_tree'] : array(),
-				'block_types' => isset( $artifacts['block_types'] ) && is_array( $artifacts['block_types'] ) ? $artifacts['block_types'] : array(),
-				'components'  => isset( $artifacts['components'] ) && is_array( $artifacts['components'] ) ? $artifacts['components'] : array(),
-				'documents'   => isset( $artifacts['documents'] ) && is_array( $artifacts['documents'] ) ? $artifacts['documents'] : array(),
-				'files'       => isset( $artifacts['files'] ) && is_array( $artifacts['files'] ) ? $artifacts['files'] : array(),
-			),
-		) );
-
-		if ( isset( $artifacts['block_markup'] ) && is_scalar( $artifacts['block_markup'] ) ) {
-			$block_markup = (string) $artifacts['block_markup'];
-			$payload['wordpress_artifacts']['block_markup_length'] = strlen( $block_markup );
-			$payload['wordpress_artifacts']['block_markup_hash']   = hash( 'sha256', $block_markup );
-		}
-
-		return $payload;
 	}
 
 	/**
@@ -5291,65 +3744,19 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return array{css:string,js:string}|WP_Error
 	 */
 	private static function materialize_website_artifact_files_to_theme( string $theme_dir, array $artifacts ) {
-		$files = isset( $artifacts['files'] ) && is_array( $artifacts['files'] ) ? $artifacts['files'] : array();
-		$css   = array();
-		$js    = array();
-
-		foreach ( $files as $file ) {
-			if ( ! is_array( $file ) ) {
-				continue;
-			}
-
-			$relative = self::normalize_artifact_materialization_path( isset( $file['path'] ) ? (string) $file['path'] : '' );
-			if ( '' === $relative ) {
-				self::$conversion_report['diagnostics'][] = array(
-					'type'    => 'website_artifact_file_skipped',
-					'source'  => 'website_artifact:files',
-					'reason'  => 'unsafe_artifact_path',
-					'path'    => isset( $file['path'] ) && is_scalar( $file['path'] ) ? (string) $file['path'] : '',
-					'message' => 'A BAC file artifact was skipped because its path is not safe to materialize inside the generated theme.',
-				);
-				continue;
-			}
-
-			$content = isset( $file['content'] ) && is_scalar( $file['content'] ) ? (string) $file['content'] : '';
-			$kind    = isset( $file['kind'] ) ? (string) $file['kind'] : '';
-			$lower   = strtolower( $relative );
-			if ( 'css' === $kind || str_ends_with( $lower, '.css' ) ) {
-				$css[] = trim( $content );
-				continue;
-			}
-			if ( 'js' === $kind || str_ends_with( $lower, '.js' ) ) {
-				$js[] = trim( $content );
-				continue;
-			}
-
-			$target_relative = 'assets/materialized/' . $relative;
-			$target          = trailingslashit( $theme_dir ) . $target_relative;
-			$dir    = dirname( $target );
-			if ( ! wp_mkdir_p( $dir ) ) {
-				return new WP_Error( 'static_site_importer_artifact_asset_mkdir_failed', sprintf( 'Failed to create website artifact asset directory: %s', $dir ) );
-			}
-
-			$result = self::write_file( $target, $content );
-			if ( is_wp_error( $result ) ) {
-				return $result;
-			}
-
-			self::$active_artifact_materialized_assets[ $relative ] = array(
-				'source'     => $relative,
-				'path'       => $relative,
-				'url'        => trailingslashit( self::$active_theme_uri ) . $target_relative,
-				'final_url'  => trailingslashit( self::$active_theme_uri ) . $target_relative,
-				'mime_type'  => self::export_mime_type( $target ),
-				'theme_path' => $target_relative,
-				'policy'     => 'theme',
-			);
+		$result = Static_Site_Importer_Theme_Materializer::materialize_website_artifact_files( $theme_dir, self::$active_theme_uri, $artifacts );
+		if ( is_wp_error( $result ) ) {
+			return $result;
 		}
 
+		foreach ( $result['diagnostics'] as $diagnostic ) {
+			self::$conversion_report['diagnostics'][] = $diagnostic;
+		}
+		self::$active_artifact_materialized_assets = array_merge( self::$active_artifact_materialized_assets, $result['assets'] );
+
 		return array(
-			'css' => trim( implode( "\n\n", array_filter( $css ) ) ),
-			'js'  => trim( implode( "\n", array_filter( $js ) ) ),
+			'css' => $result['css'],
+			'js'  => $result['js'],
 		);
 	}
 
@@ -5887,6 +4294,7 @@ class Static_Site_Importer_Theme_Generator {
 			),
 			'generated_theme'         => array(
 				'document_metadata' => array(),
+				'template_parts'    => array(),
 				'block_documents' => array(),
 				'freeform_blocks' => array(),
 			),
@@ -5953,51 +4361,6 @@ class Static_Site_Importer_Theme_Generator {
 				'message'    => 'Source region was not assigned to a generated theme part or page pattern. Inspect source_region_selection.unassigned_regions in import-report.json for the selector path and source line range.',
 			);
 		}
-	}
-
-	/**
-	 * Record source document counts and skipped/linked source diagnostics.
-	 *
-	 * @param string                                           $site_dir    Source site directory.
-	 * @param array<string, Static_Site_Importer_Source_Page> $pages       Imported pages.
-	 * @param array<string,string>                             $permalinks Imported page permalinks.
-	 * @return void
-	 */
-	private static function record_source_documents_summary( string $site_dir, array $pages, array $permalinks ): void {
-		$counts = array(
-			'html'     => 0,
-			'markdown' => 0,
-			'mdx'      => 0,
-		);
-		foreach ( $pages as $page ) {
-			$format = $page->type();
-			if ( isset( $counts[ $format ] ) ) {
-				++$counts[ $format ];
-			}
-		}
-
-		$mdx_files     = self::collect_source_files_by_extension( $site_dir, array( 'mdx' ) );
-		$counts['mdx'] = count( $mdx_files );
-		foreach ( $mdx_files as $mdx_file ) {
-			self::$conversion_report['diagnostics'][] = array(
-				'type'    => 'unsupported_source_document',
-				'format'  => 'mdx',
-				'source'  => $mdx_file,
-				'message' => 'MDX source documents are not supported by Static Site Importer and were skipped. Build MDX to static HTML first, or provide plain .md/.markdown content.',
-			);
-		}
-
-		$unresolved                                  = self::collect_unresolved_source_links( $pages, $permalinks );
-		self::$conversion_report['source_documents'] = array_merge(
-			self::$conversion_report['source_documents'],
-			array(
-				'total_count'           => array_sum( $counts ),
-				'counts_by_format'      => $counts,
-				'skipped_mdx_count'     => count( $mdx_files ),
-				'unresolved_links'      => $unresolved,
-				'unresolved_link_count' => count( $unresolved ),
-			)
-		);
 	}
 
 	/**
@@ -6088,1387 +4451,6 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Collect source file paths by extension under a source directory.
-	 *
-	 * @param string            $site_dir   Source site directory.
-	 * @param array<int,string> $extensions Lowercase extensions.
-	 * @return array<int,string> Relative source paths.
-	 */
-	private static function collect_source_files_by_extension( string $site_dir, array $extensions ): array {
-		$files = array();
-		$root  = realpath( $site_dir );
-		if ( false === $root ) {
-			return $files;
-		}
-
-		$iterator = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $site_dir, FilesystemIterator::SKIP_DOTS ) );
-		foreach ( $iterator as $file ) {
-			if ( ! $file instanceof SplFileInfo || ! $file->isFile() || ! in_array( strtolower( $file->getExtension() ), $extensions, true ) ) {
-				continue;
-			}
-
-			$path = $file->getPathname();
-			if ( ! self::path_is_under( $path, $root ) ) {
-				continue;
-			}
-
-			$files[] = str_replace( DIRECTORY_SEPARATOR, '/', ltrim( substr( $path, strlen( trailingslashit( $root ) ) ), DIRECTORY_SEPARATOR ) );
-		}
-
-		sort( $files, SORT_STRING );
-		return $files;
-	}
-
-	/**
-	 * Collect local links that do not resolve to imported source documents.
-	 *
-	 * @param array<string, Static_Site_Importer_Source_Page> $pages      Imported pages.
-	 * @param array<string,string>                             $permalinks Imported page permalinks.
-	 * @return array<int,array{source:string,href:string}>
-	 */
-	private static function collect_unresolved_source_links( array $pages, array $permalinks ): array {
-		$unresolved = array();
-		foreach ( $pages as $filename => $page ) {
-			$source = $page->body();
-			foreach ( self::extract_local_source_links( $source, 'markdown' === $page->body_format() ) as $href ) {
-				$path = strtok( explode( '#', $href, 2 )[0], '?' );
-				$key  = self::resolve_source_link_key( $filename, false === $path ? $href : $path );
-				if ( isset( $permalinks[ $key ] ) || isset( $permalinks[ basename( $key ) ] ) ) {
-					continue;
-				}
-
-				$unresolved[] = array(
-					'source' => $filename,
-					'href'   => $href,
-				);
-			}
-		}
-
-		return $unresolved;
-	}
-
-	/**
-	 * Extract local HTML or Markdown links from source content.
-	 *
-	 * @param string $source      Source content.
-	 * @param bool   $is_markdown Whether the source is Markdown.
-	 * @return array<int,string>
-	 */
-	private static function extract_local_source_links( string $source, bool $is_markdown ): array {
-		$links = array();
-		$regex = $is_markdown ? '/\]\(([^)]+)\)/' : '/\bhref=("|\')([^"\']+)(\1)/i';
-		if ( preg_match_all( $regex, $source, $matches ) ) {
-			$matched_hrefs = $matches[1];
-			if ( ! $is_markdown ) {
-				$matched_hrefs = isset( $matches[2] ) ? $matches[2] : array();
-			}
-
-			foreach ( $matched_hrefs as $href ) {
-				$href = trim( html_entity_decode( (string) $href, ENT_QUOTES ) );
-				if ( '' === $href || str_starts_with( $href, '#' ) || preg_match( '/^[a-z][a-z0-9+.-]*:/i', $href ) ) {
-					continue;
-				}
-
-				$href_path = strtok( explode( '#', $href, 2 )[0], '?' );
-				$extension = strtolower( pathinfo( false !== $href_path ? $href_path : $href, PATHINFO_EXTENSION ) );
-				if ( in_array( $extension, array( 'html', 'htm', 'md', 'markdown', 'mdx' ), true ) ) {
-					$links[] = $href;
-				}
-			}
-		}
-
-		return array_values( array_unique( $links ) );
-	}
-
-	/**
-	 * Resolve a local link against its source document path.
-	 *
-	 * @param string $source_filename Current source filename.
-	 * @param string $href_path       Link path without query or fragment.
-	 * @return string Source document key.
-	 */
-	private static function resolve_source_link_key( string $source_filename, string $href_path ): string {
-		$key = ltrim( str_replace( '\\', '/', $href_path ), './' );
-		if ( '' === $key || str_starts_with( $key, '/' ) ) {
-			return ltrim( $key, '/' );
-		}
-
-		$base_dir = dirname( $source_filename );
-		if ( '.' === $base_dir || '' === $base_dir || str_starts_with( $href_path, './' ) ) {
-			$combined = ( '.' === $base_dir || '' === $base_dir ) ? $key : $base_dir . '/' . ltrim( $href_path, './' );
-		} elseif ( ! str_contains( $key, '/' ) ) {
-			$combined = $base_dir . '/' . $key;
-		} else {
-			$combined = $key;
-		}
-
-		$parts = array();
-		foreach ( explode( '/', str_replace( '\\', '/', $combined ) ) as $part ) {
-			if ( '' === $part || '.' === $part ) {
-				continue;
-			}
-			if ( '..' === $part ) {
-				array_pop( $parts );
-				continue;
-			}
-
-			$parts[] = $part;
-		}
-
-		return implode( '/', $parts );
-	}
-
-	/**
-	 * Resolve validated commerce context supplied by the caller.
-	 *
-	 * @param array<string, mixed> $args             Import args.
-	 * @param array<string, mixed> $inferred_context Inferred commerce context.
-	 * @return array<string, mixed>
-	 */
-	private static function commerce_context_from_args( array $args, array $inferred_context = array() ): array {
-		$manifest = self::$conversion_report['commerce']['products_manifest'] ?? array();
-		if ( is_array( $manifest ) && true === ( $manifest['valid'] ?? false ) ) {
-			self::set_commerce_product_inference_report( 'manifest', isset( $manifest['products'] ) && is_array( $manifest['products'] ) ? $manifest['products'] : array() );
-			return array(
-				'source'   => 'products.json',
-				'products' => isset( $manifest['products'] ) && is_array( $manifest['products'] ) ? $manifest['products'] : array(),
-			);
-		}
-
-		if ( isset( $args['commerce_context'] ) && is_array( $args['commerce_context'] ) ) {
-			return $args['commerce_context'];
-		}
-
-		if ( ! empty( $inferred_context ) ) {
-			return $inferred_context;
-		}
-
-		return array();
-	}
-
-	/**
-	 * Determine whether SSI should infer products from source HTML.
-	 *
-	 * @param array<string, mixed> $args Import args.
-	 * @return bool
-	 */
-	private static function should_infer_commerce_context( array $args ): bool {
-		$manifest = self::$conversion_report['commerce']['products_manifest'] ?? array();
-		if ( is_array( $manifest ) && true === ( $manifest['valid'] ?? false ) ) {
-			return false;
-		}
-
-		return ! isset( $args['commerce_context'] ) || ! is_array( $args['commerce_context'] );
-	}
-
-	/**
-	 * Do not warn about an optional manifest when source HTML supplied product context.
-	 *
-	 * @return void
-	 */
-	private static function suppress_manifest_diagnostic_when_html_supplies_products(): void {
-		if ( ! in_array( self::$active_commerce_context['source'] ?? '', array( 'json_ld', 'html_cards' ), true ) || empty( self::$conversion_report['diagnostics'] ) ) {
-			return;
-		}
-
-		self::$conversion_report['diagnostics'] = array_values(
-			array_filter(
-				self::$conversion_report['diagnostics'],
-				static fn ( $diagnostic ): bool => ! is_array( $diagnostic ) || 'products_manifest_invalid' !== ( $diagnostic['code'] ?? '' )
-			)
-		);
-	}
-
-	/**
-	 * Infer commerce context from static storefront HTML when no valid manifest exists.
-	 *
-	 * @param array<string, Static_Site_Importer_Source_Page> $pages Source pages.
-	 * @return array<string, mixed>
-	 */
-	private static function infer_commerce_context_from_pages( array $pages ): array {
-		$json_ld_products = array();
-		$card_products    = array();
-		$selector_hints   = array();
-		$rejected         = array();
-
-		foreach ( $pages as $filename => $page ) {
-			if ( 'html' !== $page->type() ) {
-				continue;
-			}
-
-			$html = self::read_visual_probe_file( $page->path() );
-			if ( '' === trim( $html ) ) {
-				continue;
-			}
-
-			$doc = self::load_html_document( $html );
-			if ( null === $doc ) {
-				continue;
-			}
-
-			$json_ld_products = array_merge( $json_ld_products, self::json_ld_products_from_document( $doc, $filename ) );
-			$cards            = self::product_card_products_from_document( $doc, $filename );
-			$card_products    = array_merge( $card_products, $cards['products'] );
-			$selector_hints   = array_merge( $selector_hints, $cards['selector_hints'] );
-			$rejected         = array_merge( $rejected, $cards['rejected'] );
-		}
-
-		if ( ! empty( $json_ld_products ) ) {
-			$products = self::dedupe_products_by_slug( $json_ld_products );
-			self::set_commerce_product_inference_report( 'json_ld', $products, array(), array(), array() );
-			return array(
-				'source'   => 'json_ld',
-				'products' => $products,
-			);
-		}
-
-		if ( count( $card_products ) >= 2 ) {
-			$products = self::dedupe_products_by_slug( $card_products );
-			self::set_commerce_product_inference_report( 'html_cards', $products, $selector_hints, $rejected, array() );
-			return array(
-				'source'         => 'html_cards',
-				'products'       => $products,
-				'selector_hints' => $selector_hints,
-			);
-		}
-
-		if ( ! empty( $card_products ) ) {
-			foreach ( $card_products as $product ) {
-				$rejected[] = array(
-					'source_filename' => isset( $product['source_filename'] ) ? (string) $product['source_filename'] : '',
-					'selector'        => isset( $product['card_selector'] ) ? (string) $product['card_selector'] : '',
-					'reason'          => 'html_card_inference_requires_repeated_products',
-				);
-			}
-		}
-
-		$warnings = array();
-		if ( ! empty( $selector_hints ) || ! empty( $rejected ) ) {
-			$warnings[] = 'Commerce-like source markup was found, but Static Site Importer could not infer a product set. ' .
-				'Provide a valid products.json manifest, JSON-LD Product data, or at least two visible product cards with prices.';
-		}
-
-		self::set_commerce_product_inference_report( 'none', array(), $selector_hints, $rejected, $warnings );
-		if ( ! empty( $warnings ) ) {
-			self::$conversion_report['diagnostics'][] = array(
-				'code'                    => 'commerce_product_inference_incomplete',
-				'severity'                => 'warning',
-				'source'                  => 'html',
-				'message'                 => $warnings[0],
-				'skipped_candidate_count' => count( $rejected ),
-				'selector_hints'          => $selector_hints,
-			);
-		}
-
-		return array();
-	}
-
-	/**
-	 * Store commerce product inference diagnostics on the import report.
-	 *
-	 * @param string           $strategy       Extraction strategy.
-	 * @param array<int,array> $products       Products inferred or selected.
-	 * @param array<int,array> $selector_hints Selector hints.
-	 * @param array<int,array> $rejected       Rejected candidates.
-	 * @param array<int,string>  $warnings      Warnings.
-	 * @return void
-	 */
-	private static function set_commerce_product_inference_report( string $strategy, array $products, array $selector_hints = array(), array $rejected = array(), array $warnings = array() ): void {
-		self::$conversion_report['commerce_product_inference'] = array(
-			'strategy'                => $strategy,
-			'product_count'           => count( $products ),
-			'skipped_candidate_count' => count( $rejected ),
-			'selector_hints'          => $selector_hints,
-			'warnings'                => $warnings,
-			'rejected_candidates'     => $rejected,
-			'products'                => array_map(
-				static function ( array $product ): array {
-					$summary = array(
-						'name'          => isset( $product['name'] ) ? (string) $product['name'] : '',
-						'slug'          => isset( $product['slug'] ) ? (string) $product['slug'] : '',
-						'regular_price' => isset( $product['regular_price'] ) ? (string) $product['regular_price'] : '',
-					);
-					foreach ( array( 'source_filename', 'card_selector', 'image', 'categories' ) as $field ) {
-						if ( isset( $product[ $field ] ) ) {
-							$summary[ $field ] = $product[ $field ];
-						}
-					}
-					return $summary;
-				},
-				$products
-			),
-		);
-	}
-
-	/**
-	 * Parse a full HTML document for commerce extraction.
-	 *
-	 * @param string $html Source HTML.
-	 * @return DOMDocument|null
-	 */
-	private static function load_html_document( string $html ): ?DOMDocument {
-		$doc      = new DOMDocument();
-		$previous = libxml_use_internal_errors( true );
-		$loaded   = $doc->loadHTML( $html );
-		libxml_clear_errors();
-		libxml_use_internal_errors( $previous );
-
-		return $loaded ? $doc : null;
-	}
-
-	/**
-	 * Extract JSON-LD Product objects from a document.
-	 *
-	 * @param DOMDocument $doc      Source document.
-	 * @param string      $filename Source filename.
-	 * @return array<int, array<string, mixed>>
-	 */
-	private static function json_ld_products_from_document( DOMDocument $doc, string $filename ): array {
-		$products = array();
-		foreach ( $doc->getElementsByTagName( 'script' ) as $script ) {
-			if ( ! str_contains( strtolower( $script->getAttribute( 'type' ) ), 'ld+json' ) ) {
-				continue;
-			}
-
-			$data = json_decode( trim( $script->textContent ), true );
-			if ( JSON_ERROR_NONE !== json_last_error() ) {
-				continue;
-			}
-
-			foreach ( self::json_ld_product_nodes( $data ) as $node ) {
-				$product = self::product_from_json_ld_node( $node, $filename );
-				if ( ! empty( $product ) ) {
-					$products[] = $product;
-				}
-			}
-		}
-
-		return $products;
-	}
-
-	/**
-	 * Find Product-shaped nodes in decoded JSON-LD.
-	 *
-	 * @param mixed $node Decoded JSON-LD node.
-	 * @return array<int, array<string, mixed>>
-	 */
-	private static function json_ld_product_nodes( $node ): array {
-		if ( ! is_array( $node ) ) {
-			return array();
-		}
-
-		$nodes = array();
-		$type  = $node['@type'] ?? '';
-		$types = is_array( $type ) ? $type : array( $type );
-		foreach ( $types as $candidate_type ) {
-			if ( is_string( $candidate_type ) && 'product' === strtolower( $candidate_type ) ) {
-				$nodes[] = $node;
-				break;
-			}
-		}
-
-		foreach ( array( '@graph', 'itemListElement', 'item' ) as $key ) {
-			if ( isset( $node[ $key ] ) ) {
-				$nodes = array_merge( $nodes, self::json_ld_product_nodes( $node[ $key ] ) );
-			}
-		}
-
-		if ( array_is_list( $node ) ) {
-			foreach ( $node as $child ) {
-				$nodes = array_merge( $nodes, self::json_ld_product_nodes( $child ) );
-			}
-		}
-
-		return $nodes;
-	}
-
-	/**
-	 * Normalize a JSON-LD Product node into the seeder product shape.
-	 *
-	 * @param array<string, mixed> $node     JSON-LD node.
-	 * @param string               $filename Source filename.
-	 * @return array<string, mixed>
-	 */
-	private static function product_from_json_ld_node( array $node, string $filename ): array {
-		$name  = self::commerce_scalar( $node['name'] ?? '' );
-		$price = self::commerce_price_from_json_ld_offer( $node['offers'] ?? array() );
-		if ( '' === $name || '' === $price ) {
-			return array();
-		}
-
-		$url  = self::commerce_scalar( $node['url'] ?? '' );
-		$slug = '' !== $url ? sanitize_title( basename( (string) wp_parse_url( $url, PHP_URL_PATH ) ) ) : sanitize_title( $name );
-		if ( '' === $slug ) {
-			$slug = sanitize_title( $name );
-		}
-
-		$image = $node['image'] ?? '';
-		if ( is_array( $image ) ) {
-			$image = reset( $image );
-		}
-
-		$product = array(
-			'name'            => $name,
-			'slug'            => $slug,
-			'regular_price'   => $price,
-			'description'     => self::commerce_scalar( $node['description'] ?? '' ),
-			'image'           => self::commerce_scalar( $image ),
-			'source_filename' => $filename,
-			'card_selector'   => 'script[type="application/ld+json"]',
-		);
-
-		$category = self::commerce_scalar( $node['category'] ?? '' );
-		if ( '' !== $category ) {
-			$product['categories'] = array( $category );
-		}
-
-		return $product;
-	}
-
-	/**
-	 * Extract a price from JSON-LD offers.
-	 *
-	 * @param mixed $offers Offers node.
-	 * @return string
-	 */
-	private static function commerce_price_from_json_ld_offer( $offers ): string {
-		if ( is_array( $offers ) && array_is_list( $offers ) ) {
-			foreach ( $offers as $offer ) {
-				$price = self::commerce_price_from_json_ld_offer( $offer );
-				if ( '' !== $price ) {
-					return $price;
-				}
-			}
-			return '';
-		}
-
-		if ( ! is_array( $offers ) ) {
-			return self::normalize_commerce_price( self::commerce_scalar( $offers ) );
-		}
-
-		foreach ( array( 'price', 'lowPrice', 'highPrice' ) as $key ) {
-			$price = self::normalize_commerce_price( self::commerce_scalar( $offers[ $key ] ?? '' ) );
-			if ( '' !== $price ) {
-				return $price;
-			}
-		}
-
-		return '';
-	}
-
-	/**
-	 * Extract visible product cards from a document.
-	 *
-	 * @param DOMDocument $doc      Source document.
-	 * @param string      $filename Source filename.
-	 * @return array{products:array<int,array<string,mixed>>,selector_hints:array<int,array<string,mixed>>,rejected:array<int,array<string,string>>}
-	 */
-	private static function product_card_products_from_document( DOMDocument $doc, string $filename ): array {
-		$products       = array();
-		$selector_hints = array();
-		$rejected       = array();
-		$xpath          = new DOMXPath( $doc );
-		$nodes          = $xpath->query( '//*[self::article or self::li or self::div][contains(translate(concat(" ", @class, " ", @id, " ", @itemtype, " "), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "product") or @data-product-slug or @data-product-name or @data-price]' );
-
-		if ( ! $nodes instanceof DOMNodeList ) {
-			return array(
-				'products'       => array(),
-				'selector_hints' => array(),
-				'rejected'       => array(),
-			);
-		}
-
-		foreach ( $nodes as $node ) {
-			if (
-				! $node instanceof DOMElement ||
-				! self::element_looks_like_product_card( $node ) ||
-				self::has_descendant_product_candidate( $node )
-			) {
-				continue;
-			}
-
-			$selector = self::commerce_selector_for_element( $node );
-			$product  = self::product_from_card_element( $doc, $node, $filename, $selector );
-			if ( empty( $product ) ) {
-				if ( '' !== trim( (string) $node->textContent ) ) {
-					$rejected[] = array(
-						'source_filename' => $filename,
-						'selector'        => $selector,
-						'reason'          => 'missing_name_or_price',
-					);
-				}
-				continue;
-			}
-
-			$products[]       = $product;
-			$selector_hints[] = array(
-				'source_filename' => $filename,
-				'card_selector'   => $selector,
-			);
-		}
-
-		return array(
-			'products'       => $products,
-			'selector_hints' => self::dedupe_selector_hints( $selector_hints ),
-			'rejected'       => $rejected,
-		);
-	}
-
-	/**
-	 * Check whether a broad candidate contains a more specific product/card candidate.
-	 *
-	 * @param DOMElement $element Candidate element.
-	 * @return bool
-	 */
-	private static function has_descendant_product_candidate( DOMElement $element ): bool {
-		foreach ( $element->getElementsByTagName( '*' ) as $child ) {
-			if ( self::element_looks_like_product_card( $child ) ) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	/**
-	 * Check whether an element looks like a product/card candidate.
-	 *
-	 * @param DOMElement $element Element.
-	 * @return bool
-	 */
-	private static function element_looks_like_product_card( DOMElement $element ): bool {
-		$tag       = strtolower( $element->tagName );
-		$haystack  = strtolower( $element->getAttribute( 'class' ) . ' ' . $element->getAttribute( 'id' ) );
-		$valid_tag = in_array( $tag, array( 'article', 'li', 'div' ), true );
-
-		return $valid_tag && (
-			$element->hasAttribute( 'data-product-slug' ) ||
-			$element->hasAttribute( 'data-product-name' ) ||
-			$element->hasAttribute( 'data-price' ) ||
-			( str_contains( $haystack, 'product' ) && preg_match( '/(?:^|[-_\s])(?:card|item|tile)(?:$|[-_\s])/', $haystack ) )
-		);
-	}
-
-	/**
-	 * Normalize one visible product card into the seeder product shape.
-	 *
-	 * @param DOMDocument $doc      Source document.
-	 * @param DOMElement  $element  Card element.
-	 * @param string      $filename Source filename.
-	 * @param string      $selector Selector hint.
-	 * @return array<string, mixed>
-	 */
-	private static function product_from_card_element( DOMDocument $doc, DOMElement $element, string $filename, string $selector ): array {
-		$name  = self::product_card_name( $element );
-		$price = self::normalize_commerce_price( self::product_card_price_text( $element ) );
-		if ( '' === $name || '' === $price ) {
-			return array();
-		}
-
-		$slug = sanitize_title( $element->getAttribute( 'data-product-slug' ) );
-		if ( '' === $slug ) {
-			$slug = sanitize_title( $name );
-		}
-
-		$product = array(
-			'name'            => $name,
-			'slug'            => $slug,
-			'regular_price'   => $price,
-			'source_filename' => $filename,
-			'card_selector'   => $selector,
-		);
-
-		$image = self::product_card_image( $element );
-		if ( '' !== $image ) {
-			$product['image'] = $image;
-		}
-
-		$category = self::product_card_category( $element );
-		if ( '' !== $category ) {
-			$product['categories'] = array( $category );
-		}
-
-		return $product;
-	}
-
-	/**
-	 * Extract a product name from a card.
-	 *
-	 * @param DOMElement $element Card element.
-	 * @return string
-	 */
-	private static function product_card_name( DOMElement $element ): string {
-		foreach ( array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ) as $tag ) {
-			$headings = $element->getElementsByTagName( $tag );
-			if ( $headings->length > 0 ) {
-				return self::clean_commerce_text( $headings->item( 0 )->textContent ?? '' );
-			}
-		}
-
-		foreach ( array( 'data-product-name', 'aria-label', 'title' ) as $attribute ) {
-			$value = self::clean_commerce_text( $element->getAttribute( $attribute ) );
-			if ( '' !== $value ) {
-				return $value;
-			}
-		}
-
-		return '';
-	}
-
-	/**
-	 * Extract raw price text from a card.
-	 *
-	 * @param DOMElement $element Card element.
-	 * @return string
-	 */
-	private static function product_card_price_text( DOMElement $element ): string {
-		foreach ( array( 'data-price', 'data-regular-price' ) as $attribute ) {
-			$value = self::clean_commerce_text( $element->getAttribute( $attribute ) );
-			if ( '' !== $value ) {
-				return $value;
-			}
-		}
-
-		foreach ( $element->getElementsByTagName( '*' ) as $child ) {
-			$haystack = strtolower( $child->getAttribute( 'class' ) . ' ' . $child->getAttribute( 'data-price' ) );
-			if ( str_contains( $haystack, 'price' ) ) {
-				return self::clean_commerce_text( $child->textContent );
-			}
-		}
-
-		return self::clean_commerce_text( $element->textContent );
-	}
-
-	/**
-	 * Extract image source from a product card.
-	 *
-	 * @param DOMElement $element Card element.
-	 * @return string
-	 */
-	private static function product_card_image( DOMElement $element ): string {
-		$images = $element->getElementsByTagName( 'img' );
-		if ( $images->length <= 0 ) {
-			return '';
-		}
-
-		$image = $images->item( 0 );
-		return $image instanceof DOMElement ? trim( $image->getAttribute( 'src' ) ) : '';
-	}
-
-	/**
-	 * Infer a product category from nearby section context.
-	 *
-	 * @param DOMElement $element Card element.
-	 * @return string
-	 */
-	private static function product_card_category( DOMElement $element ): string {
-		$parent = $element->parentNode;
-		while ( $parent instanceof DOMElement ) {
-			if ( in_array( strtolower( $parent->tagName ), array( 'section', 'main' ), true ) ) {
-				foreach ( array( 'h1', 'h2', 'h3' ) as $tag ) {
-					$headings = $parent->getElementsByTagName( $tag );
-					if ( $headings->length > 0 ) {
-						$category = self::clean_commerce_text( $headings->item( 0 )->textContent ?? '' );
-						if ( '' !== $category && self::product_card_name( $element ) !== $category ) {
-							return $category;
-						}
-					}
-				}
-			}
-
-			$parent = $parent->parentNode;
-		}
-
-		return '';
-	}
-
-	/**
-	 * Build a stable selector hint for a DOM element.
-	 *
-	 * @param DOMElement $element Element.
-	 * @return string
-	 */
-	private static function commerce_selector_for_element( DOMElement $element ): string {
-		$slug = sanitize_title( $element->getAttribute( 'data-product-slug' ) );
-		if ( '' !== $slug ) {
-			return '[data-product-slug="' . $slug . '"]';
-		}
-
-		$id = sanitize_html_class( $element->getAttribute( 'id' ) );
-		if ( '' !== $id ) {
-			return '#' . $id;
-		}
-
-		$classes = preg_split( '/\s+/', trim( $element->getAttribute( 'class' ) ) );
-		$classes = is_array( $classes ) ? array_values( array_filter( array_map( 'sanitize_html_class', $classes ) ) ) : array();
-		if ( ! empty( $classes ) ) {
-			return strtolower( $element->tagName ) . '.' . implode( '.', array_slice( $classes, 0, 2 ) );
-		}
-
-		return strtolower( $element->tagName );
-	}
-
-	/**
-	 * Normalize scalar commerce data.
-	 *
-	 * @param mixed $value Raw value.
-	 * @return string
-	 */
-	private static function commerce_scalar( $value ): string {
-		return is_scalar( $value ) ? self::clean_commerce_text( (string) $value ) : '';
-	}
-
-	/**
-	 * Normalize visible text.
-	 *
-	 * @param string $text Raw text.
-	 * @return string
-	 */
-	private static function clean_commerce_text( string $text ): string {
-		return trim( (string) preg_replace( '/\s+/', ' ', wp_strip_all_tags( html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) ) );
-	}
-
-	/**
-	 * Normalize a storefront price to the products.json decimal string shape.
-	 *
-	 * @param string $price Raw price.
-	 * @return string
-	 */
-	private static function normalize_commerce_price( string $price ): string {
-		if ( ! preg_match( '/(?:[$€£]\s*)?([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+)(?:\s*(?:USD|EUR|GBP))?/i', $price, $matches ) ) {
-			return '';
-		}
-
-		$number = str_replace( ',', '', $matches[1] );
-		return number_format( (float) $number, 2, '.', '' );
-	}
-
-	/**
-	 * Dedupe products by slug.
-	 *
-	 * @param array<int, array<string, mixed>> $products Products.
-	 * @return array<int, array<string, mixed>>
-	 */
-	private static function dedupe_products_by_slug( array $products ): array {
-		$seen   = array();
-		$result = array();
-		foreach ( $products as $product ) {
-			$slug = isset( $product['slug'] ) ? (string) $product['slug'] : '';
-			if ( '' === $slug || isset( $seen[ $slug ] ) ) {
-				continue;
-			}
-			$seen[ $slug ] = true;
-			$result[]      = $product;
-		}
-
-		return $result;
-	}
-
-	/**
-	 * Dedupe selector hints.
-	 *
-	 * @param array<int, array<string, mixed>> $hints Selector hints.
-	 * @return array<int, array<string, mixed>>
-	 */
-	private static function dedupe_selector_hints( array $hints ): array {
-		$seen   = array();
-		$result = array();
-		foreach ( $hints as $hint ) {
-			$key = ( $hint['source_filename'] ?? '' ) . '|' . ( $hint['card_selector'] ?? '' );
-			if ( isset( $seen[ $key ] ) ) {
-				continue;
-			}
-			$seen[ $key ] = true;
-			$result[]     = $hint;
-		}
-
-		return $result;
-	}
-
-	/**
-	 * Build BFB conversion options for one source fragment.
-	 *
-	 * @param string $source Source fragment label.
-	 * @return array<string, mixed>
-	 */
-	private static function conversion_options( string $source ): array {
-		$context = array();
-		if ( ! empty( self::$active_commerce_context ) ) {
-			$context['commerce'] = array_merge(
-				self::$active_commerce_context,
-				array(
-					'source_fragment' => $source,
-				)
-			);
-		}
-
-		if ( ! empty( self::$active_asset_metadata ) ) {
-			$context['asset_metadata'] = self::$active_asset_metadata;
-		}
-
-		if ( empty( $context ) ) {
-			return array(
-				'include_bfb_report' => true,
-				'source'             => array(
-					'fragment' => $source,
-				),
-			);
-		}
-
-		return array(
-			'include_bfb_report' => true,
-			'context'            => $context,
-			'source'             => array(
-				'fragment' => $source,
-			),
-		);
-	}
-
-	/**
-	 * Record and validate a generated store products manifest when present.
-	 *
-	 * @param string $site_dir Static site directory.
-	 * @return void
-	 */
-	private static function record_products_manifest( string $site_dir ): void {
-		$path = trailingslashit( $site_dir ) . 'products.json';
-		if ( ! is_readable( $path ) ) {
-			return;
-		}
-
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads an optional local static-site manifest for report-only validation.
-		$raw = file_get_contents( $path );
-		if ( false === $raw ) {
-			self::set_products_manifest_report(
-				$path,
-				false,
-				array(),
-				array(
-					array(
-						'path'    => '$',
-						'message' => 'products.json could not be read.',
-					),
-				)
-			);
-			return;
-		}
-
-		$data = json_decode( $raw, true );
-		if ( JSON_ERROR_NONE !== json_last_error() ) {
-			self::set_products_manifest_report(
-				$path,
-				false,
-				array(),
-				array(
-					array(
-						'path'    => '$',
-						'message' => 'products.json is not valid JSON: ' . json_last_error_msg(),
-					),
-				)
-			);
-			return;
-		}
-
-		$validation = self::validate_products_manifest( $data );
-		self::set_products_manifest_report( $path, empty( $validation['errors'] ), $validation['products'], $validation['errors'] );
-	}
-
-	/**
-	 * Store products manifest validation results on the import report.
-	 *
-	 * @param string               $path     Manifest path.
-	 * @param bool                 $valid    Whether the manifest is valid.
-	 * @param array<int,array>     $products Validated product summaries.
-	 * @param array<int,array>     $errors   Validation errors.
-	 * @return void
-	 */
-	private static function set_products_manifest_report( string $path, bool $valid, array $products, array $errors ): void {
-		self::$conversion_report['commerce'] = array(
-			'products_manifest' => array(
-				'present'       => true,
-				'path'          => $path,
-				'contract'      => array(
-					'schema'          => 'static-site-importer/products.json',
-					'schema_version'  => 1,
-					'required_fields' => array( 'name', 'slug', 'regular_price' ),
-					'optional_fields' => array( 'sale_price', 'description', 'short_description', 'categories', 'image', 'status', 'stock_status', 'stock_quantity', 'source_selectors' ),
-				),
-				'valid'         => $valid,
-				'product_count' => count( $products ),
-				'products'      => $products,
-				'errors'        => $errors,
-			),
-		);
-
-		if ( $valid ) {
-			return;
-		}
-
-		self::$conversion_report['diagnostics'][] = array(
-			'code'     => 'products_manifest_invalid',
-			'severity' => 'warning',
-			'source'   => 'products.json',
-			'message'  => 'products.json is present but does not match the Static Site Importer generated-store contract.',
-			'errors'   => $errors,
-		);
-	}
-
-	/**
-	 * Record whether commerce context is available for this import.
-	 *
-	 * @return void
-	 */
-	private static function record_commerce_context_summary(): void {
-		if ( empty( self::$active_commerce_context ) ) {
-			return;
-		}
-
-		$products = isset( self::$active_commerce_context['products'] ) && is_array( self::$active_commerce_context['products'] ) ? self::$active_commerce_context['products'] : array();
-		self::$conversion_report['commerce_context']['supplied']       = true;
-		self::$conversion_report['commerce_context']['source']         = isset( self::$active_commerce_context['source'] ) ? (string) self::$active_commerce_context['source'] : 'import_args';
-		self::$conversion_report['commerce_context']['product_count']  = count( $products );
-		self::$conversion_report['commerce_context']['selector_hints'] = self::commerce_selector_hints( self::$active_commerce_context );
-	}
-
-	/**
-	 * Extract source filename and selector hints from validated commerce context.
-	 *
-	 * @param array<string, mixed> $context Validated commerce context.
-	 * @return array<int, array<string, mixed>>
-	 */
-	private static function commerce_selector_hints( array $context ): array {
-		$hints = array();
-		if ( isset( $context['selector_hints'] ) && is_array( $context['selector_hints'] ) ) {
-			foreach ( $context['selector_hints'] as $hint ) {
-				if ( is_array( $hint ) ) {
-					$hints[] = self::normalize_commerce_selector_hint( $hint );
-				}
-			}
-		}
-
-		$products = isset( $context['products'] ) && is_array( $context['products'] ) ? $context['products'] : array();
-		foreach ( $products as $product ) {
-			if ( is_array( $product ) ) {
-				$hint = self::normalize_commerce_selector_hint( $product );
-				if ( ! empty( $hint ) ) {
-					$hints[] = $hint;
-				}
-			}
-		}
-
-		return $hints;
-	}
-
-	/**
-	 * Normalize one commerce selector hint for report output.
-	 *
-	 * @param array<string, mixed> $source Source hint data.
-	 * @return array<string, mixed>
-	 */
-	private static function normalize_commerce_selector_hint( array $source ): array {
-		$hint = array();
-		foreach ( array( 'source_file', 'source_filename', 'selector', 'grid_selector', 'card_selector' ) as $key ) {
-			if ( isset( $source[ $key ] ) && '' !== trim( (string) $source[ $key ] ) ) {
-				$hint[ $key ] = (string) $source[ $key ];
-			}
-		}
-
-		return $hint;
-	}
-
-	/**
-	 * Validate the generated store products manifest contract.
-	 *
-	 * @param mixed $data Decoded JSON data.
-	 * @return array{products:array<int,array<string,mixed>>,errors:array<int,array<string,string>>}
-	 */
-	private static function validate_products_manifest( $data ): array {
-		$products = array();
-		$errors   = array();
-
-		if ( ! is_array( $data ) || array_is_list( $data ) ) {
-			return array(
-				'products' => array(),
-				'errors'   => array(
-					array(
-						'path'    => '$',
-						'message' => 'products.json must be an object with schema_version and products fields.',
-					),
-				),
-			);
-		}
-
-		if ( 1 !== (int) ( $data['schema_version'] ?? 0 ) ) {
-			$errors[] = array(
-				'path'    => '$.schema_version',
-				'message' => 'schema_version must be 1.',
-			);
-		}
-
-		if ( ! isset( $data['products'] ) || ! is_array( $data['products'] ) || ! array_is_list( $data['products'] ) ) {
-			$errors[] = array(
-				'path'    => '$.products',
-				'message' => 'products must be a JSON array.',
-			);
-			return array(
-				'products' => array(),
-				'errors'   => $errors,
-			);
-		}
-
-		foreach ( $data['products'] as $index => $product ) {
-			$path_prefix = '$.products[' . $index . ']';
-			if ( ! is_array( $product ) || array_is_list( $product ) ) {
-				$errors[] = array(
-					'path'    => $path_prefix,
-					'message' => 'Product must be an object.',
-				);
-				continue;
-			}
-
-			$name          = self::manifest_string( $product, 'name' );
-			$slug          = self::manifest_string( $product, 'slug' );
-			$regular_price = self::manifest_string( $product, 'regular_price' );
-			$sale_price    = self::manifest_string( $product, 'sale_price', false );
-
-			if ( '' === $name ) {
-				$errors[] = array(
-					'path'    => $path_prefix . '.name',
-					'message' => 'name is required and must be a non-empty string.',
-				);
-			}
-
-			if ( '' === $slug || ! preg_match( '/^[a-z0-9]+(?:-[a-z0-9]+)*$/', $slug ) ) {
-				$errors[] = array(
-					'path'    => $path_prefix . '.slug',
-					'message' => 'slug is required and must be a lowercase URL slug.',
-				);
-			}
-
-			if ( '' === $regular_price || ! self::is_manifest_price( $regular_price ) ) {
-				$errors[] = array(
-					'path'    => $path_prefix . '.regular_price',
-					'message' => 'regular_price is required and must be a decimal string such as "19.00".',
-				);
-			}
-
-			if ( '' !== $sale_price && ! self::is_manifest_price( $sale_price ) ) {
-				$errors[] = array(
-					'path'    => $path_prefix . '.sale_price',
-					'message' => 'sale_price must be a decimal string such as "15.00" when provided.',
-				);
-			}
-
-			foreach ( array( 'description', 'short_description', 'status', 'stock_status', 'image' ) as $field ) {
-				if ( isset( $product[ $field ] ) && ! is_string( $product[ $field ] ) ) {
-					$errors[] = array(
-						'path'    => $path_prefix . '.' . $field,
-						'message' => $field . ' must be a string when provided.',
-					);
-				}
-			}
-
-			foreach ( array( 'categories', 'source_selectors' ) as $field ) {
-				if ( ! isset( $product[ $field ] ) ) {
-					continue;
-				}
-				if ( ! is_array( $product[ $field ] ) || ! array_is_list( $product[ $field ] ) ) {
-					$errors[] = array(
-						'path'    => $path_prefix . '.' . $field,
-						'message' => $field . ' must be an array of strings when provided.',
-					);
-					continue;
-				}
-
-				foreach ( $product[ $field ] as $value_index => $value ) {
-					if ( ! is_string( $value ) || '' === trim( $value ) ) {
-						$errors[] = array(
-							'path'    => $path_prefix . '.' . $field . '[' . $value_index . ']',
-							'message' => $field . ' entries must be non-empty strings.',
-						);
-					}
-				}
-			}
-
-			if ( isset( $product['stock_quantity'] ) && ! is_int( $product['stock_quantity'] ) ) {
-				$errors[] = array(
-					'path'    => $path_prefix . '.stock_quantity',
-					'message' => 'stock_quantity must be an integer when provided.',
-				);
-			}
-
-			$summary = array(
-				'name'          => $name,
-				'slug'          => $slug,
-				'regular_price' => $regular_price,
-			);
-			foreach ( array( 'sale_price', 'description', 'short_description', 'categories', 'image', 'status', 'stock_status', 'stock_quantity', 'source_selectors' ) as $field ) {
-				if ( array_key_exists( $field, $product ) ) {
-					$summary[ $field ] = $product[ $field ];
-				}
-			}
-
-			$products[] = $summary;
-		}
-
-		return array(
-			'products' => empty( $errors ) ? $products : array(),
-			'errors'   => $errors,
-		);
-	}
-
-	/**
-	 * Read a string field from a decoded manifest object.
-	 *
-	 * @param array<string,mixed> $data     Manifest object.
-	 * @param string              $key      Field key.
-	 * @param bool                $required Whether missing fields should return an empty string.
-	 * @return string
-	 */
-	private static function manifest_string( array $data, string $key, bool $required = true ): string {
-		if ( ! array_key_exists( $key, $data ) ) {
-			return '';
-		}
-
-		$value = $data[ $key ];
-		if ( ! is_string( $value ) ) {
-			return '';
-		}
-
-		$value = trim( $value );
-		return $required || '' !== $value ? $value : '';
-	}
-
-	/**
-	 * Check whether a manifest price uses a stable decimal string format.
-	 *
-	 * @param string $price Price string.
-	 * @return bool
-	 */
-	private static function is_manifest_price( string $price ): bool {
-		return 1 === preg_match( '/^(?:0|[1-9][0-9]*)(?:\.[0-9]{2})?$/', $price );
-	}
-
-	/**
-	 * Record practical source/generated targets for external visual fidelity gates.
-	 *
-	 * @param array<string, Static_Site_Importer_Source_Page> $pages          Imported pages.
-	 * @param array<string, int>                                                       $page_ids       Page IDs keyed by source filename.
-	 * @param array<string, string>                                                    $permalinks     Page permalinks keyed by source filename.
-	 * @param array<string, string>                                                    $writes         Generated files keyed by absolute path.
-	 * @param string                                                                   $theme_dir      Generated theme directory.
-	 * @return void
-	 */
-	private static function record_visual_fidelity_targets( array $pages, array $page_ids, array $permalinks, array $writes, string $theme_dir ): void {
-		$theme_prefix = trailingslashit( $theme_dir );
-
-		foreach ( $pages as $filename => $page ) {
-			$source_html = self::read_visual_probe_file( $page->path() );
-			$slug        = self::page_slug( $filename, $page );
-			$template    = '' === $slug ? '' : 'templates/page-' . $slug . '.html';
-			$pattern     = '' === $slug ? '' : 'patterns/page-' . $slug . '.php';
-			$generated   = self::generated_visual_probe_markup( $writes, $theme_prefix, $pattern );
-			$footer_part = isset( $writes[ $theme_prefix . 'parts/footer.html' ] ) ? 'parts/footer.html' : '';
-
-			self::$conversion_report['visual_fidelity']['comparison_targets'][] = array(
-				'source_file'            => $page->path(),
-				'source_filename'        => $filename,
-				'source_type'            => $page->type(),
-				'wordpress_page_id'      => $page_ids[ $filename ] ?? null,
-				'wordpress_url'          => $permalinks[ $filename ] ?? '',
-				'generated_template'     => $template,
-				'generated_pattern'      => $pattern,
-				'source_probe_counts'    => self::visual_probe_counts( $source_html ),
-				'generated_probe_counts' => self::visual_probe_counts( $generated ),
-				'comparison_hooks'       => array(
-					'screenshot'      => array(
-						'source'         => $page->path(),
-						'frontend'       => $permalinks[ $filename ] ?? '',
-						'generated'      => $permalinks[ $filename ] ?? '',
-						'editor_surface' => 'site_editor_canvas',
-					),
-					'render_surfaces' => array(
-						'source_static'      => array(
-							'type' => 'file',
-							'url'  => $page->path(),
-						),
-						'wordpress_frontend' => array(
-							'type' => 'url',
-							'url'  => $permalinks[ $filename ] ?? '',
-						),
-						'site_editor_canvas' => array(
-							'type'              => 'wp-admin',
-							'url'               => admin_url( 'site-editor.php' ),
-							'wordpress_page_id' => $page_ids[ $filename ] ?? null,
-						),
-					),
-					'layout_probes'   => self::visual_layout_probes(),
-					'hero'            => array( '.hero', 'header', '[class*=hero]' ),
-					'buttons'         => array( 'a[class*=btn]', 'a[class*=button]', 'a[class*=cta]', 'button', '.wp-block-button__link' ),
-					'visible_chrome'  => array( 'nav', 'header', 'footer', '.site-header', '.nav-shell', '.top-nav' ),
-					'code_visuals'    => array( '.code-window', '.terminal', '[class*=code-window]', '[class*=terminal]', 'pre[class*=code]' ),
-					'problem_grids'   => array( '.problem-grid', '.problems-grid', '.problem-cards', '[class*=problem][class*=grid]', '[class*=problem][class*=cards]' ),
-					'generated_files' => array_values( array_filter( array( $template, $pattern, 'parts/header.html', $footer_part, 'style.css' ) ) ),
-				),
-			);
-		}
-	}
-
-	/**
-	 * Record source/generated targets for external semantic fidelity gates.
-	 *
-	 * @param array<string, Static_Site_Importer_Source_Page> $pages      Imported pages.
-	 * @param array<string, int>                                                       $page_ids   Page IDs keyed by source filename.
-	 * @param array<string, string>                                                    $permalinks Page permalinks keyed by source filename.
-	 * @param array<string, string>                                                    $writes     Generated files keyed by absolute path.
-	 * @param string                                                                   $theme_dir  Generated theme directory.
-	 * @return void
-	 */
-	private static function record_semantic_fidelity_targets( array $pages, array $page_ids, array $permalinks, array $writes, string $theme_dir ): void {
-		$theme_prefix = trailingslashit( $theme_dir );
-		$theme_parts  = self::generated_semantic_theme_parts( $writes, $theme_prefix );
-
-		foreach ( $pages as $filename => $page ) {
-			$source_html = self::read_visual_probe_file( $page->path() );
-			$slug        = self::page_slug( $filename, $page );
-			$template    = '' === $slug ? '' : 'templates/page-' . $slug . '.html';
-			$pattern     = '' === $slug ? '' : 'patterns/page-' . $slug . '.php';
-			$generated   = self::generated_visual_probe_markup( $writes, $theme_prefix, $pattern );
-
-			self::$conversion_report['semantic_fidelity']['comparison_targets'][] = array(
-				'source_file'           => $page->path(),
-				'source_filename'       => $filename,
-				'source_type'           => $page->type(),
-				'wordpress_page_id'     => $page_ids[ $filename ] ?? null,
-				'wordpress_url'         => $permalinks[ $filename ] ?? '',
-				'generated_template'    => $template,
-				'generated_pattern'     => $pattern,
-				'generated_theme_parts' => $theme_parts,
-				'generated_files'       => array_values( array_filter( array_merge( array( $template, $pattern ), $theme_parts ) ) ),
-				'regions'               => self::semantic_regions( $source_html, $generated ),
-				'semantic_selectors'    => self::semantic_selectors(),
-				'comparison_hooks'      => array(
-					'landmarks' => array( 'header', 'nav', 'main', 'footer', '[role=banner]', '[role=navigation]', '[role=main]', '[role=contentinfo]' ),
-					'actions'   => array( 'a', 'button', '[role=button]', '.wp-block-button__link' ),
-					'identity'  => array( '[class*=brand]', '[class*=logo]', '[class*=wordmark]', 'img[alt*=logo i]', 'svg[aria-label*=logo i]' ),
-					'sections'  => array( '[class*=nav]', '[class*=footer]', '[class*=header]', '[class*=card]', '[class*=cta]', '[class*=status]' ),
-				),
-			);
-		}
-	}
-
-	/**
-	 * Generated theme parts that contribute shared page semantics.
-	 *
-	 * @param array<string, string> $writes       Generated files keyed by absolute path.
-	 * @param string                $theme_prefix Absolute theme directory with trailing slash.
-	 * @return array<int, string>
-	 */
-	private static function generated_semantic_theme_parts( array $writes, string $theme_prefix ): array {
-		$parts = array();
-		foreach ( array( 'parts/header.html', 'parts/footer.html' ) as $relative_path ) {
-			if ( isset( $writes[ $theme_prefix . $relative_path ] ) ) {
-				$parts[] = $relative_path;
-			}
-		}
-
-		return $parts;
-	}
-
-	/**
-	 * Broad semantic regions present in either source or generated markup.
-	 *
-	 * @param string $source_html Source HTML.
-	 * @param string $generated   Generated block markup.
-	 * @return array<int, string>
-	 */
-	private static function semantic_regions( string $source_html, string $generated ): array {
-		$regions = array();
-		$markup  = $source_html . "\n" . $generated;
-		foreach ( array( 'header', 'nav', 'main', 'footer' ) as $region ) {
-			if ( 'main' === $region || self::visual_probe_count( $markup, $region ) > 0 ) {
-				$regions[] = $region;
-			}
-		}
-
-		return $regions;
-	}
-
-	/**
-	 * Broad selectors the benchmark harness should fingerprint for semantic drift.
-	 *
-	 * @return array<int, string>
-	 */
-	private static function semantic_selectors(): array {
-		return array(
-			'header',
-			'nav',
-			'main',
-			'footer',
-			'a',
-			'button',
-			'img',
-			'svg',
-			'[role=banner]',
-			'[role=navigation]',
-			'[role=main]',
-			'[role=contentinfo]',
-			'[role=button]',
-			'[class*=brand]',
-			'[class*=logo]',
-			'[class*=wordmark]',
-			'[class*=nav]',
-			'[class*=footer]',
-			'[class*=header]',
-			'[class*=card]',
-			'[class*=cta]',
-			'[class*=status]',
-		);
-	}
-
-	/**
-	 * Materialize plugins required by detected source intent.
-	 *
-	 * @param array<string, mixed> $args Import args.
-	 * @return void
-	 */
-	private static function materialize_required_plugins( array $args ): void {
-		self::$conversion_report['plugin_materialization'] = array(
-			'status'  => 'skipped',
-			'plugins' => array(),
-		);
-
-		$intent = self::commerce_dependency_intent();
-		if ( ! $intent['present'] ) {
-			self::$conversion_report['plugin_materialization']['reason'] = 'no_plugin_backed_intent';
-			return;
-		}
-
-		if ( ! empty( $args['allow_missing_woocommerce'] ) ) {
-			self::$conversion_report['plugin_materialization']['reason'] = 'woocommerce_requirement_waived';
-			return;
-		}
-
-		if ( array_key_exists( 'materialize_dependencies', $args ) && false === (bool) $args['materialize_dependencies'] ) {
-			self::$conversion_report['plugin_materialization']['reason'] = 'dependency_materialization_disabled';
-			return;
-		}
-
-		$report = Static_Site_Importer_Plugin_Materializer::ensure_wp_org_plugin(
-			'woocommerce',
-			'woocommerce/woocommerce.php',
-			array( 'Static_Site_Importer_Woo_Product_Seeder', 'woocommerce_available' )
-		);
-
-		self::$conversion_report['plugin_materialization'] = array(
-			'status'  => 'failed' === ( $report['status'] ?? '' ) ? 'failed' : 'completed',
-			'plugins' => array(
-				'woocommerce' => $report,
-			),
-		);
-	}
-
-	/**
 	 * Record WooCommerce product seeding results for an already-validated manifest.
 	 *
 	 * @param array<string, mixed> $args Import args.
@@ -7483,10 +4465,6 @@ class Static_Site_Importer_Theme_Generator {
 			}
 		}
 
-		if ( null === $manifest && ! empty( self::$active_commerce_context['products'] ) && is_array( self::$active_commerce_context['products'] ) ) {
-			$manifest = self::$active_commerce_context['products'];
-		}
-
 		if ( null === $manifest ) {
 			self::$conversion_report['product_seeding']           = Static_Site_Importer_Woo_Product_Seeder::new_report();
 			self::$conversion_report['product_seeding']['reason'] = 'no_validated_manifest';
@@ -7499,13 +4477,11 @@ class Static_Site_Importer_Theme_Generator {
 	/**
 	 * Record the WooCommerce dependency check for commerce-bearing imports.
 	 *
-	 * Commerce intent is detected when the import has either a validated
-	 * products.json manifest or any commerce_context (caller-supplied,
-	 * inferred from JSON-LD, or inferred from product cards) carrying at
-	 * least one product. When intent is present, WooCommerce must be active
-	 * or the caller must explicitly waive the requirement via
-	 * allow_missing_woocommerce. Without intent, no commerce.dependencies
-	 * shape is recorded and behavior is unchanged.
+	 * Commerce intent is detected when the artifact import has a validated
+	 * products manifest or compiler-supplied commerce context carrying at least
+	 * one product. When intent is present, WooCommerce must be active or the
+	 * caller must explicitly waive the requirement via allow_missing_woocommerce.
+	 * Without intent, no commerce.dependencies shape is recorded.
 	 *
 	 * @param array<string, mixed> $args Import args.
 	 * @return void
@@ -7614,240 +4590,6 @@ class Static_Site_Importer_Theme_Generator {
 			'sources'       => $sources,
 			'product_count' => $product_count,
 		);
-	}
-
-	/**
-	 * Browser-level visual probes the benchmark harness should run for every target.
-	 *
-	 * @return array<string, array<string, mixed>>
-	 */
-	private static function visual_layout_probes(): array {
-		return array(
-			'nav_chrome'   => array(
-				'selectors'  => array( 'nav', '.site-header', '.nav-shell', '.top-nav', '[class*=nav]' ),
-				'assertions' => array( 'visible', 'bounding_box_nonzero', 'frontend_editor_box_parity', 'frontend_editor_display_parity' ),
-			),
-			'code_visual'  => array(
-				'selectors'  => array( '.code-window', '.terminal', '[class*=code-window]', '[class*=terminal]', 'pre[class*=code]' ),
-				'assertions' => array( 'visible', 'bounding_box_nonzero', 'frontend_editor_visibility_parity' ),
-			),
-			'problem_grid' => array(
-				'selectors'            => array( '.problem-grid', '.problems-grid', '.problem-cards', '[class*=problem][class*=grid]', '[class*=problem][class*=cards]' ),
-				'desktop_min_width_px' => 960,
-				'min_columns'          => 2,
-				'assertions'           => array( 'visible', 'children_same_row_desktop', 'frontend_editor_column_parity' ),
-			),
-			'hero_region'  => array(
-				'selectors'  => array( '.hero', 'header', '[class*=hero]' ),
-				'assertions' => array( 'visible', 'bounding_box_nonzero', 'source_frontend_editor_box_parity' ),
-			),
-		);
-	}
-
-	/**
-	 * Read an HTML file for best-effort visual probe metadata.
-	 *
-	 * @param string $path File path.
-	 * @return string
-	 */
-	private static function read_visual_probe_file( string $path ): string {
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads local static-site source files for report-only visual probe metadata.
-		$contents = is_readable( $path ) ? file_get_contents( $path ) : '';
-		return false === $contents ? '' : $contents;
-	}
-
-	/**
-	 * Collect generated markup relevant to one page's visual comparison.
-	 *
-	 * @param array<string, string> $writes       Generated files keyed by absolute path.
-	 * @param string                $theme_prefix Absolute theme directory with trailing slash.
-	 * @param string                $pattern      Theme-relative page pattern path.
-	 * @return string
-	 */
-	private static function generated_visual_probe_markup( array $writes, string $theme_prefix, string $pattern ): string {
-		$parts = array();
-		foreach ( array( 'parts/header.html', $pattern, 'parts/footer.html' ) as $relative_path ) {
-			if ( '' === $relative_path ) {
-				continue;
-			}
-
-			$path = $theme_prefix . $relative_path;
-			if ( isset( $writes[ $path ] ) ) {
-				$parts[] = self::generated_block_document_markup( $relative_path, $writes[ $path ] );
-			}
-		}
-
-		return trim( implode( "\n", $parts ) );
-	}
-
-	/**
-	 * Count visual probe anchors that a browser-based harness should compare.
-	 *
-	 * @param string $html HTML or block markup.
-	 * @return array<string, int>
-	 */
-	private static function visual_probe_counts( string $html ): array {
-		return array(
-			'hero_candidates'        => self::visual_probe_count( $html, 'hero' ),
-			'button_candidates'      => self::visual_probe_count( $html, 'button' ),
-			'nav_candidates'         => self::visual_probe_count( $html, 'nav' ),
-			'footer_candidates'      => self::visual_probe_count( $html, 'footer' ),
-			'code_visual_candidates' => self::visual_probe_count( $html, 'code_visual' ),
-			'grid_candidates'        => self::visual_probe_count( $html, 'grid' ),
-			'core_button_blocks'     => self::count_block_name_in_markup( $html, 'core/button' ),
-		);
-	}
-
-	/**
-	 * Count one visual probe family in markup.
-	 *
-	 * @param string $html  HTML or block markup.
-	 * @param string $probe Probe family.
-	 * @return int
-	 */
-	private static function visual_probe_count( string $html, string $probe ): int {
-		if ( '' === trim( $html ) ) {
-			return 0;
-		}
-
-		$doc      = new DOMDocument();
-		$previous = libxml_use_internal_errors( true );
-		$loaded   = $doc->loadHTML( '<!doctype html><html><body>' . $html . '</body></html>' );
-		libxml_clear_errors();
-		libxml_use_internal_errors( $previous );
-		if ( ! $loaded ) {
-			return 0;
-		}
-
-		$count = 0;
-		foreach ( $doc->getElementsByTagName( '*' ) as $element ) {
-			if ( self::element_matches_visual_probe( $element, $probe ) ) {
-				++$count;
-			}
-		}
-
-		return $count;
-	}
-
-	/**
-	 * Check whether one DOM element matches a visual probe family.
-	 *
-	 * @param DOMElement $element DOM element.
-	 * @param string     $probe   Probe family.
-	 * @return bool
-	 */
-	private static function element_matches_visual_probe( DOMElement $element, string $probe ): bool {
-		$tag     = strtolower( $element->tagName );
-		$classes = preg_split( '/\s+/', strtolower( trim( $element->getAttribute( 'class' ) ) ) );
-		$classes = is_array( $classes ) ? array_filter( $classes ) : array();
-
-		if ( 'hero' === $probe ) {
-			return 'header' === $tag || self::class_tokens_contain_fragment( $classes, 'hero' );
-		}
-
-		if ( 'header' === $probe ) {
-			return 'header' === $tag || self::class_tokens_contain_fragment( $classes, 'header' );
-		}
-
-		if ( 'main' === $probe ) {
-			return 'main' === $tag || 'main' === strtolower( $element->getAttribute( 'role' ) ) || self::class_tokens_contain_fragment( $classes, 'main' );
-		}
-
-		if ( 'button' === $probe ) {
-			return 'button' === $tag || 'button' === strtolower( $element->getAttribute( 'role' ) ) || self::class_tokens_contain_any_fragment( $classes, array( 'btn', 'button', 'cta', 'pill' ) );
-		}
-
-		if ( 'nav' === $probe ) {
-			return 'nav' === $tag || self::class_tokens_contain_any_fragment( $classes, array( 'nav', 'navigation' ) );
-		}
-
-		if ( 'footer' === $probe ) {
-			return 'footer' === $tag || self::class_tokens_contain_fragment( $classes, 'footer' );
-		}
-
-		if ( 'code_visual' === $probe ) {
-			return self::class_tokens_contain_any_fragment( $classes, array( 'code-window', 'terminal' ) ) || ( 'pre' === $tag && self::class_tokens_contain_fragment( $classes, 'code' ) );
-		}
-
-		if ( 'grid' === $probe ) {
-			return self::class_tokens_contain_any_fragment( $classes, array( 'grid', 'cards' ) );
-		}
-
-		return false;
-	}
-
-	/**
-	 * Check whether class tokens contain any listed fragment.
-	 *
-	 * @param array<int, string> $classes   Class tokens.
-	 * @param array<int, string> $fragments Fragments to match.
-	 * @return bool
-	 */
-	private static function class_tokens_contain_any_fragment( array $classes, array $fragments ): bool {
-		foreach ( $fragments as $fragment ) {
-			if ( self::class_tokens_contain_fragment( $classes, $fragment ) ) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	/**
-	 * Check whether class tokens contain a fragment.
-	 *
-	 * @param array<int, string> $classes  Class tokens.
-	 * @param string             $fragment Fragment to match.
-	 * @return bool
-	 */
-	private static function class_tokens_contain_fragment( array $classes, string $fragment ): bool {
-		foreach ( $classes as $class ) {
-			if ( str_contains( $class, $fragment ) ) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	/**
-	 * Count one block type in serialized block markup.
-	 *
-	 * @param string $markup     Serialized block markup.
-	 * @param string $block_name Block name.
-	 * @return int
-	 */
-	private static function count_block_name_in_markup( string $markup, string $block_name ): int {
-		if ( '' === trim( $markup ) || ! function_exists( 'parse_blocks' ) ) {
-			return 0;
-		}
-
-		$count = 0;
-		/** @var array<int, array<string, mixed>> $blocks */
-		$blocks = parse_blocks( $markup );
-		self::count_block_name_in_blocks( $blocks, $block_name, $count );
-
-		return $count;
-	}
-
-	/**
-	 * Recursively count one block type in parsed blocks.
-	 *
-	 * @param array<int, array<string, mixed>> $blocks     Parsed block list.
-	 * @param string                           $block_name Block name.
-	 * @param int                              $count      Running count.
-	 * @return void
-	 */
-	private static function count_block_name_in_blocks( array $blocks, string $block_name, int &$count ): void {
-		foreach ( $blocks as $block ) {
-			if ( ( $block['blockName'] ?? null ) === $block_name ) {
-				++$count;
-			}
-
-			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
-				self::count_block_name_in_blocks( $block['innerBlocks'], $block_name, $count );
-			}
-		}
 	}
 
 	/**
@@ -8071,42 +4813,6 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Record the start of one conversion fragment.
-	 *
-	 * @param string $source Source fragment label.
-	 * @param string $html   Source HTML.
-	 * @return void
-	 */
-	private static function start_conversion_fragment( string $source, string $html ): void {
-		self::$conversion_report['conversion_fragments'][ $source ] = array(
-			'source'             => $source,
-			'input_length'       => strlen( $html ),
-			'input_text_length'  => strlen( wp_strip_all_tags( $html ) ),
-			'output_length'      => 0,
-			'fallback_count'     => 0,
-			'content_loss_count' => 0,
-			'empty_conversion'   => false,
-		);
-	}
-
-	/**
-	 * Record the end of one conversion fragment.
-	 *
-	 * @param string $source Source fragment label.
-	 * @param string $blocks Converted block markup.
-	 * @return void
-	 */
-	private static function finish_conversion_fragment( string $source, string $blocks ): void {
-		if ( ! isset( self::$conversion_report['conversion_fragments'][ $source ] ) ) {
-			return;
-		}
-
-		self::$conversion_report['conversion_fragments'][ $source ]['output_length']      = strlen( $blocks );
-		self::$conversion_report['conversion_fragments'][ $source ]['output_text_length'] = strlen( wp_strip_all_tags( $blocks ) );
-		self::record_button_wrapper_classes_from_blocks( $blocks );
-	}
-
-	/**
 	 * Record generated core/button wrapper classes from serialized block markup.
 	 *
 	 * @param string $blocks Serialized block markup.
@@ -8224,37 +4930,6 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return $entry;
-	}
-
-	/**
-	 * Record commerce-related metadata emitted during conversion.
-	 *
-	 * @param string               $source   Source fragment label.
-	 * @param array<string, mixed> $metadata Conversion metadata.
-	 * @return void
-	 */
-	private static function record_commerce_conversion_metadata( string $source, array $metadata ): void {
-		if ( empty( self::$active_commerce_context ) || ! self::is_commerce_metadata( $metadata ) ) {
-			return;
-		}
-
-		self::$conversion_report['commerce_context']['diagnostics'][] = array(
-			'source'   => $source,
-			'metadata' => $metadata,
-		);
-	}
-
-	/**
-	 * Determine whether conversion metadata is commerce-related.
-	 *
-	 * @param array<string, mixed> $metadata Conversion metadata.
-	 * @return bool
-	 */
-	private static function is_commerce_metadata( array $metadata ): bool {
-		$encoded  = wp_json_encode( $metadata, JSON_UNESCAPED_SLASHES );
-		$haystack = is_string( $encoded ) ? strtolower( $encoded ) : '';
-
-		return str_contains( $haystack, 'commerce' ) || str_contains( $haystack, 'product' ) || str_contains( $haystack, 'woocommerce' );
 	}
 
 	/**
@@ -8376,7 +5051,7 @@ class Static_Site_Importer_Theme_Generator {
 	/**
 	 * Normalize import diagnostics into a stable, machine-actionable shape.
 	 *
-	 * Existing human-readable fields are preserved for backwards compatibility.
+	 * Existing human-readable fields remain alongside the machine fields.
 	 * The added fields give repair loops generic, path-addressed records without
 	 * coupling the report to a specific downstream consumer.
 	 *
@@ -8912,160 +5587,6 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Ensure theme directories exist.
-	 *
-	 * @param string $theme_dir Theme directory.
-	 * @return true|WP_Error
-	 */
-	private static function ensure_dirs( string $theme_dir ) {
-		foreach ( array( $theme_dir, $theme_dir . '/templates', $theme_dir . '/parts', $theme_dir . '/patterns', $theme_dir . '/assets', $theme_dir . '/assets/css', $theme_dir . '/assets/icons', $theme_dir . '/assets/media' ) as $dir ) {
-			if ( ! wp_mkdir_p( $dir ) ) {
-				return new WP_Error( 'static_site_importer_mkdir_failed', sprintf( 'Failed to create directory: %s', $dir ) );
-			}
-		}
-
-		return true;
-	}
-
-	/**
-	 * Normalize compiler file paths before writing them to a generated theme.
-	 *
-	 * @param string $path Artifact file path.
-	 * @return string Safe relative path, or empty string when unsafe.
-	 */
-	private static function normalize_artifact_materialization_path( string $path ): string {
-		$path = str_replace( '\\', '/', trim( $path ) );
-		$path = preg_replace( '/\0+/', '', $path );
-		if ( ! is_string( $path ) || '' === $path || str_starts_with( $path, '/' ) || preg_match( '#^[a-z][a-z0-9+.-]*:#i', $path ) ) {
-			return '';
-		}
-
-		$segments = array();
-		foreach ( explode( '/', $path ) as $segment ) {
-			if ( '' === $segment || '.' === $segment ) {
-				continue;
-			}
-			if ( '..' === $segment ) {
-				return '';
-			}
-			$segments[] = preg_replace( '/[^A-Za-z0-9._-]/', '-', $segment );
-		}
-
-		return implode( '/', array_filter( $segments ) );
-	}
-
-	/**
-	 * Write a generated file.
-	 *
-	 * @param string $path    File path.
-	 * @param string $content File content.
-	 * @return true|WP_Error
-	 */
-	private static function write_file( string $path, string $content ) {
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Writes generated block-theme files to the selected theme directory.
-		$result = file_put_contents( $path, $content );
-		if ( false === $result ) {
-			return new WP_Error( 'static_site_importer_write_failed', sprintf( 'Failed to write file: %s', $path ) );
-		}
-
-		return true;
-	}
-
-	/**
-	 * Write a copy of the import report to a caller-selected path.
-	 *
-	 * @param string $path    Report path.
-	 * @param string $content Report JSON.
-	 * @return true|WP_Error
-	 */
-	private static function write_external_report( string $path, string $content ) {
-		$dir = dirname( $path );
-		if ( ! wp_mkdir_p( $dir ) ) {
-			return new WP_Error( 'static_site_importer_report_mkdir_failed', sprintf( 'Failed to create report directory: %s', $dir ) );
-		}
-
-		return self::write_file( $path, $content );
-	}
-
-	/**
-	 * Determine whether a path resolves inside a base directory.
-	 *
-	 * @param string $path Path to test.
-	 * @param string $base Base directory.
-	 * @return bool
-	 */
-	private static function path_is_under( string $path, string $base ): bool {
-		$real_path = realpath( $path );
-		$real_base = realpath( $base );
-
-		if ( false === $real_path || false === $real_base ) {
-			return false;
-		}
-
-		return 0 === strpos( trailingslashit( $real_path ), trailingslashit( $real_base ) );
-	}
-
-	/**
-	 * Delete the source static-site directory after a clean import.
-	 *
-	 * @param string $site_dir  Static site source directory.
-	 * @param string $html_path Entry HTML file path.
-	 * @return true|WP_Error
-	 */
-	private static function delete_source_dir( string $site_dir, string $html_path ) {
-		$source_dir = realpath( $site_dir );
-		$entry_file = realpath( $html_path );
-		if ( false === $source_dir || false === $entry_file || ! is_dir( $source_dir ) ) {
-			return new WP_Error( 'static_site_importer_source_cleanup_missing', 'Source directory is not available.' );
-		}
-
-		if ( 0 !== strpos( $entry_file, trailingslashit( $source_dir ) ) ) {
-			return new WP_Error( 'static_site_importer_source_cleanup_mismatch', 'Entry HTML file is not inside the source directory.' );
-		}
-
-		$protected_dirs = array_filter(
-			array_map(
-				'realpath',
-				array(
-					ABSPATH,
-					WP_CONTENT_DIR,
-					get_theme_root(),
-				)
-			)
-		);
-		if ( DIRECTORY_SEPARATOR === $source_dir || in_array( $source_dir, $protected_dirs, true ) ) {
-			return new WP_Error( 'static_site_importer_source_cleanup_protected', sprintf( 'Refusing to delete protected source directory: %s', $source_dir ) );
-		}
-
-		$iterator = new RecursiveIteratorIterator(
-			new RecursiveDirectoryIterator( $source_dir, FilesystemIterator::SKIP_DOTS ),
-			RecursiveIteratorIterator::CHILD_FIRST
-		);
-
-		foreach ( $iterator as $item ) {
-			$path = $item->getPathname();
-			if ( $item->isDir() && ! $item->isLink() ) {
-				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- Removes caller-provided temporary static-site source directories after a clean import.
-				if ( ! rmdir( $path ) ) {
-					return new WP_Error( 'static_site_importer_source_cleanup_failed', sprintf( 'Failed to remove source directory: %s', $path ) );
-				}
-				continue;
-			}
-
-			if ( ! wp_delete_file( $path ) ) {
-				return new WP_Error( 'static_site_importer_source_cleanup_failed', sprintf( 'Failed to remove source file: %s', $path ) );
-			}
-		}
-
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- Removes caller-provided temporary static-site source directories after a clean import.
-		if ( ! rmdir( $source_dir ) ) {
-			return new WP_Error( 'static_site_importer_source_cleanup_failed', sprintf( 'Failed to remove source directory: %s', $source_dir ) );
-		}
-
-		return true;
-	}
-
-	/**
 	 * Build style.css.
 	 *
 	 * @param string $theme_name Theme name.
@@ -9082,7 +5603,7 @@ class Static_Site_Importer_Theme_Generator {
 		$layout_gap_bridge          = self::imported_group_layout_gap_bridge_css();
 		$css                        = self::scope_source_button_css( $css, $button_classes );
 
-		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Imported from static HTML using Block Format Bridge.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge . $admin_bar_bridge . $source_nav_selector_bridge . $source_display_bridge . $image_block_bridge . $layout_gap_bridge . $form_control_bridge;
+		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Materialized from a compiled website artifact.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge . $admin_bar_bridge . $source_nav_selector_bridge . $source_display_bridge . $image_block_bridge . $layout_gap_bridge . $form_control_bridge;
 	}
 
 	/**
@@ -10029,7 +6550,7 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Build compatibility rules for source anchor classes moved onto core/button wrappers.
+	 * Build CSS bridge rules for source anchor classes moved onto core/button wrappers.
 	 *
 	 * @param string             $css            Source CSS.
 	 * @param array<int, string> $button_classes Classes observed on generated core/button wrappers.
