@@ -84,16 +84,6 @@ class Static_Site_Importer_Theme_Generator {
 			return new WP_Error( 'static_site_importer_missing_bac', 'Block Artifact Compiler is required to import a website artifact.' );
 		}
 
-		if ( ! isset( $args['_products_manifest_report'] ) ) {
-			$products_manifest_report = self::products_manifest_from_website_artifact( $artifact );
-			if ( null !== $products_manifest_report ) {
-				$args['_products_manifest_report'] = $products_manifest_report;
-				if ( ! isset( $args['products_manifest'] ) && ! empty( $products_manifest_report['valid'] ) ) {
-					$args['products_manifest'] = $products_manifest_report['products'];
-				}
-			}
-		}
-
 		$compiler_options = isset( $args['compiler_options'] ) && is_array( $args['compiler_options'] ) ? $args['compiler_options'] : array();
 		$compiled         = bac_compile_website_artifact( $artifact, array_merge( array( 'include_bfb_report' => true ), $compiler_options ) );
 		$document_pages   = self::bac_document_pages( $compiled );
@@ -2498,16 +2488,22 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Record a products manifest that was extracted from an in-memory website artifact.
+	 * Record an explicit products manifest supplied by the caller.
 	 *
 	 * @param array<string, mixed> $args Import args.
 	 * @return void
 	 */
 	private static function record_products_manifest_from_import_args( array $args ): void {
-		$report = isset( $args['_products_manifest_report'] ) && is_array( $args['_products_manifest_report'] ) ? $args['_products_manifest_report'] : array();
-		if ( empty( $report ) ) {
+		if ( ! isset( $args['products_manifest'] ) || ! is_array( $args['products_manifest'] ) ) {
 			return;
 		}
+
+		$validation = self::validate_products_manifest(
+			array(
+				'schema_version' => 1,
+				'products'       => $args['products_manifest'],
+			)
+		);
 
 		if ( ! isset( self::$conversion_report['commerce'] ) || ! is_array( self::$conversion_report['commerce'] ) ) {
 			self::$conversion_report['commerce'] = array();
@@ -2515,17 +2511,17 @@ class Static_Site_Importer_Theme_Generator {
 
 		self::$conversion_report['commerce']['products_manifest'] = array(
 			'present'       => true,
-			'path'          => isset( $report['path'] ) ? (string) $report['path'] : 'products.json',
+			'source'        => 'import_args.products_manifest',
 			'contract'      => array(
-				'schema'          => 'static-site-importer/products.json',
+				'schema'          => 'static-site-importer/products-manifest/v1',
 				'schema_version'  => 1,
 				'required_fields' => array( 'name', 'slug', 'regular_price' ),
 				'optional_fields' => array( 'sale_price', 'description', 'short_description', 'categories', 'image', 'status', 'stock_status', 'stock_quantity', 'source_selectors' ),
 			),
-			'valid'         => true === ( $report['valid'] ?? false ),
-			'product_count' => isset( $report['products'] ) && is_array( $report['products'] ) ? count( $report['products'] ) : 0,
-			'products'      => isset( $report['products'] ) && is_array( $report['products'] ) ? $report['products'] : array(),
-			'errors'        => isset( $report['errors'] ) && is_array( $report['errors'] ) ? $report['errors'] : array(),
+			'valid'         => empty( $validation['errors'] ),
+			'product_count' => empty( $validation['errors'] ) ? count( $validation['products'] ) : 0,
+			'products'      => $validation['products'],
+			'errors'        => $validation['errors'],
 		);
 
 		if ( ! empty( self::$conversion_report['commerce']['products_manifest']['valid'] ) ) {
@@ -2535,8 +2531,8 @@ class Static_Site_Importer_Theme_Generator {
 		self::$conversion_report['diagnostics'][] = array(
 			'code'     => 'products_manifest_invalid',
 			'severity' => 'warning',
-			'source'   => self::$conversion_report['commerce']['products_manifest']['path'],
-			'message'  => 'products.json is present but does not match the Static Site Importer generated-store contract.',
+			'source'   => self::$conversion_report['commerce']['products_manifest']['source'],
+			'message'  => 'products_manifest was supplied but does not match the Static Site Importer commerce contract.',
 			'errors'   => self::$conversion_report['commerce']['products_manifest']['errors'],
 		);
 	}
@@ -2553,7 +2549,7 @@ class Static_Site_Importer_Theme_Generator {
 		$source   = 'import_args';
 		if ( is_array( $manifest ) && true === ( $manifest['valid'] ?? false ) ) {
 			$products = isset( $manifest['products'] ) && is_array( $manifest['products'] ) ? $manifest['products'] : array();
-			$source   = 'products.json';
+			$source   = isset( $manifest['source'] ) && is_scalar( $manifest['source'] ) ? (string) $manifest['source'] : 'import_args.products_manifest';
 		} elseif ( isset( $args['commerce_context']['products'] ) && is_array( $args['commerce_context']['products'] ) ) {
 			$products = $args['commerce_context']['products'];
 			$source   = isset( $args['commerce_context']['source'] ) ? (string) $args['commerce_context']['source'] : 'commerce_context';
@@ -2573,87 +2569,6 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Extract and validate products.json from a website artifact bundle.
-	 *
-	 * @param array<string, mixed> $artifact Website artifact bundle.
-	 * @return array{path:string,valid:bool,products:array<int,array<string,mixed>>,errors:array<int,array<string,string>>}|null
-	 */
-	private static function products_manifest_from_website_artifact( array $artifact ): ?array {
-		$files = isset( $artifact['files'] ) && is_array( $artifact['files'] ) ? $artifact['files'] : array();
-		foreach ( $files as $file ) {
-			if ( ! is_array( $file ) ) {
-				continue;
-			}
-
-			$path = isset( $file['path'] ) && is_scalar( $file['path'] ) ? str_replace( '\\', '/', (string) $file['path'] ) : '';
-			if ( 'products.json' !== basename( $path ) ) {
-				continue;
-			}
-
-			$raw = self::website_artifact_file_text_content( $file );
-			if ( null === $raw ) {
-				return array(
-					'path'     => '' !== $path ? $path : 'products.json',
-					'valid'    => false,
-					'products' => array(),
-					'errors'   => array(
-						array(
-							'path'    => '$',
-							'message' => 'products.json could not be read from website artifact files.',
-						),
-					),
-				);
-			}
-
-			$data = json_decode( $raw, true );
-			if ( JSON_ERROR_NONE !== json_last_error() ) {
-				return array(
-					'path'     => '' !== $path ? $path : 'products.json',
-					'valid'    => false,
-					'products' => array(),
-					'errors'   => array(
-						array(
-							'path'    => '$',
-							'message' => 'products.json is not valid JSON: ' . json_last_error_msg(),
-						),
-					),
-				);
-			}
-
-			$validation = self::validate_products_manifest( $data );
-			return array(
-				'path'     => '' !== $path ? $path : 'products.json',
-				'valid'    => empty( $validation['errors'] ),
-				'products' => $validation['products'],
-				'errors'   => $validation['errors'],
-			);
-		}
-
-		return null;
-	}
-
-	/**
-	 * Get text content from a website artifact file entry.
-	 *
-	 * @param array<string, mixed> $file Artifact file entry.
-	 * @return string|null
-	 */
-	private static function website_artifact_file_text_content( array $file ): ?string {
-		if ( ! isset( $file['content'] ) || ! is_scalar( $file['content'] ) ) {
-			return null;
-		}
-
-		$content  = (string) $file['content'];
-		$encoding = isset( $file['encoding'] ) && is_scalar( $file['encoding'] ) ? strtolower( (string) $file['encoding'] ) : '';
-		if ( 'base64' !== $encoding ) {
-			return $content;
-		}
-
-		$decoded = base64_decode( $content, true );
-		return false === $decoded ? null : $decoded;
-	}
-
-	/**
 	 * Validate the generated store products manifest contract.
 	 *
 	 * @param mixed $data Decoded JSON data.
@@ -2664,7 +2579,7 @@ class Static_Site_Importer_Theme_Generator {
 		$errors   = array();
 
 		if ( ! is_array( $data ) || array_is_list( $data ) ) {
-			return array( 'products' => array(), 'errors' => array( array( 'path' => '$', 'message' => 'products.json must be an object with schema_version and products fields.' ) ) );
+			return array( 'products' => array(), 'errors' => array( array( 'path' => '$', 'message' => 'products_manifest must be an object with schema_version and products fields.' ) ) );
 		}
 
 		if ( 1 !== (int) ( $data['schema_version'] ?? 0 ) ) {
@@ -2752,7 +2667,7 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Normalize list or keyed-map string collections from products.json.
+	 * Normalize list or keyed-map string collections from products_manifest.
 	 *
 	 * @param mixed $value Raw manifest field value.
 	 * @return array<int|string,string>|null
