@@ -95,12 +95,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/chubes4/html-to-blocks-converter",
-                "reference": "a8e5384d5cb44f97324df51dea40baef2baaadff"
+                "reference": "984a33e78cd587f0faac25b5294b2f8f8974c25f"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/chubes4/html-to-blocks-converter/zipball/a8e5384d5cb44f97324df51dea40baef2baaadff",
-                "reference": "a8e5384d5cb44f97324df51dea40baef2baaadff",
+                "url": "https://api.github.com/repos/chubes4/html-to-blocks-converter/zipball/984a33e78cd587f0faac25b5294b2f8f8974c25f",
+                "reference": "984a33e78cd587f0faac25b5294b2f8f8974c25f",
                 "shasum": ""
             },
             "require": {
@@ -124,7 +124,7 @@
             ],
             "description": "Convert raw HTML into Gutenberg block arrays using WordPress' HTML API.",
             "homepage": "https://github.com/chubes4/html-to-blocks-converter",
-            "time": "2026-06-08T12:33:03+00:00"
+            "time": "2026-06-08T22:32:19+00:00"
         },
         {
             "name": "dflydev/dot-access-data",
