@@ -77,7 +77,6 @@ if ( ! is_wp_error( $result ) ) {
 	$content   = $page instanceof WP_Post ? $page->post_content : '';
 	$documents = array();
 	$pattern_documents = array();
-	$scripts = $report['assets']['scripts'] ?? array();
 	$template_parts = $report['generated_theme']['template_parts'] ?? array();
 	foreach ( $report['generated_theme']['block_documents'] ?? array() as $document ) {
 		if ( is_array( $document ) && isset( $document['path'] ) ) {
@@ -88,6 +87,7 @@ if ( ! is_wp_error( $result ) ) {
 		}
 	}
 	$metadata = $report['generated_theme']['document_metadata'] ?? array();
+	$scripts  = $metadata['scripts'] ?? array();
 
 	$assert( array() === $pattern_documents, 'single-document-import-does-not-generate-page-pattern-copy' );
 	$assert( str_contains( $content, 'Fire, flour, patience.' ), 'body-content-is-preserved' );
@@ -106,8 +106,9 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( 'utf-8' === ( $metadata['meta'][0]['charset'] ?? '' ), 'charset-meta-is-preserved-in-metadata' );
 	$assert( 'viewport' === ( $metadata['meta'][1]['name'] ?? '' ), 'viewport-meta-is-preserved-in-metadata' );
 	$assert( '/assets/site.css' === ( $metadata['links'][0]['href'] ?? '' ), 'stylesheet-link-is-preserved-in-metadata' );
-	$assert( str_ends_with( (string) ( $scripts[0]['src'] ?? '' ), 'assets/js/main.js' ), 'script-src-is-preserved-in-asset-metadata' );
-	$assert( true === ( $scripts[0]['attributes']['defer'] ?? false ), 'script-defer-is-preserved-in-asset-metadata' );
+	$assert( str_ends_with( (string) ( $scripts[0]['src'] ?? '' ), 'assets/js/main.js' ), 'script-src-is-preserved-in-document-metadata' );
+	$assert( 'body' === ( $scripts[0]['placement'] ?? '' ), 'script-placement-is-preserved-in-document-metadata' );
+	$assert( true === ( $scripts[0]['defer'] ?? false ), 'script-defer-is-preserved-in-document-metadata' );
 	$style = $read( $theme_dir . '/style.css' );
 	$assert( str_contains( $style, '.wp-block-group.photo-collage {display:grid;grid-template-columns:1fr 1fr;gap:24px}' ), 'source-display-rule-bridges-converted-group-wrapper' );
 	$assert( str_contains( $style, '.wp-block-group.photo-collage > .wp-block-image:first-child, .wp-block-group.photo-collage > .wp-block-image:first-child img {grid-row:span 2;height:100%}' ), 'source-image-grid-rule-bridges-native-image-block-wrapper' );
