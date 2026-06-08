@@ -474,6 +474,9 @@ class Static_Site_Importer_Theme_Generator {
 		self::record_website_artifact_document_metadata( $artifacts );
 
 		$template_part_writes = self::template_part_artifact_writes( $theme_dir, $artifacts );
+		if ( is_wp_error( $template_part_writes ) ) {
+			return $template_part_writes;
+		}
 		$has_footer_part      = isset( $template_part_writes[ $theme_dir . '/parts/footer.html' ] );
 
 		$writes = array(
@@ -481,7 +484,6 @@ class Static_Site_Importer_Theme_Generator {
 			$theme_dir . '/assets/css/editor-style.css' => self::editor_style_css( $materialized['css'], array_keys( self::$button_wrapper_classes ) ),
 			$theme_dir . '/functions.php'               => self::functions_php( $theme_slug ),
 			$theme_dir . '/theme.json'                  => self::theme_json( $theme_name, $materialized['css'] ),
-			$theme_dir . '/parts/header.html'           => '',
 			$theme_dir . '/templates/front-page.html'   => self::content_template( '', $has_footer_part ),
 			$theme_dir . '/templates/page.html'         => self::content_template( '', $has_footer_part ),
 			$theme_dir . '/templates/index.html'        => self::content_template( '', $has_footer_part ),
@@ -1484,51 +1486,40 @@ class Static_Site_Importer_Theme_Generator {
 	 *
 	 * @param string              $theme_dir Theme directory.
 	 * @param array<string,mixed> $artifacts WordPress artifacts from BAC.
-	 * @return array<string,string> Absolute write paths keyed to serialized block markup.
+	 * @return array<string,string>|WP_Error Absolute write paths keyed to serialized block markup.
 	 */
-	private static function template_part_artifact_writes( string $theme_dir, array $artifacts ): array {
+	private static function template_part_artifact_writes( string $theme_dir, array $artifacts ) {
 		$template_parts = isset( $artifacts['template_parts'] ) && is_array( $artifacts['template_parts'] ) ? $artifacts['template_parts'] : array();
 		if ( empty( $template_parts ) ) {
-			return array();
+			return new WP_Error( 'static_site_importer_bac_template_parts_missing', 'BAC website artifact materialization requires wordpress_artifacts.template_parts.' );
 		}
 
 		$writes = array();
 		foreach ( $template_parts as $template_part ) {
 			if ( ! is_array( $template_part ) ) {
-				continue;
+				return new WP_Error( 'static_site_importer_bac_template_part_invalid', 'BAC template part artifacts must be arrays.' );
 			}
 
 			$relative = self::template_part_artifact_relative_path( $template_part );
 			if ( '' === $relative ) {
-				self::$conversion_report['diagnostics'][] = array(
-					'type'    => 'template_part_artifact_skipped',
-					'source'  => 'website_artifact:template_parts',
-					'reason'  => 'unsupported_template_part',
-					'slug'    => isset( $template_part['slug'] ) && is_scalar( $template_part['slug'] ) ? (string) $template_part['slug'] : '',
-					'area'    => isset( $template_part['area'] ) && is_scalar( $template_part['area'] ) ? (string) $template_part['area'] : '',
-					'message' => 'A BAC template part artifact was skipped because SSI only materializes generated header and footer parts.',
-				);
-				continue;
+				return new WP_Error( 'static_site_importer_bac_template_part_unsupported', 'BAC template part artifacts must resolve to a supported header or footer theme part.' );
 			}
 
 			if ( ! isset( $template_part['block_markup'] ) || ! is_scalar( $template_part['block_markup'] ) ) {
-				self::$conversion_report['diagnostics'][] = array(
-					'type'    => 'template_part_artifact_skipped',
-					'source'  => 'website_artifact:template_parts',
-					'reason'  => 'missing_block_markup',
-					'path'    => $relative,
-					'message' => 'A BAC template part artifact was skipped because it did not include serialized block markup.',
-				);
-				continue;
+				return new WP_Error( 'static_site_importer_bac_template_part_markup_missing', 'BAC template part artifacts must include serialized block_markup.' );
 			}
 
 			$markup = (string) $template_part['block_markup'];
 			if ( '' === trim( $markup ) ) {
-				continue;
+				return new WP_Error( 'static_site_importer_bac_template_part_markup_empty', 'BAC template part block_markup must not be empty.' );
 			}
 
 			$writes[ trailingslashit( $theme_dir ) . $relative ] = $markup;
 			self::$conversion_report['generated_theme']['template_parts'][] = self::template_part_artifact_report_payload( $relative, $template_part, $markup );
+		}
+
+		if ( ! isset( $writes[ $theme_dir . '/parts/header.html' ] ) ) {
+			return new WP_Error( 'static_site_importer_bac_header_template_part_missing', 'BAC website artifact materialization requires a header template part artifact.' );
 		}
 
 		return $writes;
