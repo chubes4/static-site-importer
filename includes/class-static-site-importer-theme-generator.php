@@ -185,7 +185,7 @@ class Static_Site_Importer_Theme_Generator {
 			return new WP_Error( 'static_site_importer_theme_exists', sprintf( 'Theme already exists: %s', $theme_slug ) );
 		}
 
-		$result = self::ensure_dirs( $theme_dir );
+		$result = Static_Site_Importer_Theme_Materializer::ensure_dirs( $theme_dir );
 		if ( is_wp_error( $result ) ) {
 			return $result;
 		}
@@ -292,7 +292,7 @@ class Static_Site_Importer_Theme_Generator {
 
 		$writes[ $theme_dir . '/import-report.json' ] = $report_json . "\n";
 		foreach ( $writes as $path => $content ) {
-			$result = self::write_file( $path, $content );
+			$result = Static_Site_Importer_Theme_Materializer::write_file( $path, $content );
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}
@@ -301,7 +301,7 @@ class Static_Site_Importer_Theme_Generator {
 		$external_report_path = '';
 		if ( isset( $args['report'] ) && '' !== trim( (string) $args['report'] ) ) {
 			$external_report_path = (string) $args['report'];
-			$result               = self::write_external_report( $external_report_path, $report_json . "\n" );
+			$result               = Static_Site_Importer_Theme_Materializer::write_external_report( $external_report_path, $report_json . "\n" );
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}
@@ -1203,80 +1203,16 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return array<string,string>|WP_Error Absolute write paths keyed to serialized block markup.
 	 */
 	private static function template_part_artifact_writes( string $theme_dir, array $artifacts ) {
-		$template_parts = isset( $artifacts['template_parts'] ) && is_array( $artifacts['template_parts'] ) ? $artifacts['template_parts'] : array();
-		if ( empty( $template_parts ) ) {
-			return new WP_Error( 'static_site_importer_bac_template_parts_missing', 'BAC website artifact materialization requires wordpress_artifacts.template_parts.' );
+		$result = Static_Site_Importer_Theme_Materializer::template_part_artifact_writes( $theme_dir, $artifacts );
+		if ( is_wp_error( $result ) ) {
+			return $result;
 		}
 
-		$writes = array();
-		foreach ( $template_parts as $template_part ) {
-			if ( ! is_array( $template_part ) ) {
-				return new WP_Error( 'static_site_importer_bac_template_part_invalid', 'BAC template part artifacts must be arrays.' );
-			}
-
-			$relative = self::template_part_artifact_relative_path( $template_part );
-			if ( '' === $relative ) {
-				return new WP_Error( 'static_site_importer_bac_template_part_unsupported', 'BAC template part artifacts must resolve to a supported header or footer theme part.' );
-			}
-
-			if ( ! isset( $template_part['block_markup'] ) || ! is_scalar( $template_part['block_markup'] ) ) {
-				return new WP_Error( 'static_site_importer_bac_template_part_markup_missing', 'BAC template part artifacts must include serialized block_markup.' );
-			}
-
-			$markup = (string) $template_part['block_markup'];
-			if ( '' === trim( $markup ) ) {
-				return new WP_Error( 'static_site_importer_bac_template_part_markup_empty', 'BAC template part block_markup must not be empty.' );
-			}
-
-			$writes[ trailingslashit( $theme_dir ) . $relative ] = $markup;
-			self::$conversion_report['generated_theme']['template_parts'][] = self::template_part_artifact_report_payload( $relative, $template_part, $markup );
+		foreach ( $result['reports'] as $report ) {
+			self::$conversion_report['generated_theme']['template_parts'][] = $report;
 		}
 
-		if ( ! isset( $writes[ $theme_dir . '/parts/header.html' ] ) ) {
-			return new WP_Error( 'static_site_importer_bac_header_template_part_missing', 'BAC website artifact materialization requires a header template part artifact.' );
-		}
-
-		return $writes;
-	}
-
-	/**
-	 * Resolve a BAC template part artifact to an SSI-supported theme part path.
-	 *
-	 * @param array<string,mixed> $template_part BAC template part artifact.
-	 * @return string Relative theme path, or empty string when unsupported.
-	 */
-	private static function template_part_artifact_relative_path( array $template_part ): string {
-		$slug = isset( $template_part['slug'] ) && is_scalar( $template_part['slug'] ) ? sanitize_key( (string) $template_part['slug'] ) : '';
-		$area = isset( $template_part['area'] ) && is_scalar( $template_part['area'] ) ? sanitize_key( (string) $template_part['area'] ) : '';
-		$part = '';
-
-		if ( in_array( $slug, array( 'header', 'footer' ), true ) ) {
-			$part = $slug;
-		} elseif ( in_array( $area, array( 'header', 'footer' ), true ) ) {
-			$part = $area;
-		}
-
-		return '' !== $part ? 'parts/' . $part . '.html' : '';
-	}
-
-	/**
-	 * Build a compact report row for a materialized BAC template part artifact.
-	 *
-	 * @param string              $path          Relative generated theme path.
-	 * @param array<string,mixed> $template_part BAC template part artifact.
-	 * @param string              $markup        Serialized block markup.
-	 * @return array<string,mixed>
-	 */
-	private static function template_part_artifact_report_payload( string $path, array $template_part, string $markup ): array {
-		return array(
-			'path'               => $path,
-			'slug'               => isset( $template_part['slug'] ) && is_scalar( $template_part['slug'] ) ? (string) $template_part['slug'] : '',
-			'area'               => isset( $template_part['area'] ) && is_scalar( $template_part['area'] ) ? (string) $template_part['area'] : '',
-			'source_paths'       => isset( $template_part['source_paths'] ) && is_array( $template_part['source_paths'] ) ? array_values( array_filter( $template_part['source_paths'], 'is_scalar' ) ) : array(),
-			'source_hash'        => isset( $template_part['source_hash'] ) && is_scalar( $template_part['source_hash'] ) ? (string) $template_part['source_hash'] : '',
-			'block_markup_bytes' => strlen( $markup ),
-			'block_markup_hash'  => hash( 'sha256', $markup ),
-		);
+		return $result['writes'];
 	}
 
 	/**
@@ -2342,7 +2278,7 @@ class Static_Site_Importer_Theme_Generator {
 
 		$real_source_dir = realpath( self::$active_source_dir );
 		$real_source     = false === $real_source_dir ? '' : realpath( trailingslashit( $real_source_dir ) . $key );
-		if ( '' === $real_source_dir || false === $real_source || ! self::path_is_under( $real_source, $real_source_dir ) || ! is_readable( $real_source ) || ! is_file( $real_source ) ) {
+		if ( '' === $real_source_dir || false === $real_source || ! Static_Site_Importer_Theme_Materializer::path_is_under( $real_source, $real_source_dir ) || ! is_readable( $real_source ) || ! is_file( $real_source ) ) {
 			self::record_local_asset_diagnostic( 'local_asset_not_found', $source, $source_path, $url, $key, 'Local asset reference did not resolve to a readable file under the static source root; leaving it unchanged.' );
 			return null;
 		}
@@ -2398,7 +2334,7 @@ class Static_Site_Importer_Theme_Generator {
 				return null;
 			}
 
-			$result = self::write_file( $target_path, $contents );
+			$result = Static_Site_Importer_Theme_Materializer::write_file( $target_path, $contents );
 			if ( is_wp_error( $result ) ) {
 				self::record_local_asset_diagnostic( 'local_asset_write_failed', $source, $source_path, $url, $key, 'Local asset reference could not be written to the generated theme; leaving it unchanged.' );
 				return null;
@@ -2435,7 +2371,7 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return string
 	 */
 	private static function materialized_asset_relative_path( string $key, string $source_path ): string {
-		$normalized = self::normalize_artifact_materialization_path( 'assets/media/' . $key );
+		$normalized = Static_Site_Importer_Theme_Materializer::normalize_artifact_materialization_path( 'assets/media/' . $key );
 		if ( '' === $normalized ) {
 			$basename = sanitize_file_name( basename( $source_path ) );
 			if ( '' === $basename ) {
@@ -3849,7 +3785,7 @@ class Static_Site_Importer_Theme_Generator {
 			return new WP_Error( 'static_site_importer_svg_sprite_mkdir_failed', sprintf( 'Failed to create SVG sprite directory: %s', $dir ) );
 		}
 
-		$result = self::write_file( $path, $svg . "\n" );
+		$result = Static_Site_Importer_Theme_Materializer::write_file( $path, $svg . "\n" );
 		if ( is_wp_error( $result ) ) {
 			return $result;
 		}
@@ -3897,7 +3833,7 @@ class Static_Site_Importer_Theme_Generator {
 			return new WP_Error( 'static_site_importer_svg_icon_mkdir_failed', sprintf( 'Failed to create SVG icon directory: %s', $dir ) );
 		}
 
-		$result = self::write_file( $path, $svg . "\n" );
+		$result = Static_Site_Importer_Theme_Materializer::write_file( $path, $svg . "\n" );
 		if ( is_wp_error( $result ) ) {
 			return $result;
 		}
@@ -4485,65 +4421,19 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return array{css:string,js:string}|WP_Error
 	 */
 	private static function materialize_website_artifact_files_to_theme( string $theme_dir, array $artifacts ) {
-		$files = isset( $artifacts['files'] ) && is_array( $artifacts['files'] ) ? $artifacts['files'] : array();
-		$css   = array();
-		$js    = array();
-
-		foreach ( $files as $file ) {
-			if ( ! is_array( $file ) ) {
-				continue;
-			}
-
-			$relative = self::normalize_artifact_materialization_path( isset( $file['path'] ) ? (string) $file['path'] : '' );
-			if ( '' === $relative ) {
-				self::$conversion_report['diagnostics'][] = array(
-					'type'    => 'website_artifact_file_skipped',
-					'source'  => 'website_artifact:files',
-					'reason'  => 'unsafe_artifact_path',
-					'path'    => isset( $file['path'] ) && is_scalar( $file['path'] ) ? (string) $file['path'] : '',
-					'message' => 'A BAC file artifact was skipped because its path is not safe to materialize inside the generated theme.',
-				);
-				continue;
-			}
-
-			$content = isset( $file['content'] ) && is_scalar( $file['content'] ) ? (string) $file['content'] : '';
-			$kind    = isset( $file['kind'] ) ? (string) $file['kind'] : '';
-			$lower   = strtolower( $relative );
-			if ( 'css' === $kind || str_ends_with( $lower, '.css' ) ) {
-				$css[] = trim( $content );
-				continue;
-			}
-			if ( 'js' === $kind || str_ends_with( $lower, '.js' ) ) {
-				$js[] = trim( $content );
-				continue;
-			}
-
-			$target_relative = 'assets/materialized/' . $relative;
-			$target          = trailingslashit( $theme_dir ) . $target_relative;
-			$dir    = dirname( $target );
-			if ( ! wp_mkdir_p( $dir ) ) {
-				return new WP_Error( 'static_site_importer_artifact_asset_mkdir_failed', sprintf( 'Failed to create website artifact asset directory: %s', $dir ) );
-			}
-
-			$result = self::write_file( $target, $content );
-			if ( is_wp_error( $result ) ) {
-				return $result;
-			}
-
-			self::$active_artifact_materialized_assets[ $relative ] = array(
-				'source'     => $relative,
-				'path'       => $relative,
-				'url'        => trailingslashit( self::$active_theme_uri ) . $target_relative,
-				'final_url'  => trailingslashit( self::$active_theme_uri ) . $target_relative,
-				'mime_type'  => self::export_mime_type( $target ),
-				'theme_path' => $target_relative,
-				'policy'     => 'theme',
-			);
+		$result = Static_Site_Importer_Theme_Materializer::materialize_website_artifact_files( $theme_dir, self::$active_theme_uri, $artifacts );
+		if ( is_wp_error( $result ) ) {
+			return $result;
 		}
 
+		foreach ( $result['diagnostics'] as $diagnostic ) {
+			self::$conversion_report['diagnostics'][] = $diagnostic;
+		}
+		self::$active_artifact_materialized_assets = array_merge( self::$active_artifact_materialized_assets, $result['assets'] );
+
 		return array(
-			'css' => trim( implode( "\n\n", array_filter( $css ) ) ),
-			'js'  => trim( implode( "\n", array_filter( $js ) ) ),
+			'css' => $result['css'],
+			'js'  => $result['js'],
 		);
 	}
 
@@ -5303,7 +5193,7 @@ class Static_Site_Importer_Theme_Generator {
 			}
 
 			$path = $file->getPathname();
-			if ( ! self::path_is_under( $path, $root ) ) {
+			if ( ! Static_Site_Importer_Theme_Materializer::path_is_under( $path, $root ) ) {
 				continue;
 			}
 
@@ -8104,160 +7994,6 @@ class Static_Site_Importer_Theme_Generator {
 		$excerpt = preg_replace( '/\s+/', ' ', trim( $html ) );
 		$excerpt = is_string( $excerpt ) ? $excerpt : trim( $html );
 		return substr( $excerpt, 0, 300 );
-	}
-
-	/**
-	 * Ensure theme directories exist.
-	 *
-	 * @param string $theme_dir Theme directory.
-	 * @return true|WP_Error
-	 */
-	private static function ensure_dirs( string $theme_dir ) {
-		foreach ( array( $theme_dir, $theme_dir . '/templates', $theme_dir . '/parts', $theme_dir . '/patterns', $theme_dir . '/assets', $theme_dir . '/assets/css', $theme_dir . '/assets/icons', $theme_dir . '/assets/media' ) as $dir ) {
-			if ( ! wp_mkdir_p( $dir ) ) {
-				return new WP_Error( 'static_site_importer_mkdir_failed', sprintf( 'Failed to create directory: %s', $dir ) );
-			}
-		}
-
-		return true;
-	}
-
-	/**
-	 * Normalize compiler file paths before writing them to a generated theme.
-	 *
-	 * @param string $path Artifact file path.
-	 * @return string Safe relative path, or empty string when unsafe.
-	 */
-	private static function normalize_artifact_materialization_path( string $path ): string {
-		$path = str_replace( '\\', '/', trim( $path ) );
-		$path = preg_replace( '/\0+/', '', $path );
-		if ( ! is_string( $path ) || '' === $path || str_starts_with( $path, '/' ) || preg_match( '#^[a-z][a-z0-9+.-]*:#i', $path ) ) {
-			return '';
-		}
-
-		$segments = array();
-		foreach ( explode( '/', $path ) as $segment ) {
-			if ( '' === $segment || '.' === $segment ) {
-				continue;
-			}
-			if ( '..' === $segment ) {
-				return '';
-			}
-			$segments[] = preg_replace( '/[^A-Za-z0-9._-]/', '-', $segment );
-		}
-
-		return implode( '/', array_filter( $segments ) );
-	}
-
-	/**
-	 * Write a generated file.
-	 *
-	 * @param string $path    File path.
-	 * @param string $content File content.
-	 * @return true|WP_Error
-	 */
-	private static function write_file( string $path, string $content ) {
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Writes generated block-theme files to the selected theme directory.
-		$result = file_put_contents( $path, $content );
-		if ( false === $result ) {
-			return new WP_Error( 'static_site_importer_write_failed', sprintf( 'Failed to write file: %s', $path ) );
-		}
-
-		return true;
-	}
-
-	/**
-	 * Write a copy of the import report to a caller-selected path.
-	 *
-	 * @param string $path    Report path.
-	 * @param string $content Report JSON.
-	 * @return true|WP_Error
-	 */
-	private static function write_external_report( string $path, string $content ) {
-		$dir = dirname( $path );
-		if ( ! wp_mkdir_p( $dir ) ) {
-			return new WP_Error( 'static_site_importer_report_mkdir_failed', sprintf( 'Failed to create report directory: %s', $dir ) );
-		}
-
-		return self::write_file( $path, $content );
-	}
-
-	/**
-	 * Determine whether a path resolves inside a base directory.
-	 *
-	 * @param string $path Path to test.
-	 * @param string $base Base directory.
-	 * @return bool
-	 */
-	private static function path_is_under( string $path, string $base ): bool {
-		$real_path = realpath( $path );
-		$real_base = realpath( $base );
-
-		if ( false === $real_path || false === $real_base ) {
-			return false;
-		}
-
-		return 0 === strpos( trailingslashit( $real_path ), trailingslashit( $real_base ) );
-	}
-
-	/**
-	 * Delete the source static-site directory after a clean import.
-	 *
-	 * @param string $site_dir  Static site source directory.
-	 * @param string $html_path Entry HTML file path.
-	 * @return true|WP_Error
-	 */
-	private static function delete_source_dir( string $site_dir, string $html_path ) {
-		$source_dir = realpath( $site_dir );
-		$entry_file = realpath( $html_path );
-		if ( false === $source_dir || false === $entry_file || ! is_dir( $source_dir ) ) {
-			return new WP_Error( 'static_site_importer_source_cleanup_missing', 'Source directory is not available.' );
-		}
-
-		if ( 0 !== strpos( $entry_file, trailingslashit( $source_dir ) ) ) {
-			return new WP_Error( 'static_site_importer_source_cleanup_mismatch', 'Entry HTML file is not inside the source directory.' );
-		}
-
-		$protected_dirs = array_filter(
-			array_map(
-				'realpath',
-				array(
-					ABSPATH,
-					WP_CONTENT_DIR,
-					get_theme_root(),
-				)
-			)
-		);
-		if ( DIRECTORY_SEPARATOR === $source_dir || in_array( $source_dir, $protected_dirs, true ) ) {
-			return new WP_Error( 'static_site_importer_source_cleanup_protected', sprintf( 'Refusing to delete protected source directory: %s', $source_dir ) );
-		}
-
-		$iterator = new RecursiveIteratorIterator(
-			new RecursiveDirectoryIterator( $source_dir, FilesystemIterator::SKIP_DOTS ),
-			RecursiveIteratorIterator::CHILD_FIRST
-		);
-
-		foreach ( $iterator as $item ) {
-			$path = $item->getPathname();
-			if ( $item->isDir() && ! $item->isLink() ) {
-				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- Removes caller-provided temporary static-site source directories after a clean import.
-				if ( ! rmdir( $path ) ) {
-					return new WP_Error( 'static_site_importer_source_cleanup_failed', sprintf( 'Failed to remove source directory: %s', $path ) );
-				}
-				continue;
-			}
-
-			if ( ! wp_delete_file( $path ) ) {
-				return new WP_Error( 'static_site_importer_source_cleanup_failed', sprintf( 'Failed to remove source file: %s', $path ) );
-			}
-		}
-
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- Removes caller-provided temporary static-site source directories after a clean import.
-		if ( ! rmdir( $source_dir ) ) {
-			return new WP_Error( 'static_site_importer_source_cleanup_failed', sprintf( 'Failed to remove source directory: %s', $source_dir ) );
-		}
-
-		return true;
 	}
 
 	/**
