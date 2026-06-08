@@ -26,6 +26,7 @@ if ( ! class_exists( 'WP_Error' ) ) {
 	}
 }
 
+require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-stylesheet-materializer.php';
 require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-theme-generator.php';
 
 $failures   = array();
@@ -69,11 +70,9 @@ $artifacts = array(
 $collector = new ReflectionMethod( Static_Site_Importer_Theme_Generator::class, 'visual_repair_styles_from_artifacts' );
 $styles    = $collector->invoke( null, $artifacts );
 
-$style     = new ReflectionMethod( Static_Site_Importer_Theme_Generator::class, 'style_css' );
-$style_css = (string) $style->invoke( null, 'BAC Visual Repair Smoke', '.hero-shell{display:grid}', $styles );
-
-$editor     = new ReflectionMethod( Static_Site_Importer_Theme_Generator::class, 'editor_style_css' );
-$editor_css = (string) $editor->invoke( null, '.hero-shell{display:grid}', $styles );
+$writes     = Static_Site_Importer_Stylesheet_Materializer::stylesheet_writes( '/tmp/bac-visual-repair-smoke', 'BAC Visual Repair Smoke', '.hero-shell{display:grid}', $styles );
+$style_css  = (string) ( $writes['/tmp/bac-visual-repair-smoke/style.css'] ?? '' );
+$editor_css = (string) ( $writes['/tmp/bac-visual-repair-smoke/assets/css/editor-style.css'] ?? '' );
 
 $assert( 1 === count( $styles['frontend'] ?? array() ), 'collector-dedupes-frontend-repair-css' );
 $assert( 1 === count( $styles['editor'] ?? array() ), 'collector-reads-editor-repair-css' );
