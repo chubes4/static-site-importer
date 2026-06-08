@@ -15,6 +15,63 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Static_Site_Importer_Theme_Materializer {
 
 	/**
+	 * Build static generated theme file writes.
+	 *
+	 * @param string $theme_dir       Theme directory.
+	 * @param string $theme_slug      Theme slug.
+	 * @param string $theme_name      Theme name.
+	 * @param string $css             Source CSS.
+	 * @param bool   $has_footer_part Whether a footer template part exists.
+	 * @return array<string,string> Absolute write paths mapped to file contents.
+	 */
+	public static function base_theme_writes( string $theme_dir, string $theme_slug, string $theme_name, string $css, bool $has_footer_part ): array {
+		return array(
+			$theme_dir . '/functions.php'             => self::functions_php( $theme_slug ),
+			$theme_dir . '/theme.json'                => self::theme_json( $theme_name, $css ),
+			$theme_dir . '/templates/front-page.html' => self::content_template( '', $has_footer_part ),
+			$theme_dir . '/templates/page.html'       => self::content_template( '', $has_footer_part ),
+			$theme_dir . '/templates/index.html'      => self::content_template( '', $has_footer_part ),
+		);
+	}
+
+	/**
+	 * Build a template that renders imported page content.
+	 *
+	 * @param string $background_blocks Background decoration blocks.
+	 * @param bool   $has_footer_part   Whether a shared footer template part was generated.
+	 * @return string
+	 */
+	public static function content_template( string $background_blocks, bool $has_footer_part ): string {
+		$footer_part = $has_footer_part ? '<!-- wp:template-part {"slug":"footer","tagName":"footer"} /-->' : '';
+
+		return trim(
+			'<!-- wp:template-part {"slug":"header","tagName":"header"} /-->' . "\n\n" .
+			$background_blocks . "\n\n" .
+			'<!-- wp:post-content {"tagName":"main"} /-->' . "\n\n" .
+			$footer_part
+		) . "\n";
+	}
+
+	/**
+	 * Build a theme pattern file for an imported page body.
+	 *
+	 * @param string $title        Pattern title.
+	 * @param string $pattern_slug Pattern slug.
+	 * @param string $content      Block markup.
+	 * @return string
+	 */
+	public static function pattern_file( string $title, string $pattern_slug, string $content ): string {
+		return "<?php\n" .
+			"/**\n" .
+			' * Title: ' . $title . "\n" .
+			' * Slug: ' . $pattern_slug . "\n" .
+			" * Categories: static-site-importer\n" .
+			" */\n" .
+			"?>\n" .
+			trim( $content ) . "\n";
+	}
+
+	/**
 	 * Ensure theme directories exist.
 	 *
 	 * @param string $theme_dir Theme directory.
@@ -233,6 +290,142 @@ class Static_Site_Importer_Theme_Materializer {
 			'block_markup_bytes' => strlen( $markup ),
 			'block_markup_hash'  => hash( 'sha256', $markup ),
 		);
+	}
+
+	/**
+	 * Build functions.php.
+	 *
+	 * @param string $theme_slug Theme slug.
+	 * @return string
+	 */
+	private static function functions_php( string $theme_slug ): string {
+		$style_handle  = sanitize_key( $theme_slug ) . '-style';
+		$editor_handle = sanitize_key( $theme_slug ) . '-editor-style';
+		$script_handle = sanitize_key( $theme_slug ) . '-site';
+
+		return "<?php\n" .
+			"/**\n" .
+			" * Generated theme bootstrap.\n" .
+			" */\n\n" .
+			"add_action( 'after_setup_theme', static function (): void {\n" .
+			"\tadd_theme_support( 'editor-styles' );\n" .
+			"\tadd_editor_style( 'assets/css/editor-style.css' );\n" .
+			"} );\n\n" .
+			"add_action( 'wp_enqueue_scripts', static function (): void {\n" .
+			"\twp_enqueue_style( '" . $style_handle . "', get_stylesheet_uri(), array(), wp_get_theme()->get( 'Version' ) );\n" .
+			"\tif ( file_exists( get_template_directory() . '/assets/site.js' ) ) {\n" .
+			"\t\twp_enqueue_script( '" . $script_handle . "', get_template_directory_uri() . '/assets/site.js', array(), wp_get_theme()->get( 'Version' ), true );\n" .
+			"\t}\n" .
+			"} );\n\n" .
+			"add_action( 'enqueue_block_editor_assets', static function (): void {\n" .
+			"\twp_enqueue_style( '" . $editor_handle . "', get_template_directory_uri() . '/assets/css/editor-style.css', array(), wp_get_theme()->get( 'Version' ) );\n" .
+			"} );\n";
+	}
+
+	/**
+	 * Build theme.json.
+	 *
+	 * @param string $theme_name Theme name.
+	 * @param string $css        Source CSS.
+	 * @return string
+	 */
+	private static function theme_json( string $theme_name, string $css ): string {
+		$data = array(
+			'$schema'  => 'https://schemas.wp.org/trunk/theme.json',
+			'version'  => 3,
+			'title'    => $theme_name,
+			'settings' => array(
+				'layout' => array(
+					'contentSize' => '760px',
+					'wideSize'    => '1200px',
+				),
+			),
+		);
+
+		$design_tokens = self::design_tokens_from_css( $css );
+		if ( ! empty( $design_tokens['palette'] ) ) {
+			$data['settings']['color']['palette'] = $design_tokens['palette'];
+		}
+
+		$data['styles']['spacing']['blockGap'] = '0';
+
+		if ( ! empty( $design_tokens['styles'] ) ) {
+			$data['styles']['color'] = $design_tokens['styles'];
+		}
+
+		return wp_json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) . "\n";
+	}
+
+	/**
+	 * Extract conservative design tokens from obvious :root custom properties.
+	 *
+	 * @param string $css Source CSS.
+	 * @return array{palette:array<int,array{slug:string,name:string,color:string}>,styles:array<string,string>}
+	 */
+	private static function design_tokens_from_css( string $css ): array {
+		$palette = array();
+		$styles  = array();
+		$seen    = array();
+
+		if ( '' === trim( $css ) || ! preg_match_all( '/:root\s*\{([^}]*)\}/i', $css, $root_matches ) ) {
+			return array(
+				'palette' => $palette,
+				'styles'  => $styles,
+			);
+		}
+
+		foreach ( $root_matches[1] as $root_body ) {
+			$root_body = (string) preg_replace( '/\/\*.*?\*\//s', '', $root_body );
+			if ( ! preg_match_all( '/--([A-Za-z0-9_-]+)\s*:\s*([^;{}]+);/', $root_body, $property_matches, PREG_SET_ORDER ) ) {
+				continue;
+			}
+
+			foreach ( $property_matches as $property_match ) {
+				$token_name = strtolower( $property_match[1] );
+				$color      = trim( $property_match[2] );
+				$slug       = sanitize_title( $token_name );
+
+				if ( '' === $slug || isset( $seen[ $slug ] ) || ! self::is_safe_color_value( $color ) ) {
+					continue;
+				}
+
+				$seen[ $slug ] = true;
+				$palette[]     = array(
+					'slug'  => $slug,
+					'name'  => ucwords( str_replace( array( '-', '_' ), ' ', $token_name ) ),
+					'color' => $color,
+				);
+
+				if ( ! isset( $styles['background'] ) && in_array( $slug, array( 'bg', 'background' ), true ) ) {
+					$styles['background'] = 'var(--wp--preset--color--' . $slug . ')';
+				}
+
+				if ( ! isset( $styles['text'] ) && in_array( $slug, array( 'fg', 'foreground', 'text' ), true ) ) {
+					$styles['text'] = 'var(--wp--preset--color--' . $slug . ')';
+				}
+			}
+		}
+
+		return array(
+			'palette' => $palette,
+			'styles'  => $styles,
+		);
+	}
+
+	/**
+	 * Check whether a CSS value is safe to expose as a theme palette color.
+	 *
+	 * @param string $value CSS value.
+	 * @return bool
+	 */
+	private static function is_safe_color_value( string $value ): bool {
+		$value = trim( $value );
+
+		if ( preg_match( '/^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i', $value ) ) {
+			return true;
+		}
+
+		return (bool) preg_match( '/^(?:rgb|rgba|hsl|hsla)\(\s*[-+0-9.%\s,\/]+\s*\)$/i', $value );
 	}
 
 	/**
