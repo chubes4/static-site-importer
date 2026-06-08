@@ -73,39 +73,11 @@ class Static_Site_Importer_Theme_Generator {
 	private static array $recorded_local_asset_keys = array();
 
 	/**
-	 * Materialized inline SVG assets keyed by SVG content hash.
-	 *
-	 * @var array<string, array<string, string>>
-	 */
-	private static array $materialized_svg_assets = array();
-
-	/**
-	 * Extracted safe SVG symbol sprites keyed by symbol id.
-	 *
-	 * @var array<string, array<string, string>>
-	 */
-	private static array $svg_sprite_symbols = array();
-
-	/**
-	 * Materialized SVG sprite files keyed by sprite content hash.
-	 *
-	 * @var array<string, array<string, mixed>>
-	 */
-	private static array $materialized_svg_sprites = array();
-
-	/**
 	 * Classes observed on generated core/button wrappers during this import.
 	 *
 	 * @var array<string, true>
 	 */
 	private static array $button_wrapper_classes = array();
-
-	/**
-	 * CSS classes that identify absolute-positioned imported visual layers.
-	 *
-	 * @var array<string, true>
-	 */
-	private static array $decorative_empty_group_classes = array();
 
 	/**
 	 * Import a website artifact bundle as a block theme.
@@ -172,9 +144,9 @@ class Static_Site_Importer_Theme_Generator {
 		$source_metadata           = isset( $args['source_metadata'] ) && is_array( $args['source_metadata'] ) ? $args['source_metadata'] : array();
 		$source_metadata['source'] = 'website_artifact';
 		$html_path                 = (string) ( $compiled['provenance']['source'] ?? ( $compiled['input']['entry_path'] ?? 'website_artifact' ) );
-		self::$conversion_report   = self::new_conversion_report( $html_path, $source_metadata );
-		self::record_website_artifact_compiler_result( $compiled );
-		self::record_direct_website_artifact_source_summary( $compiled );
+		self::$conversion_report   = Static_Site_Importer_Report_Diagnostics::new_conversion_report( $html_path, $source_metadata );
+		Static_Site_Importer_Report_Diagnostics::record_website_artifact_compiler_result( self::$conversion_report, $compiled );
+		Static_Site_Importer_Report_Diagnostics::record_direct_website_artifact_source_summary( self::$conversion_report, $compiled );
 		self::record_products_manifest_from_import_args( $args );
 		self::record_commerce_context_summary( $args );
 
@@ -194,9 +166,6 @@ class Static_Site_Importer_Theme_Generator {
 		self::$conversion_report['asset_map']['supplied']    = ! empty( self::$active_asset_map );
 		self::$conversion_report['asset_map']['entry_count'] = count( self::$active_asset_map );
 		self::$conversion_report['assets']['local_policy']   = self::$active_asset_materialization_policy;
-		self::$materialized_svg_assets  = array();
-		self::$svg_sprite_symbols       = array();
-		self::$materialized_svg_sprites = array();
 		self::$button_wrapper_classes   = array();
 
 		$document_pages = self::bac_document_pages( $compiled );
@@ -225,9 +194,11 @@ class Static_Site_Importer_Theme_Generator {
 		}
 		$has_footer_part      = isset( $template_part_writes[ $theme_dir . '/parts/footer.html' ] );
 
+		$selector_provenance = self::selector_provenance_from_artifacts( $artifacts );
+
 		$writes = array(
-			$theme_dir . '/style.css'                   => self::style_css( $theme_name, $materialized['css'], array_keys( self::$button_wrapper_classes ) ),
-			$theme_dir . '/assets/css/editor-style.css' => self::editor_style_css( $materialized['css'], array_keys( self::$button_wrapper_classes ) ),
+			$theme_dir . '/style.css'                   => self::style_css( $theme_name, $materialized['css'], array_keys( self::$button_wrapper_classes ), $selector_provenance ),
+			$theme_dir . '/assets/css/editor-style.css' => self::editor_style_css( $materialized['css'], array_keys( self::$button_wrapper_classes ), $selector_provenance ),
 			$theme_dir . '/functions.php'               => self::functions_php( $theme_slug ),
 			$theme_dir . '/theme.json'                  => self::theme_json( $theme_name, $materialized['css'] ),
 			$theme_dir . '/templates/front-page.html'   => self::content_template( '', $has_footer_part ),
@@ -261,9 +232,7 @@ class Static_Site_Importer_Theme_Generator {
 		self::materialize_required_plugins( $args );
 		self::record_product_seeding_report( $args );
 		self::record_commerce_dependency_check( $args );
-		$quality     = self::finalize_quality_report( $args );
-		$summary     = self::import_report_summary( self::$conversion_report, $quality );
-		self::$conversion_report['compact_summary'] = $summary;
+		$quality     = Static_Site_Importer_Report_Diagnostics::finalize_report( self::$conversion_report, $args );
 		$report_json = wp_json_encode( self::$conversion_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 		if ( false === $report_json ) {
 			return new WP_Error( 'static_site_importer_report_encode_failed', 'Failed to encode import report JSON.' );
@@ -305,7 +274,7 @@ class Static_Site_Importer_Theme_Generator {
 			'theme_dir'             => $theme_dir,
 			'report_path'           => $theme_dir . '/import-report.json',
 			'external_report_path'  => $external_report_path,
-			'import_report_summary' => $summary,
+			'import_report_summary' => self::$conversion_report['compact_summary'],
 			'pages'                 => $page_ids,
 			'quality'               => $quality,
 			'source_documents'      => self::$conversion_report['source_documents'],
@@ -1198,7 +1167,7 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return bool
 	 */
 	private static function is_index_source_filename( string $filename ): bool {
-		return in_array( strtolower( basename( $filename ) ), array( 'index.html', 'index.md', 'index.markdown' ), true );
+		return in_array( strtolower( basename( $filename ) ), array( 'index.html' ), true );
 	}
 
 	/**
@@ -1208,11 +1177,11 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return bool
 	 */
 	private static function is_root_index_source_filename( string $filename ): bool {
-		return in_array( strtolower( trim( self::normalize_route_path( $filename ), '/' ) ), array( 'index.html', 'index.md', 'index.markdown' ), true );
+		return in_array( strtolower( trim( self::normalize_route_path( $filename ), '/' ) ), array( 'index.html' ), true );
 	}
 
 	/**
-	 * Get imported front page ID for HTML or Markdown index sources.
+	 * Get imported front page ID for HTML index sources.
 	 *
 	 * @param array<string,int> $page_ids Page IDs keyed by source filename.
 	 * @return int
@@ -1408,9 +1377,9 @@ class Static_Site_Importer_Theme_Generator {
 			return array();
 		}
 
-		$extensionless = preg_replace( '/\.(?:html?|md|markdown)$/i', '', $relative_path );
+		$extensionless = preg_replace( '/\.(?:html?)$/i', '', $relative_path );
 		$extensionless = '' === trim( (string) $extensionless ) ? $relative_path : (string) $extensionless;
-		$extensions    = array( 'html', 'htm', 'md', 'markdown' );
+		$extensions    = array( 'html', 'htm' );
 		$keys          = array( $relative_path, '/' . $relative_path, './' . $relative_path );
 
 		foreach ( $extensions as $extension ) {
@@ -1605,292 +1574,6 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return $changed ? implode( ', ', $candidates ) : $srcset;
-	}
-
-	/**
-	 * Add resolved metadata attributes to media elements before conversion.
-	 *
-	 * @param DOMElement          $element Media element.
-	 * @param array<string,mixed> $asset   Asset metadata.
-	 * @return void
-	 */
-	private static function apply_asset_metadata_to_media_element( DOMElement $element, array $asset ): void {
-		$attachment_id = isset( $asset['attachment_id'] ) ? (int) $asset['attachment_id'] : (int) ( $asset['id'] ?? 0 );
-		if ( $attachment_id > 0 ) {
-			$element->setAttribute( 'data-id', (string) $attachment_id );
-			$element->setAttribute( 'class', self::append_class_token( $element->getAttribute( 'class' ), 'wp-image-' . $attachment_id ) );
-		}
-
-		foreach ( array( 'width', 'height' ) as $dimension ) {
-			if ( isset( $asset[ $dimension ] ) && (int) $asset[ $dimension ] > 0 && ! $element->hasAttribute( $dimension ) ) {
-				$element->setAttribute( $dimension, (string) (int) $asset[ $dimension ] );
-			}
-		}
-
-		if ( isset( $asset['alt'] ) && '' !== trim( (string) $asset['alt'] ) && '' === trim( $element->getAttribute( 'alt' ) ) ) {
-			$element->setAttribute( 'alt', (string) $asset['alt'] );
-		}
-	}
-
-	/**
-	 * Strip static active classes from shared chrome before every page reuses it.
-	 *
-	 * @param string $html HTML fragment.
-	 * @return string
-	 */
-	private static function strip_active_classes( string $html ): string {
-		if ( '' === trim( $html ) || ! str_contains( $html, 'active' ) ) {
-			return $html;
-		}
-
-		return preg_replace_callback(
-			'/\sclass=("|\')([^"\']*)(\1)/i',
-			static function ( array $matches ): string {
-				$classes = preg_split( '/\s+/', trim( $matches[2] ) );
-				$classes = false === $classes ? array() : $classes;
-				$classes = array_values(
-					array_filter(
-						$classes,
-						static fn ( string $class_name ): bool => 'active' !== $class_name
-					)
-				);
-
-				if ( empty( $classes ) ) {
-					return '';
-				}
-
-				return ' class=' . $matches[1] . implode( ' ', $classes ) . $matches[3];
-			},
-			$html
-		) ?? $html;
-	}
-
-	/**
-	 * Check whether an empty header/footer element is CSS-declared decorative chrome.
-	 *
-	 * @param DOMElement $element Source element.
-	 * @return bool
-	 */
-	private static function is_empty_decorative_theme_part_element( DOMElement $element ): bool {
-		if ( 'div' !== strtolower( $element->tagName ) || empty( self::$decorative_empty_group_classes ) ) {
-			return false;
-		}
-
-		if ( '' !== trim( $element->textContent ) || ! empty( self::direct_element_children( $element ) ) ) {
-			return false;
-		}
-
-		$classes = preg_split( '/\s+/', trim( $element->getAttribute( 'class' ) ) );
-		$classes = false === $classes ? array() : $classes;
-		foreach ( $classes as $class ) {
-			if ( isset( self::$decorative_empty_group_classes[ $class ] ) ) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	/**
-	 * Check whether direct text exists outside child elements.
-	 *
-	 * @param DOMElement $element Source element.
-	 * @return bool
-	 */
-	private static function element_has_direct_non_whitespace_text( DOMElement $element ): bool {
-		foreach ( $element->childNodes as $child ) {
-			if ( $child instanceof DOMText && '' !== trim( $child->textContent ) ) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	/**
-	 * Check whether an element is pure navigation rather than branded chrome containing links.
-	 *
-	 * @param DOMElement $element Source element.
-	 * @return bool
-	 */
-	private static function can_convert_element_to_navigation( DOMElement $element ): bool {
-		$tag = strtolower( $element->tagName );
-		if ( ! in_array( $tag, array( 'nav', 'ul', 'ol' ), true ) || self::element_has_direct_non_whitespace_text( $element ) ) {
-			return false;
-		}
-
-		foreach ( self::direct_element_children( $element ) as $child ) {
-			$child_tag = strtolower( $child->tagName );
-			if ( 'nav' === $tag && in_array( $child_tag, array( 'ul', 'ol' ), true ) ) {
-				continue;
-			}
-
-			if ( 'nav' === $tag && 'a' === $child_tag && self::is_simple_navigation_anchor( $child ) ) {
-				continue;
-			}
-
-			if ( in_array( $tag, array( 'ul', 'ol' ), true ) && 'li' === $child_tag ) {
-				continue;
-			}
-
-			return false;
-		}
-
-		return true;
-	}
-
-	/**
-	 * Check whether a navigation list's source classes must stay on the list owner.
-	 *
-	 * @param DOMElement $element Source element.
-	 * @return bool
-	 */
-	private static function should_preserve_navigation_list_owner_classes( DOMElement $element ): bool {
-		$tag = strtolower( $element->tagName );
-		return in_array( $tag, array( 'ul', 'ol' ), true ) && '' !== trim( $element->getAttribute( 'class' ) ) && self::can_convert_element_to_navigation( $element );
-	}
-
-	/**
-	 * Check whether a direct nav anchor is a menu item rather than branded chrome.
-	 *
-	 * @param DOMElement $element Anchor element.
-	 * @return bool
-	 */
-	private static function is_simple_navigation_anchor( DOMElement $element ): bool {
-		if ( preg_match( '/(^|[-_\s])(brand|logo)([-_\s]|$)/i', $element->getAttribute( 'class' ) ) ) {
-			return false;
-		}
-
-		foreach ( self::direct_element_children( $element ) as $child ) {
-			if ( 'span' !== strtolower( $child->tagName ) ) {
-				return false;
-			}
-		}
-
-		return true;
-	}
-
-	/**
-	 * Detect decorative or interactive markup better preserved as raw HTML inside a smaller island.
-	 *
-	 * @param DOMElement $element Source element.
-	 * @return bool
-	 */
-	private static function element_contains_svg_or_form( DOMElement $element ): bool {
-		foreach ( array( 'svg', 'canvas', 'form', 'input', 'button', 'select', 'textarea' ) as $tag ) {
-			if ( $element->getElementsByTagName( $tag )->length > 0 ) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	/**
-	 * Check whether a dedicated link cluster should keep its source wrapper.
-	 *
-	 * @param DOMElement $element Source element.
-	 * @return bool
-	 */
-	private static function is_link_cluster_container( DOMElement $element ): bool {
-		$tag = strtolower( $element->tagName );
-		if ( ! in_array( $tag, array( 'div', 'span' ), true ) || self::element_has_direct_non_whitespace_text( $element ) ) {
-			return false;
-		}
-
-		$class = $element->getAttribute( 'class' );
-		if ( ! preg_match( '/(^|[-_\s])(actions?|buttons?|cta|links?)([-_\s]|$)/i', $class ) ) {
-			return false;
-		}
-
-		$children = self::direct_element_children( $element );
-		if ( count( $children ) < 2 ) {
-			return false;
-		}
-
-		foreach ( $children as $child ) {
-			if ( 'a' !== strtolower( $child->tagName ) ) {
-				return false;
-			}
-		}
-
-		return true;
-	}
-
-	/**
-	 * Check whether classed theme chrome should keep source element ownership.
-	 *
-	 * @param DOMElement $element Source element.
-	 * @return bool
-	 */
-	private static function should_preserve_theme_part_phrasing_element( DOMElement $element ): bool {
-		$tag = strtolower( $element->tagName );
-		if ( ! in_array( $tag, array( 'div', 'span' ), true ) || ! self::element_has_only_phrasing_content( $element ) ) {
-			return false;
-		}
-
-		$class = trim( $element->getAttribute( 'class' ) );
-		if ( '' === $class ) {
-			return false;
-		}
-
-		return preg_match( '/(^|[-_\s])(brand|logo|wordmark|name|badge|meta|copy)([-_\s]|$)/i', $class ) === 1;
-	}
-
-	/**
-	 * Check whether an element can be represented as one paragraph with inline markup.
-	 *
-	 * @param DOMElement $element Source element.
-	 * @return bool
-	 */
-	private static function element_has_only_phrasing_content( DOMElement $element ): bool {
-		if ( self::element_contains_svg_or_form( $element ) ) {
-			return false;
-		}
-
-		if ( in_array( strtolower( $element->tagName ), array( 'header', 'footer', 'main', 'nav', 'section', 'article', 'aside' ), true ) ) {
-			return false;
-		}
-
-		$has_content = false;
-		foreach ( $element->childNodes as $child ) {
-			if ( $child instanceof DOMText ) {
-				$has_content = $has_content || '' !== trim( $child->textContent );
-				continue;
-			}
-
-			if ( ! $child instanceof DOMElement ) {
-				continue;
-			}
-
-			$has_content = true;
-			if ( ! self::is_phrasing_element( $child ) ) {
-				return false;
-			}
-		}
-
-		return $has_content;
-	}
-
-	/**
-	 * Check whether an element is valid phrasing content inside a paragraph.
-	 *
-	 * @param DOMElement $element Source element.
-	 * @return bool
-	 */
-	private static function is_phrasing_element( DOMElement $element ): bool {
-		$tag = strtolower( $element->tagName );
-		if ( ! in_array( $tag, array( 'a', 'abbr', 'b', 'bdi', 'bdo', 'br', 'cite', 'code', 'data', 'dfn', 'em', 'i', 'kbd', 'mark', 'q', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var', 'wbr' ), true ) ) {
-			return false;
-		}
-
-		foreach ( self::direct_element_children( $element ) as $child ) {
-			if ( ! self::is_phrasing_element( $child ) ) {
-				return false;
-			}
-		}
-
-		return true;
 	}
 
 	/**
@@ -2122,64 +1805,7 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Infer image dimensions when PHP can read them safely.
-	 *
-	 * @param string $path Absolute image path.
-	 * @return array<string,int>
-	 */
-	private static function image_dimensions( string $path ): array {
-		if ( ! function_exists( 'getimagesize' ) ) {
-			return array();
-		}
-
-		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_set_error_handler -- Suppresses warnings from probing local image dimensions.
-		set_error_handler( static fn(): bool => true );
-		try {
-			$size = getimagesize( $path );
-		} finally {
-			restore_error_handler();
-		}
-		if ( ! is_array( $size ) || empty( $size[0] ) || empty( $size[1] ) ) {
-			return array();
-		}
-
-		return array(
-			'width'  => (int) $size[0],
-			'height' => (int) $size[1],
-		);
-	}
-
-	/**
-	 * Add available alt text to cached asset metadata.
-	 *
-	 * @param string              $url   Original source reference.
-	 * @param array<string,mixed> $asset Asset metadata.
-	 * @param string              $alt   Alt text.
-	 * @return array<string,mixed>
-	 */
-	private static function add_local_asset_alt_metadata( string $url, array $asset, string $alt ): array {
-		$alt = trim( $alt );
-		$key = isset( $asset['path'] ) ? (string) $asset['path'] : '';
-		if ( '' === $alt || '' === $key ) {
-			return $asset;
-		}
-
-		if ( isset( $asset['alt'] ) && '' !== trim( (string) $asset['alt'] ) ) {
-			return $asset;
-		}
-
-		$asset['alt'] = $alt;
-		if ( isset( $asset['attachment_id'] ) && (int) $asset['attachment_id'] > 0 && function_exists( 'update_post_meta' ) ) {
-			update_post_meta( (int) $asset['attachment_id'], '_wp_attachment_image_alt', $alt );
-		}
-
-		self::remember_asset_metadata( $url, $key, $asset );
-
-		return $asset;
-	}
-
-	/**
-	 * Store metadata under all keys H2BC/BFB may see during conversion.
+	 * Store metadata under all keys serialized BAC block markup may reference.
 	 *
 	 * @param string              $url   Original source reference.
 	 * @param string              $key   Source-relative key.
@@ -2264,200 +1890,7 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Build a reference to a deterministic wp_navigation entity.
-	 *
-	 * @param DOMElement $element    Navigation source element.
-	 * @param string     $theme_slug Imported theme slug.
-	 * @param string     $location   Navigation location name.
-	 * @return string|null
-	 */
-	private static function navigation_ref_block( DOMElement $element, string $theme_slug, string $location ): ?string {
-		$links = self::navigation_links_from_element( $element );
-		if ( empty( $links ) ) {
-			return null;
-		}
-
-		$navigation_id = self::upsert_navigation_post( $theme_slug, $location, $links );
-		if ( is_wp_error( $navigation_id ) ) {
-			return null;
-		}
-
-		$attrs = array( 'ref' => (int) $navigation_id );
-		$class = trim( $element->getAttribute( 'class' ) );
-		if ( '' !== $class ) {
-			$attrs['className'] = $class;
-		}
-
-		return '<!-- wp:navigation ' . wp_json_encode( $attrs, JSON_UNESCAPED_SLASHES ) . ' /-->';
-	}
-
-	/**
-	 * Extract top-level navigation links from a nav or list element.
-	 *
-	 * @param DOMElement $element Navigation source element.
-	 * @return array<int, array{label:string,url:string,className?:string}>
-	 */
-	private static function navigation_links_from_element( DOMElement $element ): array {
-		$links = array();
-		foreach ( $element->getElementsByTagName( 'a' ) as $anchor ) {
-			if ( '' === trim( $anchor->getAttribute( 'href' ) ) ) {
-				continue;
-			}
-
-			$link  = array(
-				'label' => trim( $anchor->textContent ),
-				'url'   => esc_url_raw( $anchor->getAttribute( 'href' ) ),
-			);
-			$class = trim( $anchor->getAttribute( 'class' ) );
-			if ( '' !== $class ) {
-				$link['className'] = $class;
-			}
-
-			if ( '' !== $link['label'] && '' !== $link['url'] ) {
-				$links[] = $link;
-			}
-		}
-
-		return $links;
-	}
-
-	/**
-	 * Create or update a deterministic wp_navigation post.
-	 *
-	 * @param string                                                        $theme_slug Imported theme slug.
-	 * @param string                                                        $location   Navigation location name.
-	 * @param array<int, array{label:string,url:string,className?:string}> $links      Navigation links.
-	 * @return int|WP_Error
-	 */
-	private static function upsert_navigation_post( string $theme_slug, string $location, array $links ) {
-		if ( ! post_type_exists( 'wp_navigation' ) ) {
-			return new WP_Error( 'static_site_importer_missing_navigation_post_type', 'The wp_navigation post type is not available.' );
-		}
-
-		$slug     = sanitize_title( $theme_slug . '-' . $location . '-navigation' );
-		$existing = get_page_by_path( $slug, OBJECT, 'wp_navigation' );
-		$postarr  = array(
-			'post_title'   => ucwords( str_replace( '-', ' ', $theme_slug ) ) . ' ' . ucfirst( $location ) . ' Navigation',
-			'post_name'    => $slug,
-			'post_status'  => 'publish',
-			'post_type'    => 'wp_navigation',
-			'post_content' => self::navigation_post_content( $links ),
-		);
-
-		if ( $existing instanceof WP_Post ) {
-			$postarr['ID'] = $existing->ID;
-		}
-
-		return wp_insert_post( $postarr, true );
-	}
-
-	/**
-	 * Build wp_navigation entity content from link data.
-	 *
-	 * @param array<int, array{label:string,url:string,className?:string}> $links Navigation links.
-	 * @return string
-	 */
-	private static function navigation_post_content( array $links ): string {
-		$blocks = array();
-		foreach ( $links as $link ) {
-			$attrs = array(
-				'label'          => $link['label'],
-				'url'            => $link['url'],
-				'kind'           => 'custom',
-				'isTopLevelLink' => true,
-			);
-			if ( ! empty( $link['className'] ) ) {
-				$attrs['className'] = $link['className'];
-			}
-
-			$blocks[] = '<!-- wp:navigation-link ' . wp_json_encode( $attrs, JSON_UNESCAPED_SLASHES ) . ' /-->';
-		}
-
-		return implode( "\n", $blocks );
-	}
-
-	/**
-	 * Parse an HTML fragment into a wrapper document.
-	 *
-	 * @param string $html HTML fragment.
-	 * @return DOMDocument
-	 */
-	private static function load_fragment_document( string $html ): DOMDocument {
-		$doc      = new DOMDocument();
-		$previous = libxml_use_internal_errors( true );
-		$doc->loadHTML( '<?xml encoding="UTF-8"><div data-static-site-importer-root="1">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD );
-		libxml_clear_errors();
-		libxml_use_internal_errors( $previous );
-
-		return $doc;
-	}
-
-	/**
-	 * Get the only direct child element from a wrapped fragment document.
-	 *
-	 * @param DOMDocument $doc DOM document.
-	 * @return DOMElement|null
-	 */
-	private static function sole_child_element( DOMDocument $doc ): ?DOMElement {
-		$root = $doc->documentElement;
-		if ( ! $root instanceof DOMElement ) {
-			return null;
-		}
-
-		$children = self::direct_element_children( $root );
-		return 1 === count( $children ) ? $children[0] : null;
-	}
-
-	/**
-	 * Get direct element children.
-	 *
-	 * @param DOMElement $element Element.
-	 * @return array<int, DOMElement>
-	 */
-	private static function direct_element_children( DOMElement $element ): array {
-		$children = array();
-		foreach ( $element->childNodes as $child ) {
-			if ( $child instanceof DOMElement ) {
-				$children[] = $child;
-			}
-		}
-
-		return $children;
-	}
-
-	/**
-	 * Serialize a DOM element.
-	 *
-	 * @param DOMDocument $doc  DOM document.
-	 * @param DOMElement  $node Element.
-	 * @return string
-	 */
-	private static function node_html( DOMDocument $doc, DOMElement $node ): string {
-		$html = $doc->saveHTML( $node );
-		return false === $html ? '' : $html;
-	}
-
-	/**
-	 * Serialize a DOM element's children.
-	 *
-	 * @param DOMDocument $doc  DOM document.
-	 * @param DOMElement  $node Element.
-	 * @return string
-	 */
-	private static function node_inner_html( DOMDocument $doc, DOMElement $node ): string {
-		$html = '';
-		foreach ( $node->childNodes as $child ) {
-			$fragment = $doc->saveHTML( $child );
-			if ( false !== $fragment ) {
-				$html .= $fragment;
-			}
-		}
-
-		return trim( $html );
-	}
-
-	/**
-	 * Convert one source page body to blocks after shared link rewriting.
+	 * Prepare one source page body to blocks after shared link rewriting.
 	 *
 	 * @param Static_Site_Importer_Source_Page $page      Source page.
 	 * @param array<string,string>             $route_map Route map.
@@ -2604,10 +2037,6 @@ class Static_Site_Importer_Theme_Generator {
 			return trim( (string) $title );
 		}
 
-		if ( 'markdown' === $page->type() && preg_match( '/^#\s+(.+)$/m', $page->body(), $matches ) ) {
-			return trim( $matches[1] );
-		}
-
 		return ucwords( str_replace( '-', ' ', self::page_slug( $filename, $page ) ) );
 	}
 
@@ -2630,7 +2059,7 @@ class Static_Site_Importer_Theme_Generator {
 			}
 		}
 
-		$extensionless = preg_replace( '/\.(?:html?|md|markdown)$/i', '', self::normalize_route_path( $filename ) );
+		$extensionless = preg_replace( '/\.(?:html?)$/i', '', self::normalize_route_path( $filename ) );
 		$extensionless = trim( (string) $extensionless, '/' );
 
 		if ( self::is_root_index_source_filename( $filename ) ) {
@@ -2670,73 +2099,6 @@ class Static_Site_Importer_Theme_Generator {
 
 		$post_type_object = get_post_type_object( $post_type );
 		return $post_type_object instanceof WP_Post_Type ? $post_type : 'page';
-	}
-
-	/**
-	 * Collect inline and linked local CSS.
-	 *
-	 * @param string                        $site_dir Site directory.
-	 * @param Static_Site_Importer_Document $document          Source document.
-	 * @param string                        $inline_source_path Source-relative path for inline style URL resolution.
-	 * @return string
-	 */
-	private static function site_css( string $site_dir, Static_Site_Importer_Document $document, string $inline_source_path = 'index.html' ): string {
-		$css           = array();
-		$real_site_dir = realpath( $site_dir );
-		$real_site_dir = false === $real_site_dir ? $site_dir : $real_site_dir;
-		foreach ( $document->stylesheet_hrefs() as $href ) {
-			$href_path = strtok( $href, '?' );
-			$path      = realpath( trailingslashit( $site_dir ) . ltrim( false === $href_path ? $href : $href_path, '/' ) );
-			if ( false === $path || ! str_starts_with( $path, $real_site_dir ) || ! is_readable( $path ) ) {
-				continue;
-			}
-
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads local static-site stylesheet files from the import directory.
-			$contents = file_get_contents( $path );
-			if ( false !== $contents ) {
-				$source_path = ltrim( str_replace( '\\', '/', substr( $path, strlen( trailingslashit( $real_site_dir ) ) ) ), '/' );
-				$css[]       = trim( self::rewrite_css_asset_references( $contents, $source_path, 'stylesheet:' . $source_path ) );
-			}
-		}
-
-		$inline = $document->inline_css();
-		if ( '' !== $inline ) {
-			$css[] = self::rewrite_css_asset_references( $inline, $inline_source_path, 'inline-style:' . $inline_source_path );
-		}
-
-		return trim( implode( "\n\n", array_filter( $css ) ) );
-	}
-
-	/**
-	 * Rewrite local CSS url(...) references through local asset materialization.
-	 *
-	 * @param string $css         CSS source.
-	 * @param string $source_path Source-relative stylesheet path.
-	 * @param string $source      Diagnostic source label.
-	 * @return string
-	 */
-	private static function rewrite_css_asset_references( string $css, string $source_path, string $source ): string {
-		if ( '' === trim( $css ) || ! str_contains( strtolower( $css ), 'url(' ) ) {
-			return $css;
-		}
-
-		return preg_replace_callback(
-			'/url\(\s*(["\']?)(.*?)\1\s*\)/i',
-			static function ( array $matches ) use ( $source_path, $source ): string {
-				$url = trim( html_entity_decode( (string) $matches[2], ENT_QUOTES ) );
-				if ( '' === $url || ! self::is_local_url( $url ) ) {
-					return $matches[0];
-				}
-
-				$asset = self::resolve_local_asset_reference( $url, $source_path, $source );
-				if ( null === $asset ) {
-					return $matches[0];
-				}
-
-				return 'url("' . esc_url_raw( (string) $asset['url'] ) . '")';
-			},
-			$css
-		) ?? $css;
 	}
 
 	/**
@@ -2825,781 +2187,6 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return true;
-	}
-
-	/**
-	 * Materialize safe inline SVG elements as generated theme assets.
-	 *
-	 * @param string $html   HTML fragment.
-	 * @param string $source Source fragment label.
-	 * @return string
-	 */
-	private static function materialize_inline_svg_icons( string $html, string $source ): string {
-		if ( '' === trim( $html ) || ! str_contains( strtolower( $html ), '<svg' ) || '' === self::$active_theme_dir ) {
-			return $html;
-		}
-
-		$doc      = self::load_fragment_document( $html );
-		$svgs     = iterator_to_array( $doc->getElementsByTagName( 'svg' ) );
-		$changed  = false;
-		$sequence = 0;
-
-		foreach ( $svgs as $svg ) {
-			if ( ! $svg->parentNode instanceof DOMNode ) {
-				continue;
-			}
-
-			++$sequence;
-			$svg_html = self::node_html( $doc, $svg );
-			$sprite   = self::sanitize_svg_symbol_sprite( $svg_html );
-			if ( null !== $sprite ) {
-				$asset = self::write_svg_sprite_asset( $sprite['svg'], $sprite['symbols'], $source, $sequence );
-				if ( is_wp_error( $asset ) ) {
-					self::record_svg_materialization_failure( $source, $svg_html, $asset );
-					continue;
-				}
-
-				$svg->parentNode->removeChild( $svg );
-				$changed = true;
-				continue;
-			}
-
-			$sprite_use_svg = self::svg_from_sprite_use_reference( $doc, $svg );
-			if ( null !== $sprite_use_svg ) {
-				$asset = self::write_svg_icon_asset( $sprite_use_svg, $source, $sequence, 'svg_symbol_use' );
-				if ( is_wp_error( $asset ) ) {
-					self::record_svg_materialization_failure( $source, $svg_html, $asset );
-					continue;
-				}
-
-				$img = self::image_node_for_svg_asset( $doc, $svg, $asset );
-				$svg->parentNode->replaceChild( $img, $svg );
-				$changed = true;
-				continue;
-			}
-
-			if ( self::is_local_svg_use_reference( $svg ) ) {
-				self::record_svg_sprite_reference_failure( $source, $svg_html, 'missing_symbol' );
-				continue;
-			}
-
-			$safe_svg = self::sanitize_inline_svg( $svg_html );
-			if ( null === $safe_svg ) {
-				self::record_unsafe_inline_svg( $source, $svg_html );
-				continue;
-			}
-
-			$asset = self::write_svg_icon_asset( $safe_svg, $source, $sequence, 'inline_svg_icon' );
-			if ( is_wp_error( $asset ) ) {
-				self::record_svg_materialization_failure( $source, $svg_html, $asset );
-				continue;
-			}
-
-			$img = self::image_node_for_svg_asset( $doc, $svg, $asset );
-			$svg->parentNode->replaceChild( $img, $svg );
-			$changed = true;
-		}
-
-		if ( ! $changed ) {
-			return $html;
-		}
-
-		$root = $doc->documentElement;
-		if ( ! $root instanceof DOMElement ) {
-			return $html;
-		}
-
-		$output = '';
-		foreach ( $root->childNodes as $child ) {
-			$fragment = $doc->saveHTML( $child );
-			if ( false !== $fragment ) {
-				$output .= $fragment;
-			}
-		}
-
-		return '' === trim( $output ) ? $html : $output;
-	}
-
-	/**
-	 * Discover sprites before converting chrome so header/footer use references can resolve.
-	 *
-	 * @param array{background:string,header:string,main:string,footer:string} $entry_fragments Entry document fragments.
-	 * @param array<string, Static_Site_Importer_Source_Page>                  $pages           Imported pages.
-	 * @return void
-	 */
-	private static function pre_register_svg_symbol_sprites( array $entry_fragments, array $pages ): void {
-		foreach ( $entry_fragments as $name => $html ) {
-			self::register_svg_symbol_sprites_from_html( (string) $html, $name . ':index.html' );
-		}
-
-		foreach ( $pages as $filename => $page ) {
-			$fragments = $page->document()->fragments();
-			self::register_svg_symbol_sprites_from_html( $fragments['main'], 'main:' . $filename );
-		}
-	}
-
-	/**
-	 * Register safe symbol sprites from a fragment without mutating that fragment.
-	 *
-	 * @param string $html   HTML fragment.
-	 * @param string $source Source fragment label.
-	 * @return void
-	 */
-	private static function register_svg_symbol_sprites_from_html( string $html, string $source ): void {
-		if ( '' === trim( $html ) || ! str_contains( strtolower( $html ), '<symbol' ) || '' === self::$active_theme_dir ) {
-			return;
-		}
-
-		$doc      = self::load_fragment_document( $html );
-		$svgs     = iterator_to_array( $doc->getElementsByTagName( 'svg' ) );
-		$sequence = 0;
-		foreach ( $svgs as $svg ) {
-			++$sequence;
-			$svg_html = self::node_html( $doc, $svg );
-			$sprite   = self::sanitize_svg_symbol_sprite( $svg_html );
-			if ( null === $sprite ) {
-				continue;
-			}
-
-			$asset = self::write_svg_sprite_asset( $sprite['svg'], $sprite['symbols'], $source, $sequence );
-			if ( is_wp_error( $asset ) ) {
-				self::record_svg_materialization_failure( $source, $svg_html, $asset );
-			}
-		}
-	}
-
-	/**
-	 * Build an image node for a materialized SVG asset while preserving visual hooks.
-	 *
-	 * @param DOMDocument                $doc              Fragment document.
-	 * @param DOMElement                 $svg              Source SVG element.
-	 * @param array<string, string>      $asset            Materialized asset metadata.
-	 * @return DOMElement
-	 */
-	private static function image_node_for_svg_asset( DOMDocument $doc, DOMElement $svg, array $asset ): DOMElement {
-		$img = $doc->createElement( 'img' );
-		$img->setAttribute( 'src', $asset['url'] );
-		$img->setAttribute( 'alt', self::svg_accessible_label( $svg ) );
-		if ( $svg->hasAttribute( 'class' ) ) {
-			$img->setAttribute( 'class', $svg->getAttribute( 'class' ) );
-		}
-		foreach ( array( 'aria-hidden', 'role' ) as $attribute ) {
-			if ( $svg->hasAttribute( $attribute ) ) {
-				$img->setAttribute( $attribute, $svg->getAttribute( $attribute ) );
-			}
-		}
-
-		return $img;
-	}
-
-	/**
-	 * Sanitize an inline SVG symbol sprite and return symbol metadata.
-	 *
-	 * @param string $svg_html SVG markup.
-	 * @return array{svg:string,symbols:array<string,array<string,string>>}|null Sanitized sprite, or null when not a safe sprite.
-	 */
-	private static function sanitize_svg_symbol_sprite( string $svg_html ): ?array {
-		if ( ! str_contains( strtolower( $svg_html ), '<symbol' ) ) {
-			return null;
-		}
-
-		$doc      = new DOMDocument();
-		$previous = libxml_use_internal_errors( true );
-		$loaded   = $doc->loadXML( trim( $svg_html ), LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING );
-		libxml_clear_errors();
-		libxml_use_internal_errors( $previous );
-		if ( ! $loaded || ! $doc->documentElement instanceof DOMElement || 'svg' !== strtolower( $doc->documentElement->tagName ) ) {
-			return null;
-		}
-
-		$allowed_tags = array_fill_keys(
-			array( 'svg', 'symbol', 'g', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse', 'title', 'desc' ),
-			true
-		);
-		$symbols      = array();
-		foreach ( $doc->getElementsByTagName( '*' ) as $node ) {
-			if ( ! isset( $allowed_tags[ $node->tagName ] ) ) {
-				return null;
-			}
-
-			foreach ( iterator_to_array( $node->attributes ) as $attribute ) {
-				$name  = $attribute->name;
-				$lower = strtolower( $name );
-				$value = $attribute->value;
-				if ( 'style' === $lower && self::is_hidden_svg_sprite_style( $value ) ) {
-					$node->removeAttribute( $name );
-					continue;
-				}
-
-				if ( str_starts_with( $lower, 'on' ) || preg_match( '/(?:javascript:|data:|url\s*\(|href\s*=)/i', $value ) ) {
-					return null;
-				}
-
-				if ( ! in_array( $name, array( 'xmlns', 'id', 'viewBox', 'viewbox', 'width', 'height', 'fill', 'fill-opacity', 'stroke', 'stroke-opacity', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'd', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'points', 'transform', 'opacity', 'class', 'role', 'aria-hidden', 'aria-label', 'focusable' ), true ) ) {
-					return null;
-				}
-			}
-		}
-
-		foreach ( $doc->getElementsByTagName( 'symbol' ) as $symbol ) {
-			$id = trim( $symbol->getAttribute( 'id' ) );
-			if ( '' === $id || ! preg_match( '/^[A-Za-z][A-Za-z0-9_-]*$/', $id ) ) {
-				return null;
-			}
-
-			$view_box       = $symbol->hasAttribute( 'viewBox' ) ? $symbol->getAttribute( 'viewBox' ) : $symbol->getAttribute( 'viewbox' );
-			$symbols[ $id ] = array(
-				'id'      => $id,
-				'viewBox' => $view_box,
-				'inner'   => self::node_inner_html( $doc, $symbol ),
-			);
-		}
-
-		if ( empty( $symbols ) ) {
-			return null;
-		}
-
-		if ( ! $doc->documentElement->hasAttribute( 'xmlns' ) ) {
-			$doc->documentElement->setAttribute( 'xmlns', 'http://www.w3.org/2000/svg' );
-		}
-
-		$svg = $doc->saveXML( $doc->documentElement );
-		return false === $svg ? null : array(
-			'svg'     => $svg,
-			'symbols' => $symbols,
-		);
-	}
-
-	/**
-	 * Check whether a sprite style only hides the symbol definitions from layout.
-	 *
-	 * @param string $style Style attribute value.
-	 * @return bool
-	 */
-	private static function is_hidden_svg_sprite_style( string $style ): bool {
-		$declarations = array_filter( array_map( 'trim', explode( ';', strtolower( $style ) ) ) );
-		if ( empty( $declarations ) ) {
-			return false;
-		}
-
-		foreach ( $declarations as $declaration ) {
-			if ( ! in_array( $declaration, array( 'display:none', 'display: none', 'visibility:hidden', 'visibility: hidden' ), true ) ) {
-				return false;
-			}
-		}
-
-		return true;
-	}
-
-	/**
-	 * Resolve a local SVG use reference into a standalone safe SVG icon asset payload.
-	 *
-	 * @param DOMDocument $doc Fragment document.
-	 * @param DOMElement  $svg Source SVG element.
-	 * @return string|null Standalone SVG, or null when not backed by an extracted sprite symbol.
-	 */
-	private static function svg_from_sprite_use_reference( DOMDocument $doc, DOMElement $svg ): ?string {
-		$href = self::local_svg_use_href( $svg );
-		if ( null === $href || ! isset( self::$svg_sprite_symbols[ $href ] ) ) {
-			return null;
-		}
-
-		$symbol = self::$svg_sprite_symbols[ $href ];
-		$attrs  = array(
-			'xmlns' => 'http://www.w3.org/2000/svg',
-		);
-		foreach ( array( 'viewBox', 'width', 'height', 'fill', 'stroke', 'role', 'aria-hidden', 'aria-label', 'class' ) as $attribute ) {
-			if ( $svg->hasAttribute( $attribute ) ) {
-				$attrs[ $attribute ] = $svg->getAttribute( $attribute );
-			}
-		}
-		if ( empty( $attrs['viewBox'] ) && ! empty( $symbol['viewBox'] ) ) {
-			$attrs['viewBox'] = $symbol['viewBox'];
-		}
-
-		$markup = '<svg';
-		foreach ( $attrs as $name => $value ) {
-			if ( '' !== trim( $value ) ) {
-				$markup .= ' ' . $name . '="' . esc_attr( $value ) . '"';
-			}
-		}
-		$markup .= '>' . $symbol['inner'] . '</svg>';
-
-		return self::sanitize_inline_svg( $markup );
-	}
-
-	/**
-	 * Check whether an SVG is a local symbol use reference.
-	 *
-	 * @param DOMElement $svg Source SVG element.
-	 * @return bool
-	 */
-	private static function is_local_svg_use_reference( DOMElement $svg ): bool {
-		return null !== self::local_svg_use_href( $svg );
-	}
-
-	/**
-	 * Extract a single local symbol href from an SVG use-reference icon.
-	 *
-	 * @param DOMElement $svg Source SVG element.
-	 * @return string|null Symbol id without the # prefix.
-	 */
-	private static function local_svg_use_href( DOMElement $svg ): ?string {
-		$uses = $svg->getElementsByTagName( 'use' );
-		if ( 1 !== $uses->length ) {
-			return null;
-		}
-
-		$use = $uses->item( 0 );
-		if ( ! $use instanceof DOMElement ) {
-			return null;
-		}
-
-		$href = trim( $use->getAttribute( 'href' ) );
-		if ( '' === $href ) {
-			$href = trim( $use->getAttribute( 'xlink:href' ) );
-		}
-
-		if ( ! str_starts_with( $href, '#' ) ) {
-			return null;
-		}
-
-		$id = substr( $href, 1 );
-		return preg_match( '/^[A-Za-z][A-Za-z0-9_-]*$/', $id ) ? $id : null;
-	}
-
-	/**
-	 * Validate an inline SVG against a conservative icon-safe subset.
-	 *
-	 * @param string $svg_html SVG markup.
-	 * @return string|null
-	 */
-	private static function sanitize_inline_svg( string $svg_html ): ?string {
-		$doc      = new DOMDocument();
-		$previous = libxml_use_internal_errors( true );
-		$loaded   = $doc->loadXML( trim( $svg_html ) );
-		libxml_clear_errors();
-		libxml_use_internal_errors( $previous );
-		if ( ! $loaded || ! $doc->documentElement instanceof DOMElement || 'svg' !== strtolower( $doc->documentElement->tagName ) ) {
-			return null;
-		}
-
-		$allowed_tags       = array_fill_keys(
-			array(
-				'svg',
-				'g',
-				'path',
-				'circle',
-				'rect',
-				'line',
-				'polyline',
-				'polygon',
-				'ellipse',
-				'title',
-				'desc',
-				'defs',
-				'clipPath',
-				'linearGradient',
-				'radialGradient',
-				'stop',
-			),
-			true
-		);
-		$allowed_attributes = array_fill_keys(
-			array(
-				'xmlns',
-				'viewBox',
-				'viewbox',
-				'width',
-				'height',
-				'fill',
-				'fill-opacity',
-				'stroke',
-				'stroke-opacity',
-				'stroke-width',
-				'stroke-linecap',
-				'stroke-linejoin',
-				'stroke-miterlimit',
-				'stroke-dasharray',
-				'stroke-dashoffset',
-				'd',
-				'cx',
-				'cy',
-				'r',
-				'rx',
-				'ry',
-				'x',
-				'y',
-				'x1',
-				'y1',
-				'x2',
-				'y2',
-				'points',
-				'transform',
-				'opacity',
-				'preserveAspectRatio',
-				'preserveaspectratio',
-				'fill-rule',
-				'clip-rule',
-				'clip-path',
-				'class',
-				'role',
-				'aria-hidden',
-				'aria-label',
-				'focusable',
-				'id',
-				'offset',
-				'stop-color',
-				'stop-opacity',
-				'gradientUnits',
-				'gradientTransform',
-			),
-			true
-		);
-
-		foreach ( $doc->getElementsByTagName( '*' ) as $node ) {
-			if ( ! isset( $allowed_tags[ $node->tagName ] ) ) {
-				return null;
-			}
-
-			foreach ( iterator_to_array( $node->attributes ) as $attribute ) {
-				$name  = $attribute->name;
-				$lower = strtolower( $name );
-				$value = $attribute->value;
-				if ( 'style' === $lower ) {
-					if ( null === self::safe_svg_dimension_style( $value ) ) {
-						return null;
-					}
-					continue;
-				}
-
-				if ( str_starts_with( $lower, 'on' ) || ! isset( $allowed_attributes[ $name ] ) || preg_match( '/(?:javascript:|data:|url\s*\()/i', $value ) ) {
-					return null;
-				}
-			}
-		}
-
-		if ( ! $doc->documentElement->hasAttribute( 'xmlns' ) ) {
-			$doc->documentElement->setAttribute( 'xmlns', 'http://www.w3.org/2000/svg' );
-		}
-		if ( $doc->documentElement->hasAttribute( 'viewbox' ) && ! $doc->documentElement->hasAttribute( 'viewBox' ) ) {
-			$doc->documentElement->setAttribute( 'viewBox', $doc->documentElement->getAttribute( 'viewbox' ) );
-			$doc->documentElement->removeAttribute( 'viewbox' );
-		}
-		if ( $doc->documentElement->hasAttribute( 'preserveaspectratio' ) && ! $doc->documentElement->hasAttribute( 'preserveAspectRatio' ) ) {
-			$doc->documentElement->setAttribute( 'preserveAspectRatio', $doc->documentElement->getAttribute( 'preserveaspectratio' ) );
-			$doc->documentElement->removeAttribute( 'preserveaspectratio' );
-		}
-
-		$svg = $doc->saveXML( $doc->documentElement );
-		return false === $svg ? null : $svg;
-	}
-
-	/**
-	 * Parse an inline SVG style attribute that only carries safe dimensions.
-	 *
-	 * @param string $style Style attribute value.
-	 * @return array{width?:string,height?:string}|null Dimensions, or null when unsafe/unsupported.
-	 */
-	private static function safe_svg_dimension_style( string $style ): ?array {
-		$dimensions = array();
-		foreach ( explode( ';', $style ) as $declaration ) {
-			$declaration = trim( $declaration );
-			if ( '' === $declaration ) {
-				continue;
-			}
-
-			if ( 1 !== preg_match( '/^(width|height)\s*:\s*([0-9]+(?:\.[0-9]+)?)px$/i', $declaration, $matches ) ) {
-				return null;
-			}
-
-			$dimensions[ strtolower( $matches[1] ) ] = $matches[2];
-		}
-
-		return $dimensions;
-	}
-
-	/**
-	 * Write one sanitized SVG sprite asset and register its symbol ids.
-	 *
-	 * @param string                                          $svg      Sanitized sprite markup.
-	 * @param array<string, array<string, string>>            $symbols  Symbol metadata keyed by id.
-	 * @param string                                          $source   Source fragment label.
-	 * @param int                                             $sequence Sequence within the fragment.
-	 * @return array<string, mixed>|WP_Error
-	 */
-	private static function write_svg_sprite_asset( string $svg, array $symbols, string $source, int $sequence ) {
-		$hash = substr( hash( 'sha256', $svg ), 0, 16 );
-		if ( isset( self::$materialized_svg_sprites[ $hash ] ) ) {
-			foreach ( $symbols as $id => $symbol ) {
-				self::$svg_sprite_symbols[ $id ] = $symbol;
-			}
-
-			return self::$materialized_svg_sprites[ $hash ];
-		}
-
-		$name     = sanitize_title( preg_replace( '/[^A-Za-z0-9_-]+/', '-', $source ) . '-sprite-' . $sequence );
-		$name     = '' === $name ? 'svg-sprite-' . $sequence : $name;
-		$relative = 'assets/icons/' . $name . '-' . $hash . '.svg';
-		$path     = trailingslashit( self::$active_theme_dir ) . $relative;
-		$dir      = dirname( $path );
-		if ( ! wp_mkdir_p( $dir ) ) {
-			return new WP_Error( 'static_site_importer_svg_sprite_mkdir_failed', sprintf( 'Failed to create SVG sprite directory: %s', $dir ) );
-		}
-
-		$result = Static_Site_Importer_Theme_Materializer::write_file( $path, $svg . "\n" );
-		if ( is_wp_error( $result ) ) {
-			return $result;
-		}
-
-		foreach ( $symbols as $id => $symbol ) {
-			self::$svg_sprite_symbols[ $id ] = $symbol;
-		}
-
-		// phpcs:ignore Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- Keep the compact local variable readable beside the longer static writes below.
-		$asset = array(
-			'name'       => basename( $relative ),
-			'path'       => $relative,
-			'url'        => trailingslashit( self::$active_theme_uri ) . $relative,
-			'hash'       => $hash,
-			'source'     => $source,
-			'symbol_ids' => array_keys( $symbols ),
-		);
-		self::$materialized_svg_sprites[ $hash ] = $asset;
-		self::$conversion_report['assets']['svg_sprites'][] = $asset;
-
-		return $asset;
-	}
-
-	/**
-	 * Write one sanitized SVG icon asset and return its generated metadata.
-	 *
-	 * @param string $svg            Sanitized SVG markup.
-	 * @param string $source         Source fragment label.
-	 * @param int    $sequence       Sequence within the fragment.
-	 * @param string $classification Upstream or SSI asset classification.
-	 * @return array<string, string>|WP_Error
-	 */
-	private static function write_svg_icon_asset( string $svg, string $source, int $sequence, string $classification ) {
-		$hash = substr( hash( 'sha256', $svg ), 0, 16 );
-		if ( isset( self::$materialized_svg_assets[ $hash ] ) ) {
-			return self::$materialized_svg_assets[ $hash ];
-		}
-
-		$name     = sanitize_title( preg_replace( '/[^A-Za-z0-9_-]+/', '-', $source ) . '-' . $sequence );
-		$name     = '' === $name ? 'icon-' . $sequence : $name;
-		$relative = 'assets/icons/' . $name . '-' . $hash . '.svg';
-		$path     = trailingslashit( self::$active_theme_dir ) . $relative;
-		$dir      = dirname( $path );
-		if ( ! wp_mkdir_p( $dir ) ) {
-			return new WP_Error( 'static_site_importer_svg_icon_mkdir_failed', sprintf( 'Failed to create SVG icon directory: %s', $dir ) );
-		}
-
-		$result = Static_Site_Importer_Theme_Materializer::write_file( $path, $svg . "\n" );
-		if ( is_wp_error( $result ) ) {
-			return $result;
-		}
-
-		// phpcs:ignore Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- Keep the compact local variable readable beside the longer static writes below.
-		$asset = array(
-			'name'           => basename( $relative ),
-			'path'           => $relative,
-			'url'            => trailingslashit( self::$active_theme_uri ) . $relative,
-			'hash'           => $hash,
-			'source'         => $source,
-			'block'          => 'core/image',
-			'classification' => $classification,
-		);
-		self::$materialized_svg_assets[ $hash ] = $asset;
-		self::$conversion_report['assets']['svg_icons'][] = $asset;
-
-		return $asset;
-	}
-
-	/**
-	 * Extract a safe alt label from SVG accessibility nodes/attributes.
-	 *
-	 * @param DOMElement $svg SVG element.
-	 * @return string
-	 */
-	private static function svg_accessible_label( DOMElement $svg ): string {
-		foreach ( array( 'aria-label', 'title' ) as $attribute ) {
-			$label = trim( $svg->getAttribute( $attribute ) );
-			if ( '' !== $label ) {
-				return $label;
-			}
-		}
-
-		$title = $svg->getElementsByTagName( 'title' )->item( 0 );
-		return $title instanceof DOMElement ? trim( $title->textContent ) : '';
-	}
-
-	/**
-	 * Record an unsafe inline SVG that could not be materialized.
-	 *
-	 * @param string $source   Source fragment label.
-	 * @param string $svg_html SVG markup.
-	 * @return void
-	 */
-	private static function record_unsafe_inline_svg( string $source, string $svg_html ): void {
-		++self::$conversion_report['quality']['unsafe_svg_count'];
-		self::$conversion_report['diagnostics'][] = array(
-			'type'         => 'unsafe_inline_svg',
-			'source'       => $source,
-			'html_length'  => strlen( $svg_html ),
-			'html_excerpt' => self::diagnostic_excerpt( $svg_html ),
-		);
-	}
-
-	/**
-	 * Record a filesystem failure while materializing a safe inline SVG.
-	 *
-	 * @param string   $source   Source fragment label.
-	 * @param string   $svg_html SVG markup.
-	 * @param WP_Error $error    Write error.
-	 * @return void
-	 */
-	private static function record_svg_materialization_failure( string $source, string $svg_html, WP_Error $error ): void {
-		++self::$conversion_report['quality']['svg_materialization_failure_count'];
-		self::$conversion_report['diagnostics'][] = array(
-			'type'          => 'svg_materialization_failure',
-			'source'        => $source,
-			'error_code'    => $error->get_error_code(),
-			'error_message' => $error->get_error_message(),
-			'html_length'   => strlen( $svg_html ),
-			'html_excerpt'  => self::diagnostic_excerpt( $svg_html ),
-		);
-	}
-
-	/**
-	 * Record a local SVG use reference that could not be resolved from an extracted sprite.
-	 *
-	 * @param string $source   Source fragment label.
-	 * @param string $svg_html SVG markup.
-	 * @param string $reason   Failure reason.
-	 * @return void
-	 */
-	private static function record_svg_sprite_reference_failure( string $source, string $svg_html, string $reason ): void {
-		++self::$conversion_report['quality']['svg_sprite_reference_failure_count'];
-		self::$conversion_report['diagnostics'][] = array(
-			'type'         => 'svg_sprite_reference_failure',
-			'source'       => $source,
-			'reason'       => $reason,
-			'html_length'  => strlen( $svg_html ),
-			'html_excerpt' => self::diagnostic_excerpt( $svg_html ),
-		);
-	}
-
-	/**
-	 * Record the bundle-level compiler result used by import_website_artifact().
-	 *
-	 * @param array<string,mixed> $compiled Compiler result envelope.
-	 * @return void
-	 */
-	private static function record_website_artifact_compiler_result( array $compiled ): void {
-		$artifacts = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
-		$site      = isset( $artifacts['site'] ) && is_array( $artifacts['site'] ) ? $artifacts['site'] : array();
-		self::$conversion_report['block_artifact_compiler']['available']        = true;
-		self::$conversion_report['block_artifact_compiler']['website_artifact'] = array(
-			'summary'     => bac_summarize_result( $compiled ),
-			'provenance'  => isset( $compiled['provenance'] ) && is_array( $compiled['provenance'] ) ? $compiled['provenance'] : array(),
-			'input'       => isset( $compiled['input'] ) && is_array( $compiled['input'] ) ? $compiled['input'] : array(),
-			'diagnostics' => isset( $compiled['diagnostics'] ) && is_array( $compiled['diagnostics'] ) ? $compiled['diagnostics'] : array(),
-		);
-
-		if ( 'block-artifact-compiler/compiled-site/v1' === (string) ( $site['schema'] ?? '' ) ) {
-			self::$conversion_report['block_artifact_compiler']['compiled_site'] = self::compiled_site_report_payload( $site );
-		}
-	}
-
-	/**
-	 * Preserve the BAC compiled-site contract in the SSI import report.
-	 *
-	 * @param array<string,mixed> $site BAC compiled-site artifact.
-	 * @return array<string,mixed>
-	 */
-	private static function compiled_site_report_payload( array $site ): array {
-		$pages          = isset( $site['pages'] ) && is_array( $site['pages'] ) ? $site['pages'] : array();
-		$shared_regions = isset( $site['shared_regions'] ) && is_array( $site['shared_regions'] ) ? $site['shared_regions'] : array();
-		$theme_assets   = isset( $site['theme_assets'] ) && is_array( $site['theme_assets'] ) ? $site['theme_assets'] : array();
-
-		return array(
-			'schema'              => (string) ( $site['schema'] ?? '' ),
-			'page_count'          => count( $pages ),
-			'pages'               => self::compiled_site_pages_report_payload( $pages ),
-			'shared_region_count' => count( $shared_regions ),
-			'shared_regions'      => $shared_regions,
-			'theme_assets'        => array(
-				'styles'  => isset( $theme_assets['styles'] ) && is_array( $theme_assets['styles'] ) ? $theme_assets['styles'] : array(),
-				'scripts' => isset( $theme_assets['scripts'] ) && is_array( $theme_assets['scripts'] ) ? $theme_assets['scripts'] : array(),
-			),
-			'provenance'          => isset( $site['provenance'] ) && is_array( $site['provenance'] ) ? $site['provenance'] : array(),
-		);
-	}
-
-	/**
-	 * Normalize compiled-site page rows for reports.
-	 *
-	 * @param array<int,mixed> $pages Compiled-site page rows.
-	 * @return array<int,array<string,mixed>>
-	 */
-	private static function compiled_site_pages_report_payload( array $pages ): array {
-		$normalized = array();
-		foreach ( $pages as $page ) {
-			if ( ! is_array( $page ) ) {
-				continue;
-			}
-
-			$normalized[] = array(
-				'source_path' => isset( $page['source_path'] ) && is_scalar( $page['source_path'] ) ? (string) $page['source_path'] : '',
-				'route_key'   => isset( $page['route_key'] ) && is_scalar( $page['route_key'] ) ? (string) $page['route_key'] : '',
-				'slug'        => isset( $page['slug'] ) && is_scalar( $page['slug'] ) ? (string) $page['slug'] : '',
-				'post_type'   => isset( $page['post_type'] ) && is_scalar( $page['post_type'] ) ? (string) $page['post_type'] : '',
-				'title'       => isset( $page['title'] ) && is_scalar( $page['title'] ) ? (string) $page['title'] : '',
-				'entrypoint'  => ! empty( $page['entrypoint'] ),
-				'artifact'    => isset( $page['artifact'] ) && is_scalar( $page['artifact'] ) ? (string) $page['artifact'] : '',
-			);
-		}
-
-		return $normalized;
-	}
-
-	/**
-	 * Record source and contract notes for direct website-artifact materialization.
-	 *
-	 * @param array<string,mixed> $compiled Compiler result envelope.
-	 * @return void
-	 */
-	private static function record_direct_website_artifact_source_summary( array $compiled ): void {
-		$artifacts = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
-		$files     = isset( $artifacts['files'] ) && is_array( $artifacts['files'] ) ? $artifacts['files'] : array();
-		$source    = (string) ( $compiled['provenance']['source'] ?? ( $compiled['input']['entry_path'] ?? 'website_artifact' ) );
-
-		$source_documents = array_merge(
-			self::$conversion_report['source_documents'],
-			array(
-				'total_count'      => 1,
-				'counts_by_format' => array(
-					'html'     => 1,
-					'markdown' => 0,
-					'mdx'      => 0,
-				),
-			)
-		);
-
-		self::$conversion_report['source_documents'] = $source_documents;
-		self::$conversion_report['source_documents']['direct_website_artifact'] = array(
-			'source'     => '' !== $source ? $source : 'website_artifact',
-			'file_count' => count( $files ),
-		);
-
-		self::$conversion_report['diagnostics'][] = array(
-			'type'        => 'website_artifact_materialization_contract_note',
-			'source'      => '' !== $source ? $source : 'website_artifact',
-			'message'     => 'Direct materialization consumed BAC block_markup, documents, files, and compiled-site artifacts. SSI owns WordPress writes while BAC owns materializer-neutral site/theme compilation.',
-			'contract'    => 'block-artifact-compiler/result/v1',
-			'constraints' => 'report_only',
-		);
 	}
 
 	/**
@@ -3771,6 +2358,42 @@ class Static_Site_Importer_Theme_Generator {
 			'css' => $result['css'],
 			'js'  => $result['js'],
 		);
+	}
+
+	/**
+	 * Collect BAC selector provenance from every WordPress artifact boundary.
+	 *
+	 * @param array<string,mixed> $artifacts BAC WordPress artifacts.
+	 * @return array<int,array<string,mixed>> Selector provenance rows.
+	 */
+	private static function selector_provenance_from_artifacts( array $artifacts ): array {
+		$rows = array();
+		foreach ( array( 'selector_provenance' ) as $field ) {
+			if ( isset( $artifacts[ $field ] ) && is_array( $artifacts[ $field ] ) ) {
+				$rows = array_merge( $rows, array_filter( $artifacts[ $field ], 'is_array' ) );
+			}
+		}
+
+		foreach ( array( 'documents', 'template_parts' ) as $artifact_field ) {
+			$items = isset( $artifacts[ $artifact_field ] ) && is_array( $artifacts[ $artifact_field ] ) ? $artifacts[ $artifact_field ] : array();
+			foreach ( $items as $item ) {
+				if ( ! is_array( $item ) || ! isset( $item['selector_provenance'] ) || ! is_array( $item['selector_provenance'] ) ) {
+					continue;
+				}
+
+				$rows = array_merge( $rows, array_filter( $item['selector_provenance'], 'is_array' ) );
+			}
+		}
+
+		$deduped = array();
+		foreach ( $rows as $row ) {
+			$key = json_encode( $row );
+			if ( is_string( $key ) && '' !== $key ) {
+				$deduped[ $key ] = $row;
+			}
+		}
+
+		return array_values( $deduped );
 	}
 
 	/**
@@ -4194,189 +2817,6 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Append a class to the first HTML class attribute in a serialized block fragment.
-	 *
-	 * @param string $html  HTML fragment.
-	 * @param string $class_name_to_append Class to append.
-	 * @return string Updated HTML fragment.
-	 */
-	private static function append_class_to_first_html_class_attribute( string $html, string $class_name_to_append ): string {
-		$updated = preg_replace_callback(
-			'/class="([^"]*)"/',
-			static function ( array $matches ) use ( $class_name_to_append ): string {
-				return 'class="' . esc_attr( self::append_class_token( html_entity_decode( $matches[1], ENT_QUOTES ), $class_name_to_append ) ) . '"';
-			},
-			$html,
-			1
-		);
-
-		return null === $updated ? $html : $updated;
-	}
-
-	/**
-	 * Initialize a conversion report.
-	 *
-	 * @param string $html_path Imported entry file.
-	 * @return array<string, mixed>
-	 */
-	private static function new_conversion_report( string $html_path, array $source_metadata = array() ): array {
-		return array(
-			'version'                 => 1,
-			'entry_file'              => $html_path,
-			'source'                  => array_merge(
-				array(
-					'type' => empty( $source_metadata ) ? 'file' : (string) ( $source_metadata['source_type'] ?? 'file' ),
-				),
-				$source_metadata
-			),
-			'quality'                 => array(
-				'pass'                               => true,
-				'fallback_count'                     => 0,
-				'content_loss_count'                 => 0,
-				'empty_conversion_count'             => 0,
-				'core_html_block_count'              => 0,
-				'freeform_block_count'               => 0,
-				'invalid_block_count'                => 0,
-				'invalid_block_document_count'       => 0,
-				'unsafe_svg_count'                   => 0,
-				'svg_materialization_failure_count'  => 0,
-				'svg_sprite_reference_failure_count' => 0,
-				'commerce_dependency_failures'       => 0,
-				'failure_reasons'                    => array(),
-			),
-			'source_documents'        => array(
-				'total_count'                => 0,
-				'counts_by_format'           => array(
-					'html'     => 0,
-					'markdown' => 0,
-					'mdx'      => 0,
-				),
-				'skipped_mdx_count'          => 0,
-				'unresolved_links'           => array(),
-				'unresolved_link_count'      => 0,
-				'markdown_parse_error_count' => 0,
-			),
-			'conversion_fragments'    => array(),
-			'source_region_selection' => array(
-				'entry_file'                    => '',
-				'page_body'                     => null,
-				'extracted_header'              => null,
-				'extracted_footer'              => null,
-				'unassigned_regions'            => array(),
-				'intentionally_ignored_regions' => array(),
-				'counts'                        => array(
-					'source_landmarks'              => array(
-						'main'   => 0,
-						'header' => 0,
-						'nav'    => 0,
-						'footer' => 0,
-					),
-					'unassigned_regions'            => 0,
-					'intentionally_ignored_regions' => 0,
-				),
-				'notes'                         => array(
-					'Reports which source region became the page body, the extracted header/footer parts, and any meaningful direct body children that were not assigned to a generated region. Reporting only — does not change conversion behavior.',
-				),
-			),
-			'commerce_context'        => array(
-				'supplied'       => false,
-				'source'         => 'none',
-				'product_count'  => 0,
-				'selector_hints' => array(),
-				'diagnostics'    => array(),
-			),
-			'assets'                  => array(
-				'policy'       => 'theme',
-				'local_policy' => 'copy_to_theme',
-				'svg_icons'    => array(),
-				'svg_sprites'  => array(),
-				'local'        => array(),
-			),
-			'asset_map'               => array(
-				'supplied'         => false,
-				'entry_count'      => 0,
-				'resolved_count'   => 0,
-				'unresolved_count' => 0,
-				'resolved'         => array(),
-				'unresolved'       => array(),
-			),
-			'block_artifact_compiler' => array(
-				'available'      => true,
-				'fragment_count' => 0,
-				'fragments'      => array(),
-			),
-			'generated_theme'         => array(
-				'document_metadata' => array(),
-				'template_parts'    => array(),
-				'block_documents' => array(),
-				'freeform_blocks' => array(),
-			),
-			'visual_fidelity'         => array(
-				'status'             => 'requires_external_render_check',
-				'gate_owner'         => 'benchmark_harness',
-				'comparison_targets' => array(),
-				'notes'              => array(
-					'Static Site Importer records source and generated DOM probes, render URLs, and theme artifacts for visual comparison; screenshot capture and computed-style/layout thresholds belong to the benchmark harness.',
-				),
-			),
-			'semantic_fidelity'       => array(
-				'status'             => 'requires_external_render_check',
-				'gate_owner'         => 'benchmark_harness',
-				'comparison_targets' => array(),
-				'notes'              => array(
-					'Static Site Importer records source/generated semantic comparison targets; browser DOM extraction and semantic fingerprint comparison belong to the benchmark harness.',
-				),
-			),
-			'diagnostics'             => array(),
-			'notes'                   => array(
-				'Block Artifact Compiler owns the website-artifact to WordPress-artifact envelope; Static Site Importer materializes the result and records compiler summaries.',
-				'Block Format Bridge owns HTML-to-block transform fidelity; Static Site Importer records converter diagnostics and quality gates the generated theme.',
-				'Generated-theme block validation uses WordPress server-side block parsing and serialization checks; editor-runtime validation remains the exact Gutenberg authority.',
-				'Visual fidelity requires browser rendering; use visual_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',
-				'Semantic fidelity requires browser DOM extraction; use semantic_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',
-			),
-		);
-	}
-
-	/**
-	 * Record page-body extraction decisions for the import report.
-	 *
-	 * Captures the page-body source mode/selector, extracted header/footer
-	 * selectors, and any meaningful direct body children that were not
-	 * assigned to a generated region. Reporting only — does not change
-	 * conversion behavior.
-	 *
-	 * @param Static_Site_Importer_Document $document  Entry document.
-	 * @param string                        $html_path Entry HTML path.
-	 * @return void
-	 */
-	private static function record_source_region_selection( Static_Site_Importer_Document $document, string $html_path ): void {
-		$selection               = $document->selection_report();
-		$selection['entry_file'] = $html_path;
-		// Preserve notes already present on the report shape.
-		$existing_notes = self::$conversion_report['source_region_selection']['notes'] ?? array();
-		if ( ! empty( $existing_notes ) ) {
-			$selection['notes'] = $existing_notes;
-		}
-
-		self::$conversion_report['source_region_selection'] = $selection;
-
-		foreach ( $selection['unassigned_regions'] as $region ) {
-			self::$conversion_report['diagnostics'][] = array(
-				'type'       => 'source_region_unassigned',
-				'role'       => $region['role'] ?? 'unassigned_body_child',
-				'reason'     => $region['reason'] ?? '',
-				'selector'   => $region['selector'] ?? '',
-				'tag'        => $region['tag'] ?? '',
-				'line_range' => $region['line_range'] ?? null,
-				'excerpt'    => $region['excerpt'] ?? '',
-				'source'     => $html_path,
-				'message'    => 'Source region was not assigned to a generated theme part or page pattern. Inspect source_region_selection.unassigned_regions in import-report.json for the selector path and source line range.',
-			);
-		}
-	}
-
-	/**
 	 * Record BAC-owned source document materialization details.
 	 *
 	 * @param array<int,mixed>                                   $documents  BAC document artifacts.
@@ -4431,10 +2871,6 @@ class Static_Site_Importer_Theme_Generator {
 			array(
 				'source'             => 'block_artifact_compiler',
 				'total_count'        => count( $records ),
-				'counts_by_format'   => array_merge(
-					self::$conversion_report['source_documents']['counts_by_format'] ?? array(),
-					array( 'bac_document' => count( $records ) )
-				),
 				'bac_documents'      => $records,
 				'bac_document_count' => count( $records ),
 			)
@@ -5011,8 +3447,8 @@ class Static_Site_Importer_Theme_Generator {
 				'freeform_block_count'   => $freeform_count,
 				'invalid_block_count'    => $invalid_count,
 				'serialization_mismatch' => $serialization_mismatch,
-				'original_excerpt'       => self::diagnostic_excerpt( $block_markup ),
-				'serialized_excerpt'     => self::diagnostic_excerpt( $serialized ),
+				'original_excerpt'       => Static_Site_Importer_Report_Diagnostics::diagnostic_excerpt( $block_markup ),
+				'serialized_excerpt'     => Static_Site_Importer_Report_Diagnostics::diagnostic_excerpt( $serialized ),
 			);
 		}
 
@@ -5079,7 +3515,7 @@ class Static_Site_Importer_Theme_Generator {
 			$html = $block['innerHTML'];
 		}
 
-		self::$conversion_report['diagnostics'][] = self::fallback_diagnostic_entry(
+		self::$conversion_report['diagnostics'][] = Static_Site_Importer_Report_Diagnostics::fallback_diagnostic_entry(
 			'core_html_block',
 			$source,
 			$html,
@@ -5116,7 +3552,7 @@ class Static_Site_Importer_Theme_Generator {
 			$emitted = $html;
 		}
 
-		$entry                          = self::fallback_diagnostic_entry(
+		$entry                          = Static_Site_Importer_Report_Diagnostics::fallback_diagnostic_entry(
 			'freeform_block',
 			$source,
 			$html,
@@ -5127,7 +3563,7 @@ class Static_Site_Importer_Theme_Generator {
 			),
 			$block
 		);
-		$entry['emitted_block_preview'] = self::diagnostic_excerpt( $emitted );
+		$entry['emitted_block_preview'] = Static_Site_Importer_Report_Diagnostics::diagnostic_excerpt( $emitted );
 		$entry['malformed']             = $malformed;
 
 		self::$conversion_report['diagnostics'][]                        = $entry;
@@ -5202,752 +3638,24 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Record an unsupported HTML fallback emitted by h2bc.
-	 *
-	 * @param string $source       Source fragment label.
-	 * @param string $element_html Unsupported HTML.
-	 * @param array  $context      Fallback context.
-	 * @param array  $block        Generated block.
-	 * @return void
-	 */
-	private static function record_unsupported_fallback( string $source, string $element_html, array $context, array $block ): void {
-		++self::$conversion_report['quality']['fallback_count'];
-		++self::$conversion_report['conversion_fragments'][ $source ]['fallback_count'];
-		self::$conversion_report['diagnostics'][] = self::fallback_diagnostic_entry( 'unsupported_html_fallback', $source, $element_html, $context, $block );
-	}
-
-	/**
-	 * Build a normalized fallback/core-html diagnostic entry.
-	 *
-	 * @param string              $type         Diagnostic type.
-	 * @param string              $source       Source fragment or generated document path.
-	 * @param string              $element_html Source HTML fragment.
-	 * @param array<string,mixed> $context      Diagnostic context.
-	 * @param array<string,mixed> $block        Generated or parsed block.
-	 * @return array<string,mixed>
-	 */
-	private static function fallback_diagnostic_entry( string $type, string $source, string $element_html, array $context, array $block ): array {
-		$selector = isset( $context['selector'] ) && is_scalar( $context['selector'] ) ? trim( (string) $context['selector'] ) : '';
-		if ( '' === $selector ) {
-			$selector = self::diagnostic_selector_from_html( $element_html );
-		}
-
-		$emitted = '';
-		if ( function_exists( 'serialize_blocks' ) ) {
-			// @phpstan-ignore-next-line argument.type -- Parsed block shape comes from WordPress parse_blocks() or h2bc.
-			$emitted = serialize_blocks( array( $block ) );
-		}
-		if ( '' === trim( $emitted ) || preg_match( '/^<!--\s+wp:[^>]+\/-->$/', trim( $emitted ) ) ) {
-			$emitted = isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ? $block['innerHTML'] : $element_html;
-		}
-
-		$entry = array(
-			'type'                  => $type,
-			'source'                => $source,
-			'selector'              => '' !== $selector ? $selector : null,
-			'excerpt'               => self::diagnostic_excerpt( wp_strip_all_tags( $element_html ) ),
-			'source_html_preview'   => self::diagnostic_excerpt( $element_html ),
-			'emitted_block_preview' => self::diagnostic_excerpt( $emitted ),
-			'reason'                => isset( $context['reason'] ) ? (string) $context['reason'] : 'unknown',
-			'tag_name'              => isset( $context['tag_name'] ) ? (string) $context['tag_name'] : self::diagnostic_tag_name_from_html( $element_html ),
-			'block_name'            => isset( $block['blockName'] ) ? (string) $block['blockName'] : null,
-			'converter'             => 'html-to-blocks-converter',
-			'stage'                 => isset( $context['stage'] ) ? (string) $context['stage'] : 'html_to_blocks',
-			'html_length'           => strlen( $element_html ),
-			'html_excerpt'          => self::diagnostic_excerpt( $element_html ),
-		);
-
-		if ( isset( $context['occurrence'] ) ) {
-			$entry['occurrence'] = (int) $context['occurrence'];
-		}
-
-		if ( isset( $context['path'] ) && is_scalar( $context['path'] ) ) {
-			$entry['block_path'] = (string) $context['path'];
-		}
-
-		return $entry;
-	}
-
-	/**
-	 * Record a content-loss abort emitted by h2bc.
-	 *
-	 * @param string $source                 Source fragment label.
-	 * @param int    $original_text_length   Original text length.
-	 * @param int    $serialized_text_length Serialized text length.
-	 * @return void
-	 */
-	private static function record_content_loss( string $source, int $original_text_length, int $serialized_text_length ): void {
-		++self::$conversion_report['quality']['content_loss_count'];
-		++self::$conversion_report['conversion_fragments'][ $source ]['content_loss_count'];
-		self::$conversion_report['diagnostics'][] = array(
-			'type'                   => 'content_loss_abort',
-			'source'                 => $source,
-			'original_text_length'   => $original_text_length,
-			'serialized_text_length' => $serialized_text_length,
-		);
-	}
-
-	/**
-	 * Record an empty conversion result for a non-empty fragment.
-	 *
-	 * @param string $source Source fragment label.
-	 * @param string $html   Source HTML.
-	 * @return void
-	 */
-	private static function record_conversion_empty( string $source, string $html ): void {
-		++self::$conversion_report['quality']['empty_conversion_count'];
-		self::$conversion_report['conversion_fragments'][ $source ]['empty_conversion'] = true;
-
-		self::$conversion_report['diagnostics'][] = array(
-			'type'         => 'empty_conversion',
-			'source'       => $source,
-			'html_length'  => strlen( $html ),
-			'html_excerpt' => self::diagnostic_excerpt( $html ),
-		);
-	}
-
-	/**
-	 * Finalize quality summary and gate status.
-	 *
-	 * @param array $args Import args.
-	 * @return array<string, mixed>
-	 */
-	private static function finalize_quality_report( array $args ): array {
-		self::normalize_import_diagnostics();
-
-		$quality = self::$conversion_report['quality'];
-		$reasons = array();
-		if ( $quality['fallback_count'] > 0 ) {
-			$reasons[] = 'unsupported_html_fallback';
-		}
-		if ( $quality['content_loss_count'] > 0 ) {
-			$reasons[] = 'content_loss_abort';
-		}
-		if ( $quality['empty_conversion_count'] > 0 ) {
-			$reasons[] = 'empty_conversion';
-		}
-		if ( $quality['core_html_block_count'] > 0 ) {
-			$reasons[] = 'core_html_block';
-		}
-		if ( $quality['freeform_block_count'] > 0 ) {
-			$reasons[] = 'freeform_block';
-		}
-		if ( $quality['invalid_block_count'] > 0 ) {
-			$reasons[] = 'invalid_block';
-		}
-		if ( $quality['unsafe_svg_count'] > 0 ) {
-			$reasons[] = 'unsafe_inline_svg';
-		}
-		if ( $quality['svg_materialization_failure_count'] > 0 ) {
-			$reasons[] = 'svg_materialization_failure';
-		}
-		if ( $quality['svg_sprite_reference_failure_count'] > 0 ) {
-			$reasons[] = 'svg_sprite_reference_failure';
-		}
-		if ( ( $quality['commerce_dependency_failures'] ?? 0 ) > 0 ) {
-			$reasons[] = 'woocommerce_missing';
-		}
-
-		$quality['pass']            = empty( $reasons );
-		$quality['failure_reasons'] = $reasons;
-		$quality['fail_import']     = false;
-		if ( ! empty( $args['fail_on_quality'] ) && ! $quality['pass'] ) {
-			$quality['fail_import'] = true;
-		}
-		if ( array_key_exists( 'max_fallbacks', $args ) && null !== $args['max_fallbacks'] && $quality['fallback_count'] > (int) $args['max_fallbacks'] ) {
-			$quality['fail_import'] = true;
-		}
-		// Commerce dependency failures are always import-failing regardless of --fail-on-quality.
-		// Silently producing a no-products WordPress site for a commerce import is qualitatively
-		// worse than a layout fallback, so the gate trips even without an explicit failure flag.
-		if ( in_array( 'woocommerce_missing', $reasons, true ) ) {
-			$quality['fail_import'] = true;
-		}
-
-		$quality['diagnostic_refs']         = self::quality_diagnostic_refs( self::$conversion_report['diagnostics'] ?? array() );
-		self::$conversion_report['quality'] = $quality;
-		self::normalize_source_document_diagnostic_refs();
-		self::$conversion_report['artifact_diagnostics'] = Static_Site_Importer_WP_Codebox_Artifact_Diagnostics_Normalizer::build(
-			array( 'diagnostics' => self::$conversion_report['diagnostics'] ?? array() ),
-			array(
-				'source'          => 'static-site-importer',
-				'stage'           => 'import',
-				'observationType' => 'static-site-importer/import-report',
-				'refs'            => array(
-					array(
-						'path' => 'import-report.json',
-						'kind' => 'static-site-importer/import-report',
-					),
-				),
-			)
-		);
-		return $quality;
-	}
-
-	/**
-	 * Normalize import diagnostics into a stable, machine-actionable shape.
-	 *
-	 * Existing human-readable fields remain alongside the machine fields.
-	 * The added fields give repair loops generic, path-addressed records without
-	 * coupling the report to a specific downstream consumer.
-	 *
-	 * @return void
-	 */
-	private static function normalize_import_diagnostics(): void {
-		if ( empty( self::$conversion_report['diagnostics'] ) || ! is_array( self::$conversion_report['diagnostics'] ) ) {
-			return;
-		}
-
-		$normalized = array();
-		foreach ( array_values( self::$conversion_report['diagnostics'] ) as $index => $diagnostic ) {
-			if ( ! is_array( $diagnostic ) ) {
-				continue;
-			}
-
-			$type        = isset( $diagnostic['type'] ) && is_scalar( $diagnostic['type'] ) ? (string) $diagnostic['type'] : 'import_diagnostic';
-			$source      = isset( $diagnostic['source'] ) && is_scalar( $diagnostic['source'] ) ? (string) $diagnostic['source'] : '';
-			$source_path = isset( $diagnostic['source_path'] ) && is_scalar( $diagnostic['source_path'] ) ? (string) $diagnostic['source_path'] : self::diagnostic_source_path( $source );
-			$reason_code = self::diagnostic_reason_code( $type, $diagnostic );
-
-			$machine = array(
-				'id'                     => self::diagnostic_id( $index, $type, $source_path, $reason_code ),
-				'severity'               => self::diagnostic_severity( $type ),
-				'category'               => self::diagnostic_category( $type ),
-				'reason_code'            => $reason_code,
-				'suggested_repair_class' => self::diagnostic_repair_class( $type ),
-				'source_path'            => $source_path,
-			);
-
-			$selector = isset( $diagnostic['selector'] ) && is_scalar( $diagnostic['selector'] ) ? trim( (string) $diagnostic['selector'] ) : '';
-			if ( '' !== $selector ) {
-				$machine['selector'] = $selector;
-			}
-
-			if ( isset( $diagnostic['line'] ) && is_numeric( $diagnostic['line'] ) ) {
-				$machine['line'] = (int) $diagnostic['line'];
-			}
-
-			if ( isset( $diagnostic['line_range'] ) ) {
-				$machine['line_range'] = $diagnostic['line_range'];
-			}
-
-			$context = self::diagnostic_context( $diagnostic );
-			if ( ! empty( $context ) ) {
-				$machine['context'] = $context;
-			}
-
-			$normalized[] = array_merge( $machine, $diagnostic );
-		}
-
-		self::$conversion_report['diagnostics'] = $normalized;
-	}
-
-	/**
-	 * Build quality counter references into normalized diagnostics.
-	 *
-	 * @param array<int,array<string,mixed>> $diagnostics Normalized diagnostics.
-	 * @return array<string,array<int,string>> Diagnostic IDs keyed by quality count.
-	 */
-	private static function quality_diagnostic_refs( array $diagnostics ): array {
-		$types_by_count = array(
-			'fallback_count'                     => array( 'unsupported_html_fallback' ),
-			'content_loss_count'                 => array( 'content_loss_abort' ),
-			'empty_conversion_count'             => array( 'empty_conversion' ),
-			'core_html_block_count'              => array( 'core_html_block' ),
-			'freeform_block_count'               => array( 'freeform_block' ),
-			'invalid_block_count'                => array( 'invalid_block_document' ),
-			'unsafe_svg_count'                   => array( 'unsafe_inline_svg' ),
-			'svg_materialization_failure_count'  => array( 'svg_materialization_failure' ),
-			'svg_sprite_reference_failure_count' => array( 'svg_sprite_reference_failure' ),
-			'commerce_dependency_failures'       => array( 'commerce_dependency_failure' ),
-		);
-
-		$refs = array();
-		foreach ( $types_by_count as $count_key => $types ) {
-			$refs[ $count_key ] = array_values(
-				array_filter(
-					array_map(
-						static function ( array $diagnostic ) use ( $types ): string {
-							return in_array( $diagnostic['type'] ?? '', $types, true ) && isset( $diagnostic['id'] ) ? (string) $diagnostic['id'] : '';
-						},
-						$diagnostics
-					)
-				)
-			);
-		}
-
-		return $refs;
-	}
-
-	/**
-	 * Link source-document counts back to concrete diagnostics.
-	 *
-	 * @return void
-	 */
-	private static function normalize_source_document_diagnostic_refs(): void {
-		$diagnostics = isset( self::$conversion_report['diagnostics'] ) && is_array( self::$conversion_report['diagnostics'] ) ? self::$conversion_report['diagnostics'] : array();
-		$refs        = array(
-			'unresolved_link_count'      => array(),
-			'skipped_mdx_count'          => array(),
-			'markdown_parse_error_count' => array(),
-		);
-
-		foreach ( $diagnostics as $diagnostic ) {
-			if ( ! is_array( $diagnostic ) || empty( $diagnostic['id'] ) ) {
-				continue;
-			}
-
-			$type = (string) ( $diagnostic['type'] ?? '' );
-			if ( 'unresolved_internal_link' === $type ) {
-				$refs['unresolved_link_count'][] = (string) $diagnostic['id'];
-			} elseif ( 'unsupported_source_document' === $type ) {
-				$refs['skipped_mdx_count'][] = (string) $diagnostic['id'];
-			} elseif ( 'markdown_parse_error' === $type ) {
-				$refs['markdown_parse_error_count'][] = (string) $diagnostic['id'];
-			}
-		}
-
-		self::$conversion_report['source_documents']['diagnostic_refs'] = $refs;
-	}
-
-	/**
-	 * Build a stable diagnostic ID.
-	 *
-	 * @param int    $index       Zero-based diagnostic position.
-	 * @param string $type        Diagnostic type.
-	 * @param string $source_path Source-relative path.
-	 * @param string $reason_code Reason code.
-	 * @return string Diagnostic ID.
-	 */
-	private static function diagnostic_id( int $index, string $type, string $source_path, string $reason_code ): string {
-		$slug = sanitize_key( $type . '-' . $reason_code . '-' . $source_path );
-		if ( '' === $slug ) {
-			$slug = 'import-diagnostic';
-		}
-
-		return sprintf( 'diag-%03d-%s', $index + 1, substr( $slug, 0, 80 ) );
-	}
-
-	/**
-	 * Infer a source-relative path from a diagnostic source label.
-	 *
-	 * @param string $source Diagnostic source label.
-	 * @return string Source-relative path or generated artifact path.
-	 */
-	private static function diagnostic_source_path( string $source ): string {
-		if ( str_contains( $source, ':' ) ) {
-			return (string) substr( $source, strpos( $source, ':' ) + 1 );
-		}
-
-		return $source;
-	}
-
-	/**
-	 * Normalize a diagnostic reason code.
-	 *
-	 * @param string              $type       Diagnostic type.
-	 * @param array<string,mixed> $diagnostic Diagnostic record.
-	 * @return string Reason code.
-	 */
-	private static function diagnostic_reason_code( string $type, array $diagnostic ): string {
-		foreach ( array( 'reason_code', 'reason', 'error_code' ) as $key ) {
-			if ( isset( $diagnostic[ $key ] ) && is_scalar( $diagnostic[ $key ] ) && '' !== trim( (string) $diagnostic[ $key ] ) ) {
-				return sanitize_key( (string) $diagnostic[ $key ] );
-			}
-		}
-
-		return sanitize_key( $type );
-	}
-
-	/**
-	 * Classify diagnostic severity for repair prioritization.
-	 *
-	 * @param string $type Diagnostic type.
-	 * @return string Severity.
-	 */
-	private static function diagnostic_severity( string $type ): string {
-		if ( in_array( $type, array( 'content_loss_abort', 'empty_conversion', 'invalid_block_document', 'commerce_dependency_failure' ), true ) ) {
-			return 'error';
-		}
-
-		return 'warning';
-	}
-
-	/**
-	 * Classify diagnostics by generic repair category.
-	 *
-	 * @param string $type Diagnostic type.
-	 * @return string Category.
-	 */
-	private static function diagnostic_category( string $type ): string {
-		$categories = array(
-			'local_asset_not_materialized'         => 'unresolved_asset',
-			'unresolved_internal_link'             => 'broken_internal_link',
-			'unsafe_inline_svg'                    => 'unsafe_svg',
-			'svg_materialization_failure'          => 'unresolved_asset',
-			'svg_sprite_reference_failure'         => 'unresolved_asset',
-			'unsupported_source_document'          => 'unsupported_source',
-			'unsupported_html_fallback'            => 'unsupported_element',
-			'core_html_block'                      => 'fallback_block',
-			'freeform_block'                       => 'fallback_block',
-			'invalid_block_document'               => 'conversion_quality',
-			'content_loss_abort'                   => 'conversion_quality',
-			'empty_conversion'                     => 'conversion_quality',
-			'source_region_unassigned'             => 'source_region',
-			'commerce_dependency_failure'          => 'conversion_quality',
-			'commerce_product_inference_unmatched' => 'conversion_quality',
-		);
-
-		return $categories[ $type ] ?? 'import_quality';
-	}
-
-	/**
-	 * Suggest a generic repair class for a diagnostic type.
-	 *
-	 * @param string $type Diagnostic type.
-	 * @return string Suggested repair class.
-	 */
-	private static function diagnostic_repair_class( string $type ): string {
-		$classes = array(
-			'local_asset_not_materialized'         => 'materialize_or_rewrite_asset',
-			'unresolved_internal_link'             => 'rewrite_or_create_internal_target',
-			'unsafe_inline_svg'                    => 'sanitize_or_externalize_svg',
-			'svg_materialization_failure'          => 'materialize_or_rewrite_asset',
-			'svg_sprite_reference_failure'         => 'materialize_or_rewrite_asset',
-			'unsupported_source_document'          => 'convert_source_document',
-			'unsupported_html_fallback'            => 'replace_unsupported_html',
-			'core_html_block'                      => 'replace_fallback_block',
-			'freeform_block'                       => 'replace_fallback_block',
-			'invalid_block_document'               => 'repair_generated_block_markup',
-			'content_loss_abort'                   => 'repair_source_conversion',
-			'empty_conversion'                     => 'repair_source_conversion',
-			'source_region_unassigned'             => 'assign_or_ignore_source_region',
-			'commerce_dependency_failure'          => 'install_or_configure_dependency',
-			'commerce_product_inference_unmatched' => 'provide_structured_product_data',
-		);
-
-		return $classes[ $type ] ?? 'inspect_import_diagnostic';
-	}
-
-	/**
-	 * Extract concise diagnostic context for repair prompts.
-	 *
-	 * @param array<string,mixed> $diagnostic Diagnostic record.
-	 * @return array<string,mixed> Context fields.
-	 */
-	private static function diagnostic_context( array $diagnostic ): array {
-		$context = array();
-		foreach ( array( 'href', 'tag', 'tag_name', 'block_name', 'block_path', 'excerpt', 'html_excerpt', 'source_html_preview', 'error_message' ) as $key ) {
-			if ( array_key_exists( $key, $diagnostic ) && null !== $diagnostic[ $key ] && '' !== $diagnostic[ $key ] ) {
-				$context[ $key ] = $diagnostic[ $key ];
-			}
-		}
-
-		return $context;
-	}
-
-	/**
-	 * Build the compact report summary consumed by validation harnesses.
-	 *
-	 * @param array<string, mixed> $report  Full conversion report.
-	 * @param array<string, mixed> $quality Finalized quality summary.
-	 * @return array<string, mixed>
-	 */
-	private static function import_report_summary( array $report, array $quality ): array {
-		$diagnostics      = isset( $report['diagnostics'] ) && is_array( $report['diagnostics'] ) ? $report['diagnostics'] : array();
-		$source_documents = isset( $report['source_documents'] ) && is_array( $report['source_documents'] ) ? $report['source_documents'] : array();
-		$commerce         = isset( $report['commerce'] ) && is_array( $report['commerce'] ) ? $report['commerce'] : array();
-		$commerce_context = isset( $report['commerce_context'] ) && is_array( $report['commerce_context'] ) ? $report['commerce_context'] : array();
-		$plugin_materialization = isset( $report['plugin_materialization'] ) && is_array( $report['plugin_materialization'] ) ? $report['plugin_materialization'] : array();
-		$product_seeding        = isset( $report['product_seeding'] ) && is_array( $report['product_seeding'] ) ? $report['product_seeding'] : array();
-
-		return array(
-			'schema'                       => 'static-site-importer/import-metrics/v1',
-			'version'                      => 1,
-			'report_version'               => (int) ( $report['version'] ?? 0 ),
-			'status'                       => ! empty( $quality['fail_import'] ) ? 'failed' : 'completed',
-			'theme_slug'                   => isset( $report['theme_slug'] ) ? (string) $report['theme_slug'] : '',
-			'entry_file'                   => isset( $report['entry_file'] ) ? (string) $report['entry_file'] : '',
-			'compiler'                     => self::compact_import_report_compiler_summary( $report ),
-			'quality_pass'                 => ! empty( $quality['pass'] ),
-			'fail_import'                  => ! empty( $quality['fail_import'] ),
-			'failure_reasons'              => isset( $quality['failure_reasons'] ) && is_array( $quality['failure_reasons'] ) ? array_values( $quality['failure_reasons'] ) : array(),
-			'fallback_count'               => (int) ( $quality['fallback_count'] ?? 0 ),
-			'content_loss_count'           => (int) ( $quality['content_loss_count'] ?? 0 ),
-			'empty_conversion_count'       => (int) ( $quality['empty_conversion_count'] ?? 0 ),
-			'core_html_block_count'        => (int) ( $quality['core_html_block_count'] ?? 0 ),
-			'freeform_block_count'         => (int) ( $quality['freeform_block_count'] ?? 0 ),
-			'invalid_block_count'          => (int) ( $quality['invalid_block_count'] ?? 0 ),
-			'invalid_block_document_count' => (int) ( $quality['invalid_block_document_count'] ?? 0 ),
-			'source_document_count'        => (int) ( $source_documents['total_count'] ?? 0 ),
-			'unresolved_link_count'        => (int) ( $source_documents['unresolved_link_count'] ?? 0 ),
-			'commerce'                     => $commerce,
-			'commerce_context'             => $commerce_context,
-			'plugin_materialization'       => $plugin_materialization,
-			'product_seeding'              => $product_seeding,
-			'diagnostic_count'             => count( $diagnostics ),
-			'diagnostic_summary'           => self::compact_import_report_diagnostic_summary( $diagnostics ),
-			'warning_summaries'            => self::compact_import_report_diagnostic_summaries_by_severity( $diagnostics, 'warning' ),
-			'error_summaries'              => self::compact_import_report_diagnostic_summaries_by_severity( $diagnostics, 'error' ),
-			'diagnostics'                  => self::compact_import_report_diagnostics( $diagnostics ),
-		);
-	}
-
-	/**
-	 * Summarize compiler evidence for compact import metrics.
-	 *
-	 * @param array<string,mixed> $report Full conversion report.
-	 * @return array<string,mixed>
-	 */
-	private static function compact_import_report_compiler_summary( array $report ): array {
-		$compiler = isset( $report['block_artifact_compiler'] ) && is_array( $report['block_artifact_compiler'] ) ? $report['block_artifact_compiler'] : array();
-		$summary  = array(
-			'available'      => ! empty( $compiler['available'] ),
-			'fragment_count' => (int) ( $compiler['fragment_count'] ?? 0 ),
-		);
-
-		$website_artifact = isset( $compiler['website_artifact'] ) && is_array( $compiler['website_artifact'] ) ? $compiler['website_artifact'] : array();
-		$compiler_summary = isset( $website_artifact['summary'] ) && is_array( $website_artifact['summary'] ) ? $website_artifact['summary'] : array();
-		if ( empty( $compiler_summary ) && ! empty( $compiler['fragments'][0]['summary'] ) && is_array( $compiler['fragments'][0]['summary'] ) ) {
-			$compiler_summary = $compiler['fragments'][0]['summary'];
-		}
-
-		foreach ( array( 'schema', 'status', 'source' ) as $field ) {
-			if ( isset( $compiler_summary[ $field ] ) && is_scalar( $compiler_summary[ $field ] ) ) {
-				$summary[ $field ] = (string) $compiler_summary[ $field ];
-			}
-		}
-
-		if ( isset( $compiler_summary['diagnostic_count'] ) ) {
-			$summary['diagnostic_count'] = (int) $compiler_summary['diagnostic_count'];
-		}
-
-		return $summary;
-	}
-
-	/**
-	 * Summarize compact diagnostics by severity.
-	 *
-	 * @param array<int,array<string,mixed>> $diagnostics Normalized diagnostics.
-	 * @return array<string,int>
-	 */
-	private static function compact_import_report_diagnostic_summary( array $diagnostics ): array {
-		$summary = array(
-			'total'   => 0,
-			'error'   => 0,
-			'warning' => 0,
-			'notice'  => 0,
-			'info'    => 0,
-		);
-
-		foreach ( $diagnostics as $diagnostic ) {
-			if ( ! is_array( $diagnostic ) ) {
-				continue;
-			}
-
-			++$summary['total'];
-			$severity = isset( $diagnostic['severity'] ) && is_scalar( $diagnostic['severity'] ) ? (string) $diagnostic['severity'] : 'warning';
-			if ( ! array_key_exists( $severity, $summary ) ) {
-				$severity = 'warning';
-			}
-
-			++$summary[ $severity ];
-		}
-
-		return $summary;
-	}
-
-	/**
-	 * Build concise diagnostic summaries for a severity bucket.
-	 *
-	 * @param array<int,array<string,mixed>> $diagnostics Normalized diagnostics.
-	 * @param string                         $severity    Severity to include.
-	 * @return array<int,array<string,string>>
-	 */
-	private static function compact_import_report_diagnostic_summaries_by_severity( array $diagnostics, string $severity ): array {
-		$summaries = array();
-		foreach ( $diagnostics as $diagnostic ) {
-			$diagnostic_severity = isset( $diagnostic['severity'] ) && is_scalar( $diagnostic['severity'] ) ? (string) $diagnostic['severity'] : 'warning';
-			if ( $severity !== $diagnostic_severity ) {
-				continue;
-			}
-
-			$summaries[] = array(
-				'id'      => isset( $diagnostic['id'] ) && is_scalar( $diagnostic['id'] ) ? (string) $diagnostic['id'] : '',
-				'type'    => isset( $diagnostic['type'] ) && is_scalar( $diagnostic['type'] ) ? (string) $diagnostic['type'] : 'static_site_importer_diagnostic',
-				'source'  => self::diagnostic_summary_source( $diagnostic ),
-				'message' => self::diagnostic_summary_message( $diagnostic ),
-			);
-
-			if ( count( $summaries ) >= 10 ) {
-				break;
-			}
-		}
-
-		return $summaries;
-	}
-
-	/**
-	 * Resolve a concise diagnostic source label.
-	 *
-	 * @param array<string,mixed> $diagnostic Normalized diagnostic.
-	 * @return string
-	 */
-	private static function diagnostic_summary_source( array $diagnostic ): string {
-		foreach ( array( 'source_path', 'source' ) as $field ) {
-			if ( isset( $diagnostic[ $field ] ) && is_scalar( $diagnostic[ $field ] ) ) {
-				return (string) $diagnostic[ $field ];
-			}
-		}
-
-		return '';
-	}
-
-	/**
-	 * Resolve a concise diagnostic message.
-	 *
-	 * @param array<string,mixed> $diagnostic Normalized diagnostic.
-	 * @return string
-	 */
-	private static function diagnostic_summary_message( array $diagnostic ): string {
-		foreach ( array( 'message', 'reason', 'excerpt', 'error_message', 'html_excerpt' ) as $field ) {
-			if ( isset( $diagnostic[ $field ] ) && is_scalar( $diagnostic[ $field ] ) && '' !== trim( (string) $diagnostic[ $field ] ) ) {
-				return self::diagnostic_excerpt( (string) $diagnostic[ $field ] );
-			}
-		}
-
-		return isset( $diagnostic['type'] ) && is_scalar( $diagnostic['type'] ) ? (string) $diagnostic['type'] : 'static_site_importer_diagnostic';
-	}
-
-	/**
-	 * Keep summary diagnostics compact while preserving repair-agent evidence.
-	 *
-	 * @param array<int,array<string,mixed>> $diagnostics Normalized diagnostics.
-	 * @return array<int,array<string,mixed>> Compact diagnostics for validation harnesses.
-	 */
-	private static function compact_import_report_diagnostics( array $diagnostics ): array {
-		$fields = array(
-			'id',
-			'type',
-			'severity',
-			'category',
-			'reason_code',
-			'suggested_repair_class',
-			'source_path',
-			'source',
-			'selector',
-			'excerpt',
-			'source_html_preview',
-			'emitted_block_preview',
-			'block_name',
-			'block_path',
-			'converter',
-			'stage',
-			'reason',
-			'message',
-			'tag_name',
-			'html_excerpt',
-			'context',
-		);
-
-		$compact = array();
-		foreach ( array_slice( $diagnostics, 0, 50 ) as $diagnostic ) {
-			$row = array();
-			foreach ( $fields as $field ) {
-				if ( ! array_key_exists( $field, $diagnostic ) || null === $diagnostic[ $field ] || '' === $diagnostic[ $field ] || array() === $diagnostic[ $field ] ) {
-					continue;
-				}
-
-				$row[ $field ] = $diagnostic[ $field ];
-			}
-
-			if ( ! empty( $row ) ) {
-				$compact[] = $row;
-			}
-		}
-
-		return $compact;
-	}
-
-	/**
-	 * Infer a compact CSS-like selector from an HTML preview.
-	 *
-	 * @param string $html Source HTML.
-	 * @return string
-	 */
-	private static function diagnostic_selector_from_html( string $html ): string {
-		if ( ! preg_match( '/<\s*([a-z0-9:-]+)\b([^>]*)>/i', $html, $match ) ) {
-			return '';
-		}
-
-		$selector = strtolower( (string) $match[1] );
-		$attrs    = (string) $match[2];
-		if ( preg_match( '/\sid\s*=\s*(["\'])(.*?)\1/i', $attrs, $id_match ) ) {
-			$id = preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $id_match[2] );
-			if ( is_string( $id ) && '' !== $id ) {
-				$selector .= '#' . $id;
-			}
-		}
-
-		if ( preg_match( '/\sclass\s*=\s*(["\'])(.*?)\1/i', $attrs, $class_match ) ) {
-			$classes = preg_split( '/\s+/', trim( (string) $class_match[2] ) );
-			if ( is_array( $classes ) ) {
-				foreach ( array_slice( $classes, 0, 3 ) as $class ) {
-					$class = preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $class );
-					if ( is_string( $class ) && '' !== $class ) {
-						$selector .= '.' . $class;
-					}
-				}
-			}
-		}
-
-		return $selector;
-	}
-
-	/**
-	 * Infer the first element tag name from an HTML preview.
-	 *
-	 * @param string $html Source HTML.
-	 * @return string|null
-	 */
-	private static function diagnostic_tag_name_from_html( string $html ): ?string {
-		if ( ! preg_match( '/<\s*([a-z0-9:-]+)\b/i', $html, $match ) ) {
-			return null;
-		}
-
-		return strtoupper( (string) $match[1] );
-	}
-
-	/**
-	 * Build a compact diagnostic excerpt.
-	 *
-	 * @param string $html Source HTML.
-	 * @return string
-	 */
-	private static function diagnostic_excerpt( string $html ): string {
-		$excerpt = preg_replace( '/\s+/', ' ', trim( $html ) );
-		$excerpt = is_string( $excerpt ) ? $excerpt : trim( $html );
-		return substr( $excerpt, 0, 300 );
-	}
-
-	/**
 	 * Build style.css.
 	 *
 	 * @param string $theme_name Theme name.
 	 * @param string $css        Source CSS.
 	 * @return string
 	 */
-	private static function style_css( string $theme_name, string $css, array $button_classes = array() ): string {
+	private static function style_css( string $theme_name, string $css, array $button_classes = array(), array $selector_provenance = array() ): string {
 		$button_bridge              = self::button_style_bridge_css( $css, $button_classes );
 		$admin_bar_bridge           = self::admin_bar_top_chrome_css( $css );
 		$source_nav_selector_bridge = self::source_nav_selector_bridge_css( $css );
+		$provenance_bridge          = self::selector_provenance_bridge_css( $css, $selector_provenance );
 		$source_display_bridge      = self::source_display_selector_bridge_css( $css );
 		$image_block_bridge         = self::source_image_block_selector_bridge_css( $css );
 		$form_control_bridge        = self::source_form_control_selector_bridge_css( $css );
 		$layout_gap_bridge          = self::imported_group_layout_gap_bridge_css();
 		$css                        = self::scope_source_button_css( $css, $button_classes );
 
-		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Materialized from a compiled website artifact.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge . $admin_bar_bridge . $source_nav_selector_bridge . $source_display_bridge . $image_block_bridge . $layout_gap_bridge . $form_control_bridge;
+		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Materialized from a compiled website artifact.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge . $admin_bar_bridge . $source_nav_selector_bridge . $provenance_bridge . $source_display_bridge . $image_block_bridge . $layout_gap_bridge . $form_control_bridge;
 	}
 
 	/**
@@ -5956,18 +3664,19 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param string $css Source CSS.
 	 * @return string
 	 */
-	private static function editor_style_css( string $css, array $button_classes = array() ): string {
+	private static function editor_style_css( string $css, array $button_classes = array(), array $selector_provenance = array() ): string {
 		$button_bridge              = self::button_style_bridge_css( $css, $button_classes );
 		$editor_bridge              = self::editor_absolute_overlay_css( $css );
 		$editor_reveal_bridge       = self::editor_reveal_animation_css( $css );
 		$source_nav_selector_bridge = self::source_nav_selector_bridge_css( $css );
+		$provenance_bridge          = self::selector_provenance_bridge_css( $css, $selector_provenance );
 		$source_display_bridge      = self::source_display_selector_bridge_css( $css );
 		$image_block_bridge         = self::source_image_block_selector_bridge_css( $css );
 		$form_control_bridge        = self::source_form_control_selector_bridge_css( $css );
 		$layout_gap_bridge          = self::imported_group_layout_gap_bridge_css();
 		$css                        = self::scope_source_button_css( $css, $button_classes );
 
-		return "/*\nStatic Site Importer editor styles.\nGenerated separately from frontend style.css so editor wrapper repairs do not leak to public rendering.\n*/\n\n" . $css . "\n" . $button_bridge . $source_nav_selector_bridge . $source_display_bridge . $image_block_bridge . $layout_gap_bridge . $form_control_bridge . $editor_bridge . $editor_reveal_bridge;
+		return "/*\nStatic Site Importer editor styles.\nGenerated separately from frontend style.css so editor wrapper repairs do not leak to public rendering.\n*/\n\n" . $css . "\n" . $button_bridge . $source_nav_selector_bridge . $provenance_bridge . $source_display_bridge . $image_block_bridge . $layout_gap_bridge . $form_control_bridge . $editor_bridge . $editor_reveal_bridge;
 	}
 
 	/**
@@ -5981,6 +3690,205 @@ class Static_Site_Importer_Theme_Generator {
 	 */
 	private static function imported_group_layout_gap_bridge_css(): string {
 		return "\n/* Static Site Importer: preserve source-authored spacing inside converted source wrappers. */\n.wp-block-post-content.is-layout-flow > *,\n.wp-block-group.is-layout-flow > *,\n.wp-block-group.is-vertical > * { margin-block-start: 0; margin-block-end: 0; }\n.wp-block-group.is-layout-flex,\n.wp-block-group.is-vertical { gap: 0; }\n";
+	}
+
+	/**
+	 * Build selector bridge rules from BAC source-to-block provenance.
+	 *
+	 * @param string                   $css                 Source CSS.
+	 * @param array<int,array<string,mixed>> $selector_provenance Selector provenance rows.
+	 * @return string Additional CSS rules.
+	 */
+	private static function selector_provenance_bridge_css( string $css, array $selector_provenance ): string {
+		$css = preg_replace( '/\/\*.*?\*\//s', '', $css ) ?? $css;
+		if ( '' === trim( $css ) || empty( $selector_provenance ) ) {
+			return '';
+		}
+
+		$selector_map = self::selector_provenance_selector_map( $selector_provenance );
+		if ( empty( $selector_map ) ) {
+			return '';
+		}
+
+		$rules = self::selector_provenance_bridge_rules_from_css( $css, $selector_map );
+		if ( empty( $rules ) ) {
+			return '';
+		}
+
+		return "\n/* Static Site Importer: transpose source selectors using block conversion provenance. */\n" . implode( "\n", array_unique( $rules ) ) . "\n";
+	}
+
+	/**
+	 * Build a source-selector to generated-selector map from BAC provenance.
+	 *
+	 * @param array<int,array<string,mixed>> $selector_provenance Selector provenance rows.
+	 * @return array<string,array<int,string>> Selector map.
+	 */
+	private static function selector_provenance_selector_map( array $selector_provenance ): array {
+		$map = array();
+		foreach ( $selector_provenance as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+
+			$source = isset( $row['source']['selector'] ) && is_scalar( $row['source']['selector'] ) ? trim( (string) $row['source']['selector'] ) : '';
+			if ( '' === $source || ! self::is_safe_selector_bridge_selector( $source ) ) {
+				continue;
+			}
+
+			$targets = self::selector_provenance_target_selectors( $row );
+			if ( empty( $targets ) ) {
+				continue;
+			}
+
+			foreach ( self::selector_provenance_source_aliases( $source ) as $alias ) {
+				if ( ! isset( $map[ $alias ] ) ) {
+					$map[ $alias ] = array();
+				}
+
+				$map[ $alias ] = array_values( array_unique( array_merge( $map[ $alias ], $targets ) ) );
+			}
+		}
+
+		return $map;
+	}
+
+	/**
+	 * Extract generated target selectors from one provenance row.
+	 *
+	 * @param array<string,mixed> $row Selector provenance row.
+	 * @return array<int,string> Generated selectors.
+	 */
+	private static function selector_provenance_target_selectors( array $row ): array {
+		$targets = array();
+		$block   = isset( $row['generated_block'] ) && is_array( $row['generated_block'] ) ? $row['generated_block'] : array();
+
+		if ( isset( $block['selector'] ) && is_scalar( $block['selector'] ) ) {
+			$targets[] = trim( (string) $block['selector'] );
+		}
+
+		foreach ( isset( $block['targets'] ) && is_array( $block['targets'] ) ? $block['targets'] : array() as $target ) {
+			if ( is_array( $target ) && isset( $target['selector'] ) && is_scalar( $target['selector'] ) ) {
+				$targets[] = trim( (string) $target['selector'] );
+			}
+		}
+
+		return array_values(
+			array_unique(
+				array_filter(
+					$targets,
+					static fn ( string $selector ): bool => '' !== $selector && self::is_safe_selector_bridge_selector( $selector )
+				)
+			)
+		);
+	}
+
+	/**
+	 * Derive safe source selector aliases for BAC provenance lookup.
+	 *
+	 * @param string $source Source selector.
+	 * @return array<int,string> Lookup aliases.
+	 */
+	private static function selector_provenance_source_aliases( string $source ): array {
+		$aliases = array( $source );
+		if ( preg_match( '/^[a-z][a-z0-9_-]*((?:[.#][a-z0-9_-]+)+)$/i', $source, $match ) ) {
+			$aliases[] = $match[1];
+		}
+		if ( preg_match_all( '/\.([A-Za-z_-][A-Za-z0-9_-]*)/', $source, $matches ) ) {
+			foreach ( $matches[1] as $class ) {
+				$aliases[] = '.' . $class;
+			}
+		}
+
+		return array_values( array_unique( $aliases ) );
+	}
+
+	/**
+	 * Build provenance bridge rules from one CSS scope.
+	 *
+	 * @param string                         $css          CSS to inspect.
+	 * @param array<string,array<int,string>> $selector_map Source-to-target selector map.
+	 * @return array<int,string> CSS rules.
+	 */
+	private static function selector_provenance_bridge_rules_from_css( string $css, array $selector_map ): array {
+		$rules  = array();
+		$length = strlen( $css );
+		$offset = 0;
+
+		while ( $offset < $length && preg_match( '/\G\s*([^{}]+)\{/', $css, $match, 0, $offset ) ) {
+			$prelude    = trim( $match[1] );
+			$body_start = $offset + strlen( $match[0] );
+			$body_end   = self::find_css_block_end( $css, $body_start );
+			if ( null === $body_end ) {
+				break;
+			}
+
+			$body   = trim( substr( $css, $body_start, $body_end - $body_start ) );
+			$offset = $body_end + 1;
+
+			if ( str_starts_with( $prelude, '@' ) ) {
+				$nested = self::selector_provenance_bridge_rules_from_css( $body, $selector_map );
+				if ( ! empty( $nested ) ) {
+					$rules[] = $prelude . ' { ' . implode( ' ', $nested ) . ' }';
+				}
+
+				continue;
+			}
+
+			$selectors = array();
+			foreach ( explode( ',', $prelude ) as $selector ) {
+				$selector = trim( $selector );
+				$selectors = array_merge( $selectors, self::selector_provenance_rewritten_selectors( $selector, $selector_map ) );
+			}
+
+			$selectors = array_values( array_unique( $selectors ) );
+			if ( empty( $selectors ) || '' === $body ) {
+				continue;
+			}
+
+			$rules[] = implode( ', ', $selectors ) . ' {' . $body . '}';
+		}
+
+		return $rules;
+	}
+
+	/**
+	 * Rewrite one source selector through the provenance selector map.
+	 *
+	 * @param string                         $selector     Source selector.
+	 * @param array<string,array<int,string>> $selector_map Source-to-target selector map.
+	 * @return array<int,string> Rewritten selectors.
+	 */
+	private static function selector_provenance_rewritten_selectors( string $selector, array $selector_map ): array {
+		if ( isset( $selector_map[ $selector ] ) ) {
+			return $selector_map[ $selector ];
+		}
+
+		if ( ! preg_match( '/^(.*?)([a-z][a-z0-9_-]*(?:[.#][a-z0-9_-]+)+|(?:[.#][a-z0-9_-]+)+)((?::[A-Za-z_-][A-Za-z0-9_-]*(?:\([^)]*\))?)*)$/i', $selector, $match ) ) {
+			return array();
+		}
+
+		$prefix = $match[1];
+		$target = $match[2];
+		$suffix = $match[3];
+		if ( ! isset( $selector_map[ $target ] ) || ( '' !== $prefix && ! self::is_safe_selector_bridge_selector( $prefix ) ) || ( '' !== $suffix && ! self::is_safe_selector_bridge_selector( $suffix ) ) ) {
+			return array();
+		}
+
+		return array_map(
+			static fn ( string $rewritten ): string => $prefix . $rewritten . $suffix,
+			$selector_map[ $target ]
+		);
+	}
+
+	/**
+	 * Check whether a selector is safe to copy into generated bridge CSS.
+	 *
+	 * @param string $selector Selector.
+	 * @return bool Whether the selector is safe.
+	 */
+	private static function is_safe_selector_bridge_selector( string $selector ): bool {
+		return '' !== trim( $selector ) && ! preg_match( '/[{};]/', $selector );
 	}
 
 	/**
@@ -6265,7 +4173,7 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Rewrite a source form-control selector for h2bc static form surrogates.
+	 * Rewrite a source form-control selector for static form surrogates.
 	 *
 	 * @param string $selector Source selector.
 	 * @return string|null Rewritten selector, or null when not applicable.
@@ -6688,77 +4596,6 @@ class Static_Site_Importer_Theme_Generator {
 
 		$opacity = trim( preg_replace( '/\s*!important\s*$/i', '', $opacity ) ?? $opacity );
 		return (bool) preg_match( '/^0(?:\.0+)?%?$/', $opacity );
-	}
-
-	/**
-	 * Collect CSS classes that identify empty decorative layers.
-	 *
-	 * @param string $css Source CSS.
-	 * @return array<int, string> Class names.
-	 */
-	private static function decorative_empty_group_classes_from_css( string $css ): array {
-		$classes = array_merge(
-			self::absolute_position_classes_from_css( $css ),
-			self::sized_decorative_classes_from_css( $css )
-		);
-		$classes = array_values( array_unique( $classes ) );
-		sort( $classes, SORT_STRING );
-
-		return $classes;
-	}
-
-	/**
-	 * Collect terminal selector classes from rules that size decorative empty layers.
-	 *
-	 * @param string $css Source CSS.
-	 * @return array<int, string> Class names.
-	 */
-	private static function sized_decorative_classes_from_css( string $css ): array {
-		$css = preg_replace( '/\/\*.*?\*\//s', '', $css ) ?? $css;
-		if ( '' === trim( $css ) || ! str_contains( $css, '.' ) ) {
-			return array();
-		}
-
-		return self::sized_decorative_classes_from_css_scope( $css );
-	}
-
-	/**
-	 * Collect sized decorative classes inside one CSS block list.
-	 *
-	 * @param string $css CSS to inspect.
-	 * @return array<int, string> Class names.
-	 */
-	private static function sized_decorative_classes_from_css_scope( string $css ): array {
-		$classes = array();
-		$length  = strlen( $css );
-		$offset  = 0;
-
-		while ( $offset < $length && preg_match( '/\G\s*([^{}]+)\{/', $css, $match, 0, $offset ) ) {
-			$prelude    = trim( $match[1] );
-			$body_start = $offset + strlen( $match[0] );
-			$body_end   = self::find_css_block_end( $css, $body_start );
-			if ( null === $body_end ) {
-				break;
-			}
-
-			$body   = substr( $css, $body_start, $body_end - $body_start );
-			$offset = $body_end + 1;
-
-			if ( str_starts_with( $prelude, '@' ) ) {
-				$classes = array_merge( $classes, self::sized_decorative_classes_from_css_scope( $body ) );
-				continue;
-			}
-
-			if ( ! preg_match( '/(?:^|;)\s*(?:min-)?height\s*:/i', $body ) && ! preg_match( '/(?:^|;)\s*aspect-ratio\s*:/i', $body ) ) {
-				continue;
-			}
-
-			foreach ( explode( ',', $prelude ) as $selector ) {
-				$classes = array_merge( $classes, self::selector_terminal_classes( trim( $selector ) ) );
-			}
-		}
-
-		return array_values( array_unique( $classes ) );
 	}
 
 	/**

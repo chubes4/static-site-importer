@@ -91,7 +91,6 @@ if ( ! function_exists( 'static_site_importer_register_abilities' ) ) {
 						'activate'                     => array( 'type' => 'boolean' ),
 						'overwrite'                    => array( 'type' => 'boolean' ),
 						'fail_on_quality'              => array( 'type' => 'boolean' ),
-						'max_fallbacks'                => array( 'type' => 'integer' ),
 						'allow_missing_woocommerce'    => array( 'type' => 'boolean' ),
 						'report'                       => array( 'type' => 'string' ),
 						'asset_materialization_policy' => array(
@@ -144,7 +143,7 @@ if ( ! function_exists( 'static_site_importer_ability_export_theme' ) ) {
 			'source_metadata' => isset( $input['source_metadata'] ) && is_array( $input['source_metadata'] ) ? $input['source_metadata'] : array(),
 		);
 
-		$result = Static_Site_Importer_Theme_Generator::export_theme( $args );
+		$result = Static_Site_Importer_Theme_Exporter::export_theme( $args );
 		if ( is_wp_error( $result ) ) {
 			/** @var WP_Error $result */
 			return static_site_importer_ability_error( (string) $result->get_error_code(), $result->get_error_message(), $result->get_error_data() );
@@ -176,7 +175,6 @@ if ( ! function_exists( 'static_site_importer_ability_import_website_artifact' )
 			'activate'                     => ! empty( $input['activate'] ),
 			'overwrite'                    => ! empty( $input['overwrite'] ),
 			'fail_on_quality'              => ! empty( $input['fail_on_quality'] ),
-			'max_fallbacks'                => isset( $input['max_fallbacks'] ) ? (int) $input['max_fallbacks'] : null,
 			'allow_missing_woocommerce'    => ! empty( $input['allow_missing_woocommerce'] ),
 			'materialize_dependencies'     => array_key_exists( 'materialize_dependencies', $input ) ? (bool) $input['materialize_dependencies'] : true,
 			'report'                       => isset( $input['report'] ) ? (string) $input['report'] : '',
@@ -235,11 +233,9 @@ if ( ! function_exists( 'static_site_importer_failure_report_summary' ) ) {
 			'quality_pass'          => false,
 			'fail_import'           => true,
 			'failure_reasons'       => array( $code ),
-			'fallback_count'        => 0,
 			'core_html_block_count' => 0,
 			'freeform_block_count'  => 0,
 			'invalid_block_count'   => 0,
-			'content_loss_count'    => 0,
 			'diagnostic_count'      => 1,
 			'error'                 => array(
 				'code'    => $code,
