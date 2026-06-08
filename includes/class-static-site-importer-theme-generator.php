@@ -213,9 +213,11 @@ class Static_Site_Importer_Theme_Generator {
 		}
 		$has_footer_part      = isset( $template_part_writes[ $theme_dir . '/parts/footer.html' ] );
 
+		$selector_provenance = self::selector_provenance_from_artifacts( $artifacts );
+
 		$writes = array(
-			$theme_dir . '/style.css'                   => self::style_css( $theme_name, $materialized['css'], array_keys( self::$button_wrapper_classes ) ),
-			$theme_dir . '/assets/css/editor-style.css' => self::editor_style_css( $materialized['css'], array_keys( self::$button_wrapper_classes ) ),
+			$theme_dir . '/style.css'                   => self::style_css( $theme_name, $materialized['css'], array_keys( self::$button_wrapper_classes ), $selector_provenance ),
+			$theme_dir . '/assets/css/editor-style.css' => self::editor_style_css( $materialized['css'], array_keys( self::$button_wrapper_classes ), $selector_provenance ),
 			$theme_dir . '/functions.php'               => self::functions_php( $theme_slug ),
 			$theme_dir . '/theme.json'                  => self::theme_json( $theme_name, $materialized['css'] ),
 			$theme_dir . '/templates/front-page.html'   => self::content_template( '', $has_footer_part ),
@@ -2887,6 +2889,42 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Collect BAC selector provenance from every WordPress artifact boundary.
+	 *
+	 * @param array<string,mixed> $artifacts BAC WordPress artifacts.
+	 * @return array<int,array<string,mixed>> Selector provenance rows.
+	 */
+	private static function selector_provenance_from_artifacts( array $artifacts ): array {
+		$rows = array();
+		foreach ( array( 'selector_provenance' ) as $field ) {
+			if ( isset( $artifacts[ $field ] ) && is_array( $artifacts[ $field ] ) ) {
+				$rows = array_merge( $rows, array_filter( $artifacts[ $field ], 'is_array' ) );
+			}
+		}
+
+		foreach ( array( 'documents', 'template_parts' ) as $artifact_field ) {
+			$items = isset( $artifacts[ $artifact_field ] ) && is_array( $artifacts[ $artifact_field ] ) ? $artifacts[ $artifact_field ] : array();
+			foreach ( $items as $item ) {
+				if ( ! is_array( $item ) || ! isset( $item['selector_provenance'] ) || ! is_array( $item['selector_provenance'] ) ) {
+					continue;
+				}
+
+				$rows = array_merge( $rows, array_filter( $item['selector_provenance'], 'is_array' ) );
+			}
+		}
+
+		$deduped = array();
+		foreach ( $rows as $row ) {
+			$key = json_encode( $row );
+			if ( is_string( $key ) && '' !== $key ) {
+				$deduped[ $key ] = $row;
+			}
+		}
+
+		return array_values( $deduped );
+	}
+
+	/**
 	 * Mark empty absolute-positioned groups so editor CSS can hide only decorative placeholders.
 	 *
 	 * @param string $block_markup Serialized block markup.
@@ -3926,17 +3964,18 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param string $css        Source CSS.
 	 * @return string
 	 */
-	private static function style_css( string $theme_name, string $css, array $button_classes = array() ): string {
+	private static function style_css( string $theme_name, string $css, array $button_classes = array(), array $selector_provenance = array() ): string {
 		$button_bridge              = self::button_style_bridge_css( $css, $button_classes );
 		$admin_bar_bridge           = self::admin_bar_top_chrome_css( $css );
 		$source_nav_selector_bridge = self::source_nav_selector_bridge_css( $css );
+		$provenance_bridge          = self::selector_provenance_bridge_css( $css, $selector_provenance );
 		$source_display_bridge      = self::source_display_selector_bridge_css( $css );
 		$image_block_bridge         = self::source_image_block_selector_bridge_css( $css );
 		$form_control_bridge        = self::source_form_control_selector_bridge_css( $css );
 		$layout_gap_bridge          = self::imported_group_layout_gap_bridge_css();
 		$css                        = self::scope_source_button_css( $css, $button_classes );
 
-		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Materialized from a compiled website artifact.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge . $admin_bar_bridge . $source_nav_selector_bridge . $source_display_bridge . $image_block_bridge . $layout_gap_bridge . $form_control_bridge;
+		return "/*\nTheme Name: " . $theme_name . "\nAuthor: Static Site Importer\nDescription: Materialized from a compiled website artifact.\nVersion: 0.1.0\nRequires at least: 6.6\n*/\n\n" . $css . "\n" . $button_bridge . $admin_bar_bridge . $source_nav_selector_bridge . $provenance_bridge . $source_display_bridge . $image_block_bridge . $layout_gap_bridge . $form_control_bridge;
 	}
 
 	/**
@@ -3945,18 +3984,19 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param string $css Source CSS.
 	 * @return string
 	 */
-	private static function editor_style_css( string $css, array $button_classes = array() ): string {
+	private static function editor_style_css( string $css, array $button_classes = array(), array $selector_provenance = array() ): string {
 		$button_bridge              = self::button_style_bridge_css( $css, $button_classes );
 		$editor_bridge              = self::editor_absolute_overlay_css( $css );
 		$editor_reveal_bridge       = self::editor_reveal_animation_css( $css );
 		$source_nav_selector_bridge = self::source_nav_selector_bridge_css( $css );
+		$provenance_bridge          = self::selector_provenance_bridge_css( $css, $selector_provenance );
 		$source_display_bridge      = self::source_display_selector_bridge_css( $css );
 		$image_block_bridge         = self::source_image_block_selector_bridge_css( $css );
 		$form_control_bridge        = self::source_form_control_selector_bridge_css( $css );
 		$layout_gap_bridge          = self::imported_group_layout_gap_bridge_css();
 		$css                        = self::scope_source_button_css( $css, $button_classes );
 
-		return "/*\nStatic Site Importer editor styles.\nGenerated separately from frontend style.css so editor wrapper repairs do not leak to public rendering.\n*/\n\n" . $css . "\n" . $button_bridge . $source_nav_selector_bridge . $source_display_bridge . $image_block_bridge . $layout_gap_bridge . $form_control_bridge . $editor_bridge . $editor_reveal_bridge;
+		return "/*\nStatic Site Importer editor styles.\nGenerated separately from frontend style.css so editor wrapper repairs do not leak to public rendering.\n*/\n\n" . $css . "\n" . $button_bridge . $source_nav_selector_bridge . $provenance_bridge . $source_display_bridge . $image_block_bridge . $layout_gap_bridge . $form_control_bridge . $editor_bridge . $editor_reveal_bridge;
 	}
 
 	/**
@@ -3970,6 +4010,205 @@ class Static_Site_Importer_Theme_Generator {
 	 */
 	private static function imported_group_layout_gap_bridge_css(): string {
 		return "\n/* Static Site Importer: preserve source-authored spacing inside converted source wrappers. */\n.wp-block-post-content.is-layout-flow > *,\n.wp-block-group.is-layout-flow > *,\n.wp-block-group.is-vertical > * { margin-block-start: 0; margin-block-end: 0; }\n.wp-block-group.is-layout-flex,\n.wp-block-group.is-vertical { gap: 0; }\n";
+	}
+
+	/**
+	 * Build selector bridge rules from BAC source-to-block provenance.
+	 *
+	 * @param string                   $css                 Source CSS.
+	 * @param array<int,array<string,mixed>> $selector_provenance Selector provenance rows.
+	 * @return string Additional CSS rules.
+	 */
+	private static function selector_provenance_bridge_css( string $css, array $selector_provenance ): string {
+		$css = preg_replace( '/\/\*.*?\*\//s', '', $css ) ?? $css;
+		if ( '' === trim( $css ) || empty( $selector_provenance ) ) {
+			return '';
+		}
+
+		$selector_map = self::selector_provenance_selector_map( $selector_provenance );
+		if ( empty( $selector_map ) ) {
+			return '';
+		}
+
+		$rules = self::selector_provenance_bridge_rules_from_css( $css, $selector_map );
+		if ( empty( $rules ) ) {
+			return '';
+		}
+
+		return "\n/* Static Site Importer: transpose source selectors using block conversion provenance. */\n" . implode( "\n", array_unique( $rules ) ) . "\n";
+	}
+
+	/**
+	 * Build a source-selector to generated-selector map from BAC provenance.
+	 *
+	 * @param array<int,array<string,mixed>> $selector_provenance Selector provenance rows.
+	 * @return array<string,array<int,string>> Selector map.
+	 */
+	private static function selector_provenance_selector_map( array $selector_provenance ): array {
+		$map = array();
+		foreach ( $selector_provenance as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+
+			$source = isset( $row['source']['selector'] ) && is_scalar( $row['source']['selector'] ) ? trim( (string) $row['source']['selector'] ) : '';
+			if ( '' === $source || ! self::is_safe_selector_bridge_selector( $source ) ) {
+				continue;
+			}
+
+			$targets = self::selector_provenance_target_selectors( $row );
+			if ( empty( $targets ) ) {
+				continue;
+			}
+
+			foreach ( self::selector_provenance_source_aliases( $source ) as $alias ) {
+				if ( ! isset( $map[ $alias ] ) ) {
+					$map[ $alias ] = array();
+				}
+
+				$map[ $alias ] = array_values( array_unique( array_merge( $map[ $alias ], $targets ) ) );
+			}
+		}
+
+		return $map;
+	}
+
+	/**
+	 * Extract generated target selectors from one provenance row.
+	 *
+	 * @param array<string,mixed> $row Selector provenance row.
+	 * @return array<int,string> Generated selectors.
+	 */
+	private static function selector_provenance_target_selectors( array $row ): array {
+		$targets = array();
+		$block   = isset( $row['generated_block'] ) && is_array( $row['generated_block'] ) ? $row['generated_block'] : array();
+
+		if ( isset( $block['selector'] ) && is_scalar( $block['selector'] ) ) {
+			$targets[] = trim( (string) $block['selector'] );
+		}
+
+		foreach ( isset( $block['targets'] ) && is_array( $block['targets'] ) ? $block['targets'] : array() as $target ) {
+			if ( is_array( $target ) && isset( $target['selector'] ) && is_scalar( $target['selector'] ) ) {
+				$targets[] = trim( (string) $target['selector'] );
+			}
+		}
+
+		return array_values(
+			array_unique(
+				array_filter(
+					$targets,
+					static fn ( string $selector ): bool => '' !== $selector && self::is_safe_selector_bridge_selector( $selector )
+				)
+			)
+		);
+	}
+
+	/**
+	 * Derive safe source selector aliases for BAC provenance lookup.
+	 *
+	 * @param string $source Source selector.
+	 * @return array<int,string> Lookup aliases.
+	 */
+	private static function selector_provenance_source_aliases( string $source ): array {
+		$aliases = array( $source );
+		if ( preg_match( '/^[a-z][a-z0-9_-]*((?:[.#][a-z0-9_-]+)+)$/i', $source, $match ) ) {
+			$aliases[] = $match[1];
+		}
+		if ( preg_match_all( '/\.([A-Za-z_-][A-Za-z0-9_-]*)/', $source, $matches ) ) {
+			foreach ( $matches[1] as $class ) {
+				$aliases[] = '.' . $class;
+			}
+		}
+
+		return array_values( array_unique( $aliases ) );
+	}
+
+	/**
+	 * Build provenance bridge rules from one CSS scope.
+	 *
+	 * @param string                         $css          CSS to inspect.
+	 * @param array<string,array<int,string>> $selector_map Source-to-target selector map.
+	 * @return array<int,string> CSS rules.
+	 */
+	private static function selector_provenance_bridge_rules_from_css( string $css, array $selector_map ): array {
+		$rules  = array();
+		$length = strlen( $css );
+		$offset = 0;
+
+		while ( $offset < $length && preg_match( '/\G\s*([^{}]+)\{/', $css, $match, 0, $offset ) ) {
+			$prelude    = trim( $match[1] );
+			$body_start = $offset + strlen( $match[0] );
+			$body_end   = self::find_css_block_end( $css, $body_start );
+			if ( null === $body_end ) {
+				break;
+			}
+
+			$body   = trim( substr( $css, $body_start, $body_end - $body_start ) );
+			$offset = $body_end + 1;
+
+			if ( str_starts_with( $prelude, '@' ) ) {
+				$nested = self::selector_provenance_bridge_rules_from_css( $body, $selector_map );
+				if ( ! empty( $nested ) ) {
+					$rules[] = $prelude . ' { ' . implode( ' ', $nested ) . ' }';
+				}
+
+				continue;
+			}
+
+			$selectors = array();
+			foreach ( explode( ',', $prelude ) as $selector ) {
+				$selector = trim( $selector );
+				$selectors = array_merge( $selectors, self::selector_provenance_rewritten_selectors( $selector, $selector_map ) );
+			}
+
+			$selectors = array_values( array_unique( $selectors ) );
+			if ( empty( $selectors ) || '' === $body ) {
+				continue;
+			}
+
+			$rules[] = implode( ', ', $selectors ) . ' {' . $body . '}';
+		}
+
+		return $rules;
+	}
+
+	/**
+	 * Rewrite one source selector through the provenance selector map.
+	 *
+	 * @param string                         $selector     Source selector.
+	 * @param array<string,array<int,string>> $selector_map Source-to-target selector map.
+	 * @return array<int,string> Rewritten selectors.
+	 */
+	private static function selector_provenance_rewritten_selectors( string $selector, array $selector_map ): array {
+		if ( isset( $selector_map[ $selector ] ) ) {
+			return $selector_map[ $selector ];
+		}
+
+		if ( ! preg_match( '/^(.*?)([a-z][a-z0-9_-]*(?:[.#][a-z0-9_-]+)+|(?:[.#][a-z0-9_-]+)+)((?::[A-Za-z_-][A-Za-z0-9_-]*(?:\([^)]*\))?)*)$/i', $selector, $match ) ) {
+			return array();
+		}
+
+		$prefix = $match[1];
+		$target = $match[2];
+		$suffix = $match[3];
+		if ( ! isset( $selector_map[ $target ] ) || ( '' !== $prefix && ! self::is_safe_selector_bridge_selector( $prefix ) ) || ( '' !== $suffix && ! self::is_safe_selector_bridge_selector( $suffix ) ) ) {
+			return array();
+		}
+
+		return array_map(
+			static fn ( string $rewritten ): string => $prefix . $rewritten . $suffix,
+			$selector_map[ $target ]
+		);
+	}
+
+	/**
+	 * Check whether a selector is safe to copy into generated bridge CSS.
+	 *
+	 * @param string $selector Selector.
+	 * @return bool Whether the selector is safe.
+	 */
+	private static function is_safe_selector_bridge_selector( string $selector ): bool {
+		return '' !== trim( $selector ) && ! preg_match( '/[{};]/', $selector );
 	}
 
 	/**
