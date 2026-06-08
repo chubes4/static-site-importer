@@ -4,25 +4,26 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "33cee1075344a94e57823b8a33576bdf",
+    "content-hash": "5ca1929fdbf2234c2980d0a0a02e3824",
     "packages": [
         {
             "name": "chubes4/block-artifact-compiler",
-            "version": "dev-fix/canonical-template-parts",
+            "version": "dev-main",
             "source": {
                 "type": "git",
                 "url": "https://github.com/chubes4/block-artifact-compiler",
-                "reference": "1fdcd3b8268b8ddae6443bae71b508ee8e41c805"
+                "reference": "2f7c672991215e024ba83626073f216f684af2db"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/chubes4/block-artifact-compiler/zipball/1fdcd3b8268b8ddae6443bae71b508ee8e41c805",
-                "reference": "1fdcd3b8268b8ddae6443bae71b508ee8e41c805",
+                "url": "https://api.github.com/repos/chubes4/block-artifact-compiler/zipball/2f7c672991215e024ba83626073f216f684af2db",
+                "reference": "2f7c672991215e024ba83626073f216f684af2db",
                 "shasum": ""
             },
             "require": {
                 "php": ">=8.1"
             },
+            "default-branch": true,
             "type": "wordpress-plugin",
             "autoload": {
                 "files": [
@@ -38,7 +39,7 @@
                 "GPL-2.0-or-later"
             ],
             "description": "Compile website artifacts into WordPress-native block artifact bundles.",
-            "time": "2026-06-08T02:17:55+00:00"
+            "time": "2026-06-08T02:21:14+00:00"
         },
         {
             "name": "chubes4/block-format-bridge",
