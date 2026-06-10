@@ -71,6 +71,8 @@ $assert( ! is_wp_error( $result ), 'import-succeeds', is_wp_error( $result ) ? $
 if ( ! is_wp_error( $result ) ) {
 	$theme_dir = $result['theme_dir'];
 	$report    = json_decode( $read( $result['report_path'] ), true );
+	$validation_result = json_decode( $read( $result['validation_result_path'] ?? '' ), true );
+	$finding_packets   = json_decode( $read( $result['finding_packets_path'] ?? '' ), true );
 	$page_ids  = array_values( $result['pages'] ?? array() );
 	$page_id   = (int) ( $page_ids[0] ?? 0 );
 	$page      = $page_id > 0 ? get_post( $page_id ) : null;
@@ -101,6 +103,13 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( ! str_contains( $content, '<script' ), 'page-content-has-no-script-fragments' );
 	$assert( 0 === ( $documents['posts/page-home.post_content']['core_html_block_count'] ?? null ), 'report-page-content-has-zero-core-html' );
 	$assert( 0 === ( $report['quality']['core_html_block_count'] ?? null ), 'quality-core-html-count-is-zero' );
+	$assert( is_file( $result['validation_result_path'] ?? '' ), 'validation-result-artifact-is-written' );
+	$assert( is_file( $result['finding_packets_path'] ?? '' ), 'finding-packets-artifact-is-written' );
+	$assert( 'static-site-importer/import-validation-result/v1' === ( $validation_result['schema'] ?? '' ), 'validation-result-schema' );
+	$assert( 'ImportValidationResult' === ( $validation_result['artifact_type'] ?? '' ), 'validation-result-artifact-type' );
+	$assert( 'passed' === ( $validation_result['status'] ?? '' ), 'validation-result-status-passed' );
+	$assert( 'static-site-importer/finding-packets/v1' === ( $finding_packets['schema'] ?? '' ), 'finding-packets-schema' );
+	$assert( 'FindingPacketSet' === ( $finding_packets['artifact_type'] ?? '' ), 'finding-packets-artifact-type' );
 	$assert( 'static-site-importer/document-metadata/v1' === ( $metadata['schema'] ?? '' ), 'metadata-contract-is-recorded' );
 	$assert( 'Ember & Rye' === ( $metadata['title'] ?? '' ), 'title-is-preserved-in-metadata' );
 	$assert( 'utf-8' === ( $metadata['meta'][0]['charset'] ?? '' ), 'charset-meta-is-preserved-in-metadata' );

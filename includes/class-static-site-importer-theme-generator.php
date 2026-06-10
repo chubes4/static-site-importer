@@ -173,13 +173,25 @@ class Static_Site_Importer_Theme_Generator {
 		self::materialize_required_plugins( $args );
 		self::record_product_seeding_report( $args );
 		self::record_commerce_dependency_check( $args );
-		$quality     = Static_Site_Importer_Report_Diagnostics::finalize_report( self::$conversion_report, $args );
-		$report_json = wp_json_encode( self::$conversion_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+		$quality                = Static_Site_Importer_Report_Diagnostics::finalize_report( self::$conversion_report, $args );
+		$validation_result      = self::$conversion_report['import_validation_result'] ?? array();
+		$finding_packets        = self::$conversion_report['finding_packets'] ?? array();
+		$report_json            = wp_json_encode( self::$conversion_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+		$validation_result_json = wp_json_encode( $validation_result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+		$finding_packets_json   = wp_json_encode( $finding_packets, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 		if ( false === $report_json ) {
 			return new WP_Error( 'static_site_importer_report_encode_failed', 'Failed to encode import report JSON.' );
 		}
+		if ( false === $validation_result_json ) {
+			return new WP_Error( 'static_site_importer_validation_result_encode_failed', 'Failed to encode import validation result JSON.' );
+		}
+		if ( false === $finding_packets_json ) {
+			return new WP_Error( 'static_site_importer_finding_packets_encode_failed', 'Failed to encode finding packets JSON.' );
+		}
 
-		$writes[ $theme_dir . '/import-report.json' ] = $report_json . "\n";
+		$writes[ $theme_dir . '/import-report.json' ]            = $report_json . "\n";
+		$writes[ $theme_dir . '/import-validation-result.json' ] = $validation_result_json . "\n";
+		$writes[ $theme_dir . '/finding-packets.json' ]          = $finding_packets_json . "\n";
 		foreach ( $writes as $path => $content ) {
 			$result = Static_Site_Importer_Theme_Materializer::write_file( $path, $content );
 			if ( is_wp_error( $result ) ) {
@@ -187,10 +199,24 @@ class Static_Site_Importer_Theme_Generator {
 			}
 		}
 
-		$external_report_path = '';
+		$external_report_path            = '';
+		$external_validation_result_path = '';
+		$external_finding_packets_path   = '';
 		if ( isset( $args['report'] ) && '' !== trim( (string) $args['report'] ) ) {
 			$external_report_path = (string) $args['report'];
 			$result               = Static_Site_Importer_Theme_Materializer::write_external_report( $external_report_path, $report_json . "\n" );
+			if ( is_wp_error( $result ) ) {
+				return $result;
+			}
+
+			$external_report_dir              = dirname( $external_report_path );
+			$external_validation_result_path = trailingslashit( $external_report_dir ) . 'import-validation-result.json';
+			$external_finding_packets_path   = trailingslashit( $external_report_dir ) . 'finding-packets.json';
+			$result                          = Static_Site_Importer_Theme_Materializer::write_external_report( $external_validation_result_path, $validation_result_json . "\n" );
+			if ( is_wp_error( $result ) ) {
+				return $result;
+			}
+			$result = Static_Site_Importer_Theme_Materializer::write_external_report( $external_finding_packets_path, $finding_packets_json . "\n" );
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}
@@ -214,11 +240,17 @@ class Static_Site_Importer_Theme_Generator {
 			'theme_name'            => $theme_name,
 			'theme_dir'             => $theme_dir,
 			'report_path'           => $theme_dir . '/import-report.json',
-			'external_report_path'  => $external_report_path,
-			'import_report_summary' => self::$conversion_report['compact_summary'],
-			'pages'                 => $page_ids,
-			'quality'               => $quality,
-			'source_documents'      => self::$conversion_report['source_documents'],
+			'validation_result_path'          => $theme_dir . '/import-validation-result.json',
+			'finding_packets_path'            => $theme_dir . '/finding-packets.json',
+			'external_report_path'            => $external_report_path,
+			'external_validation_result_path' => $external_validation_result_path,
+			'external_finding_packets_path'   => $external_finding_packets_path,
+			'import_report_summary'           => self::$conversion_report['compact_summary'],
+			'import_validation_result'        => $validation_result,
+			'finding_packets'                 => $finding_packets,
+			'pages'                           => $page_ids,
+			'quality'                         => $quality,
+			'source_documents'                => self::$conversion_report['source_documents'],
 		);
 	}
 

@@ -262,10 +262,98 @@ class Static_Site_Importer_Report_Diagnostics {
 	 * @return array<string, mixed>
 	 */
 	public static function finalize_report( array &$report, array $args ): array {
-		$quality                   = self::finalize_quality_report( $report, $args );
-		$report['compact_summary'] = self::import_report_summary( $report, $quality );
+		$quality                            = self::finalize_quality_report( $report, $args );
+		$report['compact_summary']          = self::import_report_summary( $report, $quality );
+		$report['finding_packets']          = self::finding_packets( $report );
+		$report['import_validation_result'] = self::import_validation_result( $report, $quality );
 
 		return $quality;
+	}
+
+	/**
+	 * Build the first-class import validation artifact for automation consumers.
+	 *
+	 * @param array<string,mixed> $report  Full import report.
+	 * @param array<string,mixed> $quality Finalized quality gate state.
+	 * @return array<string,mixed>
+	 */
+	public static function import_validation_result( array $report, array $quality ): array {
+		$summary          = self::import_report_summary( $report, $quality );
+		$diagnostics      = isset( $report['diagnostics'] ) && is_array( $report['diagnostics'] ) ? $report['diagnostics'] : array();
+		$source_documents = isset( $report['source_documents'] ) && is_array( $report['source_documents'] ) ? $report['source_documents'] : array();
+
+		return array(
+			'schema'               => 'static-site-importer/import-validation-result/v1',
+			'artifact_type'        => 'ImportValidationResult',
+			'version'              => 1,
+			'status'               => ! empty( $quality['fail_import'] ) ? 'failed' : ( ! empty( $quality['pass'] ) ? 'passed' : 'reported' ),
+			'quality_pass'         => ! empty( $quality['pass'] ),
+			'fail_import'          => ! empty( $quality['fail_import'] ),
+			'failure_reasons'      => isset( $quality['failure_reasons'] ) && is_array( $quality['failure_reasons'] ) ? array_values( $quality['failure_reasons'] ) : array(),
+			'counts'               => array(
+				'source_documents'              => (int) ( $source_documents['total_count'] ?? 0 ),
+				'diagnostics'                   => count( $diagnostics ),
+				'fallback_blocks'               => (int) ( $quality['fallback_count'] ?? 0 ),
+				'content_loss'                  => (int) ( $quality['content_loss_count'] ?? 0 ),
+				'empty_conversions'             => (int) ( $quality['empty_conversion_count'] ?? 0 ),
+				'core_html_blocks'              => (int) ( $quality['core_html_block_count'] ?? 0 ),
+				'freeform_blocks'               => (int) ( $quality['freeform_block_count'] ?? 0 ),
+				'invalid_blocks'                => (int) ( $quality['invalid_block_count'] ?? 0 ),
+				'invalid_block_documents'       => (int) ( $quality['invalid_block_document_count'] ?? 0 ),
+				'unsafe_svgs'                   => (int) ( $quality['unsafe_svg_count'] ?? 0 ),
+				'svg_materialization_failures'  => (int) ( $quality['svg_materialization_failure_count'] ?? 0 ),
+				'svg_sprite_reference_failures' => (int) ( $quality['svg_sprite_reference_failure_count'] ?? 0 ),
+				'commerce_dependency_failures'  => (int) ( $quality['commerce_dependency_failures'] ?? 0 ),
+			),
+			'quality_gates'        => array(
+				'fallback_blocks'              => self::validation_gate( 'fallback_blocks', (int) ( $quality['fallback_count'] ?? 0 ), $quality ),
+				'conversion_failures'          => self::validation_gate( 'conversion_failures', (int) ( $quality['content_loss_count'] ?? 0 ) + (int) ( $quality['empty_conversion_count'] ?? 0 ) + (int) ( $quality['invalid_block_count'] ?? 0 ), $quality ),
+				'generated_fallback_blocks'    => self::validation_gate( 'generated_fallback_blocks', (int) ( $quality['core_html_block_count'] ?? 0 ) + (int) ( $quality['freeform_block_count'] ?? 0 ), $quality ),
+				'asset_materialization'        => self::validation_gate( 'asset_materialization', (int) ( $quality['svg_materialization_failure_count'] ?? 0 ) + (int) ( $quality['svg_sprite_reference_failure_count'] ?? 0 ), $quality ),
+				'commerce_dependencies'        => self::validation_gate( 'commerce_dependencies', (int) ( $quality['commerce_dependency_failures'] ?? 0 ), $quality ),
+				'visual_fidelity'             => array(
+					'status' => (string) ( $report['visual_fidelity']['status'] ?? 'requires_external_render_check' ),
+					'owner'  => (string) ( $report['visual_fidelity']['gate_owner'] ?? 'benchmark_harness' ),
+				),
+				'semantic_fidelity'           => array(
+					'status' => (string) ( $report['semantic_fidelity']['status'] ?? 'requires_external_render_check' ),
+					'owner'  => (string) ( $report['semantic_fidelity']['gate_owner'] ?? 'benchmark_harness' ),
+				),
+			),
+			'diagnostic_summary'  => $summary['diagnostic_summary'] ?? array(),
+			'diagnostic_refs'     => isset( $quality['diagnostic_refs'] ) && is_array( $quality['diagnostic_refs'] ) ? $quality['diagnostic_refs'] : array(),
+			'artifacts'           => self::validation_artifact_refs(),
+			'provenance'          => self::validation_provenance( $report ),
+			'reproduction_context' => self::validation_reproduction_context( $report ),
+		);
+	}
+
+	/**
+	 * Build the finding packet artifact set for repair-loop routing.
+	 *
+	 * @param array<string,mixed> $report Full import report.
+	 * @return array<string,mixed>
+	 */
+	public static function finding_packets( array $report ): array {
+		$diagnostics = isset( $report['diagnostics'] ) && is_array( $report['diagnostics'] ) ? $report['diagnostics'] : array();
+		$packets     = array();
+
+		foreach ( $diagnostics as $diagnostic ) {
+			if ( ! is_array( $diagnostic ) || ! self::diagnostic_is_finding_packet_candidate( $diagnostic ) ) {
+				continue;
+			}
+
+			$packets[] = self::finding_packet_from_diagnostic( $diagnostic, $report );
+		}
+
+		return array(
+			'schema'        => 'static-site-importer/finding-packets/v1',
+			'artifact_type' => 'FindingPacketSet',
+			'version'       => 1,
+			'status'        => empty( $packets ) ? 'clean' : 'reported',
+			'count'         => count( $packets ),
+			'packets'       => $packets,
+		);
 	}
 
 	/**
@@ -390,6 +478,208 @@ class Static_Site_Importer_Report_Diagnostics {
 			'error_summaries'              => self::compact_import_report_diagnostic_summaries_by_severity( $diagnostics, 'error' ),
 			'diagnostics'                  => self::compact_import_report_diagnostics( $diagnostics ),
 		);
+	}
+
+	/**
+	 * Build a machine quality gate row.
+	 *
+	 * @param string              $name    Gate name.
+	 * @param int                 $count   Finding count.
+	 * @param array<string,mixed> $quality Finalized quality report.
+	 * @return array<string,mixed>
+	 */
+	private static function validation_gate( string $name, int $count, array $quality ): array {
+		$ref_keys = array(
+			'fallback_blocks'           => 'fallback_count',
+			'conversion_failures'       => 'content_loss_count',
+			'generated_fallback_blocks' => 'core_html_block_count',
+			'asset_materialization'     => 'svg_materialization_failure_count',
+			'commerce_dependencies'     => 'commerce_dependency_failures',
+		);
+		$ref_key  = $ref_keys[ $name ] ?? $name;
+
+		return array(
+			'name'            => $name,
+			'status'          => 0 === $count ? 'passed' : 'reported',
+			'count'           => $count,
+			'diagnostic_refs' => isset( $quality['diagnostic_refs'][ $ref_key ] ) && is_array( $quality['diagnostic_refs'][ $ref_key ] ) ? $quality['diagnostic_refs'][ $ref_key ] : array(),
+		);
+	}
+
+	/**
+	 * Stable artifact paths emitted by SSI import.
+	 *
+	 * @return array<string,array<string,string>>
+	 */
+	private static function validation_artifact_refs(): array {
+		return array(
+			'import_report'            => array(
+				'path' => 'import-report.json',
+				'kind' => 'static-site-importer/import-report',
+			),
+			'import_validation_result' => array(
+				'path' => 'import-validation-result.json',
+				'kind' => 'static-site-importer/import-validation-result',
+			),
+			'finding_packets'          => array(
+				'path' => 'finding-packets.json',
+				'kind' => 'static-site-importer/finding-packets',
+			),
+		);
+	}
+
+	/**
+	 * Build provenance for machine artifacts.
+	 *
+	 * @param array<string,mixed> $report Full import report.
+	 * @return array<string,mixed>
+	 */
+	private static function validation_provenance( array $report ): array {
+		$source   = isset( $report['source'] ) && is_array( $report['source'] ) ? $report['source'] : array();
+		$compiler = isset( $report['block_artifact_compiler']['website_artifact'] ) && is_array( $report['block_artifact_compiler']['website_artifact'] ) ? $report['block_artifact_compiler']['website_artifact'] : array();
+
+		return array(
+			'producer'            => 'static-site-importer',
+			'producer_version'    => defined( 'STATIC_SITE_IMPORTER_VERSION' ) ? STATIC_SITE_IMPORTER_VERSION : 'unknown',
+			'source'              => $source,
+			'compiler_summary'    => isset( $compiler['summary'] ) && is_array( $compiler['summary'] ) ? $compiler['summary'] : array(),
+			'compiler_input'      => isset( $compiler['input'] ) && is_array( $compiler['input'] ) ? $compiler['input'] : array(),
+			'compiler_provenance' => isset( $compiler['provenance'] ) && is_array( $compiler['provenance'] ) ? $compiler['provenance'] : array(),
+		);
+	}
+
+	/**
+	 * Build import-level reproduction context for machine artifacts.
+	 *
+	 * @param array<string,mixed> $report Full import report.
+	 * @return array<string,mixed>
+	 */
+	private static function validation_reproduction_context( array $report ): array {
+		return array(
+			'entry_file'       => isset( $report['entry_file'] ) ? (string) $report['entry_file'] : '',
+			'theme_slug'       => isset( $report['theme_slug'] ) ? (string) $report['theme_slug'] : '',
+			'source_documents' => isset( $report['source_documents'] ) && is_array( $report['source_documents'] ) ? $report['source_documents'] : array(),
+			'artifacts'        => self::validation_artifact_refs(),
+		);
+	}
+
+	/**
+	 * Determine whether a diagnostic should route as a repair finding.
+	 *
+	 * @param array<string,mixed> $diagnostic Normalized diagnostic.
+	 * @return bool
+	 */
+	private static function diagnostic_is_finding_packet_candidate( array $diagnostic ): bool {
+		$type = isset( $diagnostic['type'] ) && is_scalar( $diagnostic['type'] ) ? (string) $diagnostic['type'] : '';
+
+		return in_array(
+			$type,
+			array(
+				'unsupported_html_fallback',
+				'core_html_block',
+				'freeform_block',
+				'invalid_block_document',
+				'content_loss_abort',
+				'empty_conversion',
+				'local_asset_not_materialized',
+				'svg_materialization_failure',
+				'svg_sprite_reference_failure',
+				'commerce_dependency_failure',
+				'commerce_product_inference_unmatched',
+			),
+			true
+		);
+	}
+
+	/**
+	 * Convert one normalized diagnostic into a FindingPacket.
+	 *
+	 * @param array<string,mixed> $diagnostic Normalized diagnostic.
+	 * @param array<string,mixed> $report     Full import report.
+	 * @return array<string,mixed>
+	 */
+	private static function finding_packet_from_diagnostic( array $diagnostic, array $report ): array {
+		$id       = isset( $diagnostic['id'] ) && is_scalar( $diagnostic['id'] ) ? (string) $diagnostic['id'] : 'finding';
+		$type     = isset( $diagnostic['type'] ) && is_scalar( $diagnostic['type'] ) ? (string) $diagnostic['type'] : 'import_diagnostic';
+		$severity = isset( $diagnostic['severity'] ) && is_scalar( $diagnostic['severity'] ) ? (string) $diagnostic['severity'] : self::diagnostic_severity( $type );
+
+		return array(
+			'schema'               => 'static-site-importer/finding-packet/v1',
+			'artifact_type'        => 'FindingPacket',
+			'version'              => 1,
+			'id'                   => 'finding-' . preg_replace( '/^diag-/', '', $id ),
+			'diagnostic_id'        => $id,
+			'type'                 => $type,
+			'severity'             => $severity,
+			'category'             => isset( $diagnostic['category'] ) && is_scalar( $diagnostic['category'] ) ? (string) $diagnostic['category'] : self::diagnostic_category( $type ),
+			'owner'                => self::finding_owner( $diagnostic ),
+			'routing'              => array(
+				'component'              => self::finding_owner( $diagnostic ),
+				'stage'                  => isset( $diagnostic['stage'] ) && is_scalar( $diagnostic['stage'] ) ? (string) $diagnostic['stage'] : 'import',
+				'suggested_repair_class' => isset( $diagnostic['suggested_repair_class'] ) && is_scalar( $diagnostic['suggested_repair_class'] ) ? (string) $diagnostic['suggested_repair_class'] : self::diagnostic_repair_class( $type ),
+			),
+			'provenance'           => self::validation_provenance( $report ),
+			'reproduction_context' => array_merge(
+				self::validation_reproduction_context( $report ),
+				array(
+					'source_path' => isset( $diagnostic['source_path'] ) && is_scalar( $diagnostic['source_path'] ) ? (string) $diagnostic['source_path'] : '',
+					'selector'    => isset( $diagnostic['selector'] ) && is_scalar( $diagnostic['selector'] ) ? (string) $diagnostic['selector'] : '',
+					'block_path'  => isset( $diagnostic['block_path'] ) && is_scalar( $diagnostic['block_path'] ) ? (string) $diagnostic['block_path'] : '',
+				)
+			),
+			'source'              => array(
+				'path'         => isset( $diagnostic['source_path'] ) && is_scalar( $diagnostic['source_path'] ) ? (string) $diagnostic['source_path'] : '',
+				'selector'     => isset( $diagnostic['selector'] ) && is_scalar( $diagnostic['selector'] ) ? (string) $diagnostic['selector'] : '',
+				'snippet'      => isset( $diagnostic['source_html_preview'] ) && is_scalar( $diagnostic['source_html_preview'] ) ? (string) $diagnostic['source_html_preview'] : ( isset( $diagnostic['html_excerpt'] ) && is_scalar( $diagnostic['html_excerpt'] ) ? (string) $diagnostic['html_excerpt'] : '' ),
+			),
+			'observed'            => array(
+				'output'       => isset( $diagnostic['emitted_block_preview'] ) && is_scalar( $diagnostic['emitted_block_preview'] ) ? (string) $diagnostic['emitted_block_preview'] : '',
+				'block_name'   => isset( $diagnostic['block_name'] ) && is_scalar( $diagnostic['block_name'] ) ? (string) $diagnostic['block_name'] : '',
+				'reason_code'  => isset( $diagnostic['reason_code'] ) && is_scalar( $diagnostic['reason_code'] ) ? (string) $diagnostic['reason_code'] : self::diagnostic_reason_code( $type, $diagnostic ),
+			),
+			'expected'            => array(
+				'outcome' => self::finding_expected_outcome( $diagnostic ),
+			),
+			'refs'                => array_values( self::validation_artifact_refs() ),
+		);
+	}
+
+	/**
+	 * Route a finding to the most likely upstream owner.
+	 *
+	 * @param array<string,mixed> $diagnostic Normalized diagnostic.
+	 * @return string
+	 */
+	private static function finding_owner( array $diagnostic ): string {
+		$converter = isset( $diagnostic['converter'] ) && is_scalar( $diagnostic['converter'] ) ? (string) $diagnostic['converter'] : '';
+		if ( '' !== $converter ) {
+			return $converter;
+		}
+
+		$type = isset( $diagnostic['type'] ) && is_scalar( $diagnostic['type'] ) ? (string) $diagnostic['type'] : '';
+		if ( str_contains( $type, 'svg' ) || str_contains( $type, 'asset' ) ) {
+			return 'static-site-importer';
+		}
+
+		return 'block-artifact-compiler';
+	}
+
+	/**
+	 * Explain the target repair state for a finding.
+	 *
+	 * @param array<string,mixed> $diagnostic Normalized diagnostic.
+	 * @return string
+	 */
+	private static function finding_expected_outcome( array $diagnostic ): string {
+		$type = isset( $diagnostic['type'] ) && is_scalar( $diagnostic['type'] ) ? (string) $diagnostic['type'] : '';
+		if ( in_array( $type, array( 'unsupported_html_fallback', 'core_html_block', 'freeform_block' ), true ) ) {
+			return 'Generate first-class WordPress block markup without fallback core/html or core/freeform output.';
+		}
+		if ( in_array( $type, array( 'content_loss_abort', 'empty_conversion', 'invalid_block_document' ), true ) ) {
+			return 'Convert the source content into valid non-empty WordPress block markup without losing source content.';
+		}
+
+		return 'Import should complete without this diagnostic being reported.';
 	}
 
 	/**
