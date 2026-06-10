@@ -17,6 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 define( 'STATIC_SITE_IMPORTER_PATH', plugin_dir_path( __FILE__ ) );
 define( 'STATIC_SITE_IMPORTER_URL', plugin_dir_url( __FILE__ ) );
+define( 'STATIC_SITE_IMPORTER_VERSION', '1.1.4' );
 
 if ( is_readable( STATIC_SITE_IMPORTER_PATH . 'vendor/autoload.php' ) ) {
 	require_once STATIC_SITE_IMPORTER_PATH . 'vendor/autoload.php';

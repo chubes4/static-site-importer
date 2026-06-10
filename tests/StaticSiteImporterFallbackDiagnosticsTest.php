@@ -86,6 +86,95 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Import validation and finding packet artifacts expose repair-loop contracts.
+	 */
+	public function test_import_validation_result_and_finding_packets_are_machine_readable(): void {
+		$report = array(
+			'entry_file'              => '/tmp/source/index.html',
+			'version'                 => 1,
+			'theme_slug'              => 'static-template-import',
+			'source'                  => array(
+				'type'   => 'website_artifact',
+				'source' => 'artifact.json',
+			),
+			'block_artifact_compiler' => array(
+				'website_artifact' => array(
+					'summary'    => array(
+						'schema' => 'block-artifact-compiler/result/v1',
+						'status' => 'success',
+						'source' => 'artifact.json',
+					),
+					'input'      => array( 'entry_path' => 'website/index.html' ),
+					'provenance' => array( 'source' => 'artifact.json' ),
+				),
+			),
+			'source_documents'        => array(
+				'total_count' => 1,
+			),
+			'visual_fidelity'         => array(
+				'status'     => 'requires_external_render_check',
+				'gate_owner' => 'benchmark_harness',
+			),
+			'semantic_fidelity'       => array(
+				'status'     => 'requires_external_render_check',
+				'gate_owner' => 'benchmark_harness',
+			),
+			'quality'                 => array(
+				'fallback_count'                     => 0,
+				'content_loss_count'                 => 0,
+				'empty_conversion_count'             => 0,
+				'core_html_block_count'              => 1,
+				'freeform_block_count'               => 0,
+				'invalid_block_count'                => 0,
+				'invalid_block_document_count'       => 0,
+				'unsafe_svg_count'                   => 0,
+				'svg_materialization_failure_count'  => 0,
+				'svg_sprite_reference_failure_count' => 0,
+				'commerce_dependency_failures'       => 0,
+			),
+			'diagnostics'             => array(
+				array(
+					'type'                   => 'core_html_block',
+					'source'                 => 'generated:templates/front-page.html',
+					'selector'               => 'iframe#store-widget.embedded.checkout',
+					'source_html_preview'    => '<iframe id="store-widget" class="embedded checkout"></iframe>',
+					'emitted_block_preview'  => '<!-- wp:html --><iframe id="store-widget" class="embedded checkout"></iframe><!-- /wp:html -->',
+					'block_name'             => 'core/html',
+					'converter'              => 'html-to-blocks-converter',
+					'stage'                  => 'generated_theme_block_analysis',
+					'reason'                 => 'generated_document_contains_core_html',
+					'block_path'             => '0',
+				),
+			),
+		);
+
+		$quality = Static_Site_Importer_Report_Diagnostics::finalize_report( $report, array() );
+
+		$this->assertSame( 'static-site-importer/import-validation-result/v1', $report['import_validation_result']['schema'] ?? '' );
+		$this->assertSame( 'ImportValidationResult', $report['import_validation_result']['artifact_type'] ?? '' );
+		$this->assertSame( 'reported', $report['import_validation_result']['status'] ?? '' );
+		$this->assertFalse( $quality['pass'] ?? true );
+		$this->assertSame( 1, $report['import_validation_result']['counts']['core_html_blocks'] ?? 0 );
+		$this->assertSame( 'import-validation-result.json', $report['import_validation_result']['artifacts']['import_validation_result']['path'] ?? '' );
+		$this->assertSame( 'finding-packets.json', $report['import_validation_result']['artifacts']['finding_packets']['path'] ?? '' );
+		$this->assertSame( '/tmp/source/index.html', $report['import_validation_result']['reproduction_context']['entry_file'] ?? '' );
+
+		$this->assertSame( 'static-site-importer/finding-packets/v1', $report['finding_packets']['schema'] ?? '' );
+		$this->assertSame( 1, $report['finding_packets']['count'] ?? 0 );
+		$packet = $report['finding_packets']['packets'][0] ?? array();
+		$this->assertSame( 'static-site-importer/finding-packet/v1', $packet['schema'] ?? '' );
+		$this->assertSame( 'FindingPacket', $packet['artifact_type'] ?? '' );
+		$this->assertSame( 'core_html_block', $packet['type'] ?? '' );
+		$this->assertSame( 'warning', $packet['severity'] ?? '' );
+		$this->assertSame( 'html-to-blocks-converter', $packet['owner'] ?? '' );
+		$this->assertSame( 'replace_fallback_block', $packet['routing']['suggested_repair_class'] ?? '' );
+		$this->assertSame( 'templates/front-page.html', $packet['source']['path'] ?? '' );
+		$this->assertStringContainsString( '<iframe', $packet['source']['snippet'] ?? '' );
+		$this->assertStringContainsString( '<!-- wp:html -->', $packet['observed']['output'] ?? '' );
+		$this->assertStringContainsString( 'without fallback', $packet['expected']['outcome'] ?? '' );
+	}
+
+	/**
 	 * Artifact diagnostics use the WP Codebox normalization contract.
 	 */
 	public function test_wp_codebox_artifact_diagnostics_normalizer_accepts_import_report_shape(): void {
