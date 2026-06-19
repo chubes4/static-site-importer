@@ -25,11 +25,10 @@ class Static_Site_Importer_Theme_Exporter {
 	 * @return array{website_artifact:array<string,mixed>}|WP_Error
 	 */
 	public static function export_theme( array $args = array() ) {
-		if ( ! class_exists( '\Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge' ) && ! function_exists( 'bfb_convert' ) ) {
-			return new WP_Error( 'static_site_importer_missing_transformer', 'Blocks Engine php-transformer or Block Format Bridge is required to export a website artifact.' );
-		}
-
 		$transformer = new Static_Site_Importer_Transformer_Adapter();
+		if ( ! $transformer->supports_blocks_to_html() ) {
+			return new WP_Error( 'static_site_importer_missing_transformer', 'Blocks Engine php-transformer is required to export a website artifact.' );
+		}
 
 		$theme_slug = isset( $args['theme_slug'] ) && '' !== trim( (string) $args['theme_slug'] ) ? sanitize_title( (string) $args['theme_slug'] ) : self::active_theme_slug();
 		if ( '' === $theme_slug ) {

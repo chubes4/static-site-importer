@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "1023d2e582428b80995c935ec70ec1c0",
+    "content-hash": "c28d72e4535b0787a579aa53f777d189",
     "packages": [
         {
             "name": "automattic/blocks-engine-php-transformer",
@@ -72,126 +72,6 @@
                 "symlink": true,
                 "relative": true
             }
-        },
-        {
-            "name": "chubes4/block-artifact-compiler",
-            "version": "dev-main",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/chubes4/block-artifact-compiler",
-                "reference": "4bebd41173ca96142e5443e5f23d95677cf28e5c"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/chubes4/block-artifact-compiler/zipball/4bebd41173ca96142e5443e5f23d95677cf28e5c",
-                "reference": "4bebd41173ca96142e5443e5f23d95677cf28e5c",
-                "shasum": ""
-            },
-            "require": {
-                "php": ">=8.1"
-            },
-            "default-branch": true,
-            "type": "wordpress-plugin",
-            "autoload": {
-                "files": [
-                    "library.php"
-                ]
-            },
-            "scripts": {
-                "test": [
-                    "php tests/contract-smoke.php"
-                ]
-            },
-            "license": [
-                "GPL-2.0-or-later"
-            ],
-            "description": "Compile website artifacts into WordPress-native block artifact bundles.",
-            "time": "2026-06-08T18:16:33+00:00"
-        },
-        {
-            "name": "chubes4/block-format-bridge",
-            "version": "dev-main",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/chubes4/block-format-bridge",
-                "reference": "fa1c46080e80f85ad9d4634e0f203db4d29810d3"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/chubes4/block-format-bridge/zipball/fa1c46080e80f85ad9d4634e0f203db4d29810d3",
-                "reference": "fa1c46080e80f85ad9d4634e0f203db4d29810d3",
-                "shasum": ""
-            },
-            "require": {
-                "chubes4/html-to-blocks-converter": "dev-main",
-                "league/commonmark": "^2.5",
-                "league/html-to-markdown": "^5.1",
-                "php": "^8.1"
-            },
-            "require-dev": {
-                "humbug/php-scoper": "^0.18.19"
-            },
-            "default-branch": true,
-            "type": "wordpress-plugin",
-            "autoload": {
-                "files": [
-                    "library.php"
-                ]
-            },
-            "scripts": {
-                "build": [
-                    "./build.sh"
-                ]
-            },
-            "license": [
-                "GPL-2.0-or-later"
-            ],
-            "authors": [
-                {
-                    "name": "Chris Huber",
-                    "homepage": "https://chubes.net"
-                }
-            ],
-            "description": "WordPress plugin orchestrating bidirectional content format conversion (HTML, Blocks, Markdown) via a unified adapter API.",
-            "homepage": "https://github.com/chubes4/block-format-bridge",
-            "time": "2026-06-07T23:18:59+00:00"
-        },
-        {
-            "name": "chubes4/html-to-blocks-converter",
-            "version": "dev-main",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/chubes4/html-to-blocks-converter",
-                "reference": "984a33e78cd587f0faac25b5294b2f8f8974c25f"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/chubes4/html-to-blocks-converter/zipball/984a33e78cd587f0faac25b5294b2f8f8974c25f",
-                "reference": "984a33e78cd587f0faac25b5294b2f8f8974c25f",
-                "shasum": ""
-            },
-            "require": {
-                "php": ">=7.4"
-            },
-            "default-branch": true,
-            "type": "wordpress-plugin",
-            "autoload": {
-                "files": [
-                    "library.php"
-                ]
-            },
-            "license": [
-                "GPL-2.0-or-later"
-            ],
-            "authors": [
-                {
-                    "name": "Chris Huber",
-                    "homepage": "https://chubes.net"
-                }
-            ],
-            "description": "Convert raw HTML into Gutenberg block arrays using WordPress' HTML API.",
-            "homepage": "https://github.com/chubes4/html-to-blocks-converter",
-            "time": "2026-06-08T22:32:19+00:00"
         },
         {
             "name": "dflydev/dot-access-data",
@@ -914,10 +794,7 @@
     "aliases": [],
     "minimum-stability": "dev",
     "stability-flags": {
-        "automattic/blocks-engine-php-transformer": 20,
-        "chubes4/block-artifact-compiler": 20,
-        "chubes4/block-format-bridge": 20,
-        "chubes4/html-to-blocks-converter": 20
+        "automattic/blocks-engine-php-transformer": 20
     },
     "prefer-stable": true,
     "prefer-lowest": false,

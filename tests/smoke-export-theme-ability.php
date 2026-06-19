@@ -28,6 +28,17 @@ file_put_contents( $theme_dir . '/import-report.json', '{"status":"completed","s
 
 $GLOBALS['ssi_export_theme_root'] = $theme_root;
 $GLOBALS['ssi_export_bfb_calls']  = array();
+$GLOBALS['ssi_export_format_bridge_calls'] = array();
+eval(
+	'namespace Automattic\\BlocksEngine\\PhpTransformer\\FormatBridge {' .
+	'class FormatBridge {' .
+	'public function convert(string $content, string $from, string $to, array $options = array()): string {' .
+	'$GLOBALS["ssi_export_format_bridge_calls"][] = array($from, $to, $options);' .
+	'return str_replace(array("<!-- wp:paragraph -->", "<!-- /wp:paragraph -->", "<!-- wp:post-content /-->"), "", $content);' .
+	'}' .
+	'}' .
+	'}'
+);
 register_shutdown_function(
 	static function () use ( $theme_root ): void {
 		$iterator = new RecursiveIteratorIterator(
@@ -235,11 +246,16 @@ if ( function_exists( 'bac_compile_website_artifact' ) ) {
 	$assert( 'block-artifact-compiler/result/v1' === ( $compiled['schema'] ?? '' ), 'bac-compiles-exported-artifact' );
 	$assert( 'website/index.html' === ( $compiled['input']['entry_path'] ?? '' ), 'bac-uses-website-entrypoint' );
 }
-$export_bfb_calls = array_filter(
+$export_format_bridge_calls = array_filter(
+	$GLOBALS['ssi_export_format_bridge_calls'],
+	static fn ( array $call ): bool => 'blocks' === $call[0] && 'html' === $call[1]
+);
+$export_bfb_calls           = array_filter(
 	$GLOBALS['ssi_export_bfb_calls'],
 	static fn ( array $call ): bool => 'blocks' === $call[0] && 'html' === $call[1]
 );
-$assert( count( $export_bfb_calls ) >= 4, 'bfb-called-for-block-to-html' );
+$assert( count( $export_format_bridge_calls ) >= 4, 'format-bridge-called-for-block-to-html' );
+$assert( array() === $export_bfb_calls, 'bfb-not-called-for-export' );
 $assert( class_exists( 'Static_Site_Importer_Transformer_Adapter' ), 'export-routes-through-transformer-adapter' );
 
 if ( $failures ) {

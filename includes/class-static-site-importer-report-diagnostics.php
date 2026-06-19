@@ -135,8 +135,8 @@ class Static_Site_Importer_Report_Diagnostics {
 			),
 			'diagnostics'             => array(),
 			'notes'                   => array(
-				'Block Artifact Compiler owns the website-artifact to WordPress-artifact envelope; Static Site Importer materializes the result and records compiler summaries.',
-				'Block Format Bridge owns HTML-to-block transform fidelity; Static Site Importer records converter diagnostics and quality gates the generated theme.',
+				'Blocks Engine transformer owns the website-artifact to WordPress-artifact envelope; Static Site Importer materializes the result, records compiler summaries, and owns product seeding.',
+				'Blocks Engine transformer owns HTML/block transform fidelity; Static Site Importer records converter diagnostics and quality gates the generated theme.',
 				'Generated-theme block validation uses WordPress server-side block parsing and serialization checks; editor-runtime validation remains the exact Gutenberg authority.',
 				'Visual fidelity requires browser rendering; use visual_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',
 				'Semantic fidelity requires browser DOM extraction; use semantic_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',
@@ -200,7 +200,7 @@ class Static_Site_Importer_Report_Diagnostics {
 		$report['diagnostics'][] = array(
 			'type'        => 'website_artifact_materialization_contract_note',
 			'source'      => '' !== $source ? $source : 'website_artifact',
-			'message'     => 'Direct materialization consumed BAC block_markup, documents, files, and compiled-site artifacts. SSI owns WordPress writes while BAC owns materializer-neutral site/theme compilation.',
+			'message'     => 'Direct materialization consumed block_markup, documents, files, and compiled-site artifacts. SSI owns WordPress writes and product seeding while Blocks Engine owns materializer-neutral site/theme compilation.',
 			'contract'    => 'block-artifact-compiler/result/v1',
 			'constraints' => 'report_only',
 		);

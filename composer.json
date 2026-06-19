@@ -5,10 +5,7 @@
   "license": "GPL-2.0-or-later",
   "require": {
     "php": "^8.1",
-    "automattic/blocks-engine-php-transformer": "dev-trunk",
-    "chubes4/block-artifact-compiler": "dev-main",
-    "chubes4/block-format-bridge": "dev-main",
-    "chubes4/html-to-blocks-converter": "dev-main"
+    "automattic/blocks-engine-php-transformer": "dev-trunk"
   },
   "repositories": [
     {
@@ -17,22 +14,6 @@
       "options": {
         "symlink": true
       }
-    },
-    {
-      "name": "block-artifact-compiler",
-      "type": "vcs",
-      "url": "https://github.com/chubes4/block-artifact-compiler",
-      "no-api": true
-    },
-    {
-      "type": "vcs",
-      "url": "https://github.com/chubes4/block-format-bridge",
-      "no-api": true
-    },
-    {
-      "type": "vcs",
-      "url": "https://github.com/chubes4/html-to-blocks-converter",
-      "no-api": true
     }
   ],
   "minimum-stability": "dev",

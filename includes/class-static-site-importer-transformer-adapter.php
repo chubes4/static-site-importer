@@ -15,6 +15,24 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Static_Site_Importer_Transformer_Adapter {
 
 	/**
+	 * Check whether the default Blocks Engine artifact compiler is available.
+	 *
+	 * @return bool
+	 */
+	public function supports_website_artifact_compile(): bool {
+		return class_exists( '\Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler' );
+	}
+
+	/**
+	 * Check whether the default Blocks Engine block-to-HTML bridge is available.
+	 *
+	 * @return bool
+	 */
+	public function supports_blocks_to_html(): bool {
+		return class_exists( '\Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge' );
+	}
+
+	/**
 	 * Compile a website artifact into the BAC-compatible envelope SSI consumes.
 	 *
 	 * @param array<string,mixed> $artifact Website artifact bundle.
@@ -22,7 +40,7 @@ class Static_Site_Importer_Transformer_Adapter {
 	 * @return array<string,mixed>|WP_Error
 	 */
 	public function compile_website_artifact( array $artifact, array $options = array() ) {
-		if ( class_exists( '\Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler' ) ) {
+		if ( $this->supports_website_artifact_compile() ) {
 			unset( $options );
 
 			$compiler = new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler();
@@ -869,7 +887,7 @@ class Static_Site_Importer_Transformer_Adapter {
 	 * @return string
 	 */
 	public function blocks_to_html( string $block_markup, array $options = array() ): string {
-		if ( class_exists( '\Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge' ) ) {
+		if ( $this->supports_blocks_to_html() ) {
 			$bridge = new \Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge();
 			return $bridge->convert( $block_markup, 'blocks', 'html', $options );
 		}

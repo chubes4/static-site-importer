@@ -80,7 +80,7 @@ if ( ! function_exists( 'static_site_importer_register_abilities' ) ) {
 			'static-site-importer/import-website-artifact',
 			array(
 				'label'               => __( 'Import Website Artifact', 'static-site-importer' ),
-				'description'         => __( 'Compile a website artifact bundle through Block Artifact Compiler and import it as a WordPress block theme.', 'static-site-importer' ),
+				'description'         => __( 'Compile a website artifact bundle through the Blocks Engine transformer and import it as a WordPress block theme.', 'static-site-importer' ),
 				'category'            => STATIC_SITE_IMPORTER_ABILITY_CATEGORY,
 				'input_schema'        => array(
 					'type'       => 'object',
