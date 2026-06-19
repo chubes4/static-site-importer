@@ -4,15 +4,15 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "5d3c4427090e91190891e81a1b08ecff",
+    "content-hash": "1023d2e582428b80995c935ec70ec1c0",
     "packages": [
         {
             "name": "automattic/blocks-engine-php-transformer",
-            "version": "dev-draft/php-transformer-monorepo",
+            "version": "dev-trunk",
             "dist": {
                 "type": "path",
-                "url": "../blocks-engine@draft-php-transformer-monorepo/php-transformer",
-                "reference": "06ce910c8e9d59c3d2258fca7379c3d3fd66e12d"
+                "url": "../blocks-engine/php-transformer",
+                "reference": "4b4f21a08bc40c9f01900dee4a379ba4ff3a9f80"
             },
             "require": {
                 "league/commonmark": "^2.5",
@@ -57,6 +57,17 @@
                 "GPL-3.0-or-later"
             ],
             "description": "PHP primitives for transforming HTML, Markdown, and website artifacts into WordPress block outputs.",
+            "homepage": "https://github.com/Automattic/blocks-engine/tree/trunk/php-transformer",
+            "keywords": [
+                "blocks",
+                "html",
+                "markdown",
+                "wordpress"
+            ],
+            "support": {
+                "issues": "https://github.com/Automattic/blocks-engine/issues",
+                "source": "https://github.com/Automattic/blocks-engine/tree/trunk/php-transformer"
+            },
             "transport-options": {
                 "symlink": true,
                 "relative": true
