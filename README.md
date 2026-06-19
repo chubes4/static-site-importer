@@ -14,7 +14,7 @@ Static Site Importer is the WordPress materialization layer for static website i
 The conversion stack is split by responsibility:
 
 - **Static Site Importer** owns WordPress intake, safety checks, page/theme creation, asset placement, import reports, quality gates, and block-theme materialization.
-- **Block Artifact Compiler** owns the generated website artifact contract and compilation of artifact files into a materializable website model.
+- **Block Artifact Compiler** owns the generated website artifact contract and compilation of artifact files into a materializable website model. Until php-transformer/BAC emits `block-artifact-compiler/compiled-site/v1` for every artifact import path, SSI keeps the legacy document fallback isolated inside `Static_Site_Importer_Transformer_Adapter`.
 - **Block Format Bridge** owns format normalization across HTML, Markdown, and Gutenberg block markup conversion requests.
 - **HTML to Blocks Converter** owns raw HTML-to-Gutenberg block fidelity underneath Block Format Bridge.
 
@@ -250,6 +250,8 @@ wp eval-file tests/smoke-editor-style-support.php
 wp eval-file tests/smoke-wordpress-is-dead-fixture.php
 wp eval-file tests/smoke-mixed-source-fixture.php
 ```
+
+`php tests/smoke-transformer-adapter.php` runs outside WordPress and verifies the SSI-owned transformer adapter prefers php-transformer FormatBridge for export rendering while containing the legacy compiled-site fallback used by artifact imports.
 
 The `wordpress-is-dead` smoke verifies the multi-page fixture, generated block-theme artifacts, internal-link rewrites, persistent navigation entities, source CSS preservation, editor style support, conservative `theme.json` palette extraction, and selector fidelity across stored/rendered paths. The `mixed-source-site` smoke verifies an Astro-like source tree with `index.html`, nested Markdown content documents, explicit skipped-MDX diagnostics, report source counts, and generated page block markup.
 

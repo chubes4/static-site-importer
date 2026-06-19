@@ -240,6 +240,7 @@ $export_bfb_calls = array_filter(
 	static fn ( array $call ): bool => 'blocks' === $call[0] && 'html' === $call[1]
 );
 $assert( count( $export_bfb_calls ) >= 4, 'bfb-called-for-block-to-html' );
+$assert( class_exists( 'Static_Site_Importer_Transformer_Adapter' ), 'export-routes-through-transformer-adapter' );
 
 if ( $failures ) {
 	fwrite( STDERR, implode( "\n", $failures ) . "\n" );

@@ -26,6 +26,11 @@ const themeDir = path.resolve(
 const fixture = path.join( repoRoot, 'tests/fixtures/wordpress-is-dead/index.html' );
 
 const steps = [
+  {
+    name: 'Transformer adapter smoke',
+    command: 'php',
+    args: [ path.join( repoRoot, 'tests/smoke-transformer-adapter.php' ) ],
+  },
   ! skipImport && {
     name: 'Import wordpress-is-dead fixture theme',
     command: wpCli[ 0 ],

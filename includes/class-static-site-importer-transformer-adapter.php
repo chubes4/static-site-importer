@@ -26,7 +26,131 @@ class Static_Site_Importer_Transformer_Adapter {
 			return new WP_Error( 'static_site_importer_missing_bac', 'Block Artifact Compiler is required until php-transformer emits the compiled-site contract SSI imports.' );
 		}
 
-		return bac_compile_website_artifact( $artifact, $options );
+		$compiled = bac_compile_website_artifact( $artifact, $options );
+		if ( is_wp_error( $compiled ) || ! is_array( $compiled ) ) {
+			return $compiled;
+		}
+
+		return $this->with_compiled_site_fallback( $compiled );
+	}
+
+	/**
+	 * Backfill the compiled-site contract from legacy document artifacts.
+	 *
+	 * @param array<string,mixed> $compiled Compiler result envelope.
+	 * @return array<string,mixed>
+	 */
+	private function with_compiled_site_fallback( array $compiled ): array {
+		$artifacts = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
+		$site      = isset( $artifacts['site'] ) && is_array( $artifacts['site'] ) ? $artifacts['site'] : array();
+		if ( 'block-artifact-compiler/compiled-site/v1' === (string) ( $site['schema'] ?? '' ) && isset( $site['pages'] ) && is_array( $site['pages'] ) ) {
+			return $compiled;
+		}
+
+		$documents = isset( $artifacts['documents'] ) && is_array( $artifacts['documents'] ) ? $artifacts['documents'] : array();
+		if ( empty( $documents ) ) {
+			return $compiled;
+		}
+
+		$entry_path = isset( $compiled['input']['entry_path'] ) && is_scalar( $compiled['input']['entry_path'] ) ? (string) $compiled['input']['entry_path'] : '';
+		$pages      = array();
+		foreach ( $documents as $index => $document ) {
+			if ( ! is_array( $document ) ) {
+				continue;
+			}
+
+			$source_path = $this->document_source_path( $document, $index );
+			if ( '' === $source_path ) {
+				continue;
+			}
+
+			$is_entrypoint = ! empty( $document['entrypoint'] ) || ( '' !== $entry_path && $source_path === $entry_path ) || ( '' === $entry_path && 0 === $index );
+			$slug          = $this->document_slug( $document, $source_path, $is_entrypoint );
+			$pages[] = array_filter(
+				array(
+					'source_path' => $source_path,
+					'route_key'   => $slug,
+					'slug'        => $slug,
+					'post_type'   => 'page',
+					'title'       => isset( $document['title'] ) && is_scalar( $document['title'] ) ? (string) $document['title'] : '',
+					'entrypoint'  => $is_entrypoint,
+				),
+				static fn ( $value ): bool => null !== $value && '' !== $value
+			);
+		}
+
+		if ( empty( $pages ) ) {
+			return $compiled;
+		}
+
+		$compiled['wordpress_artifacts']['site'] = array(
+			'schema'  => 'block-artifact-compiler/compiled-site/v1',
+			'pages'   => $pages,
+			'source'  => 'static-site-importer-legacy-adapter-fallback',
+			'warning' => 'BAC did not emit compiled-site pages; SSI synthesized page routing from document artifacts.',
+		);
+		$diagnostics                            = isset( $compiled['diagnostics'] ) && is_array( $compiled['diagnostics'] ) ? $compiled['diagnostics'] : array();
+		$diagnostics[]                          = array(
+			'level'   => 'warning',
+			'code'    => 'static_site_importer_legacy_compiled_site_fallback',
+			'message' => 'BAC did not emit compiled-site pages; SSI synthesized page routing from document artifacts.',
+		);
+		$compiled['diagnostics']                = $diagnostics;
+
+		return $compiled;
+	}
+
+	/**
+	 * Resolve a document source path from legacy document fields.
+	 *
+	 * @param array<string,mixed> $document Document artifact.
+	 * @param int                 $index    Document index.
+	 * @return string
+	 */
+	private function document_source_path( array $document, int $index ): string {
+		foreach ( array( 'source_path', 'path', 'slug' ) as $key ) {
+			if ( isset( $document[ $key ] ) && is_scalar( $document[ $key ] ) && '' !== trim( (string) $document[ $key ] ) ) {
+				return (string) $document[ $key ];
+			}
+		}
+
+		return 0 === $index ? 'index.html' : '';
+	}
+
+	/**
+	 * Resolve a WordPress page slug from document metadata.
+	 *
+	 * @param array<string,mixed> $document    Document artifact.
+	 * @param string              $source_path Source path.
+	 * @param bool                $entrypoint  Whether this is the entrypoint document.
+	 * @return string
+	 */
+	private function document_slug( array $document, string $source_path, bool $entrypoint ): string {
+		if ( isset( $document['slug'] ) && is_scalar( $document['slug'] ) && '' !== trim( (string) $document['slug'] ) ) {
+			return $this->sanitize_slug( (string) $document['slug'] );
+		}
+
+		$basename = pathinfo( $source_path, PATHINFO_FILENAME );
+		if ( $entrypoint && in_array( strtolower( $basename ), array( 'index', 'home', '' ), true ) ) {
+			return 'home';
+		}
+
+		$slug = $this->sanitize_slug( $basename );
+		return '' !== $slug ? $slug : 'page';
+	}
+
+	/**
+	 * Sanitize a slug without requiring full WordPress bootstrap in adapter tests.
+	 *
+	 * @param string $value Raw slug value.
+	 * @return string
+	 */
+	private function sanitize_slug( string $value ): string {
+		if ( function_exists( 'sanitize_title' ) ) {
+			return sanitize_title( $value );
+		}
+
+		return trim( strtolower( (string) preg_replace( '/[^a-z0-9]+/i', '-', $value ) ), '-' );
 	}
 
 	/**
