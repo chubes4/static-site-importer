@@ -63,8 +63,9 @@ class Static_Site_Importer_Transformer_Adapter {
 		$blocks         = isset( $result['blocks'] ) && is_array( $result['blocks'] ) ? $result['blocks'] : array();
 		$serialized     = isset( $result['serialized_blocks'] ) && is_scalar( $result['serialized_blocks'] ) ? (string) $result['serialized_blocks'] : '';
 		$documents      = $this->documents_from_transformer_result( $result, $compiled_site );
+		$products       = $this->products_manifest_from_transformer_reports( $result, $compiled_site );
 
-		return array(
+		$compiled = array(
 			'schema'              => 'block-artifact-compiler/result/v1',
 			'status'              => isset( $result['status'] ) && is_scalar( $result['status'] ) ? (string) $result['status'] : 'failed',
 			'input'               => array(
@@ -87,9 +88,12 @@ class Static_Site_Importer_Transformer_Adapter {
 				'block_tree'   => $this->block_tree_report( $blocks ),
 				'block_types'  => isset( $result['block_types'] ) && is_array( $result['block_types'] ) ? $result['block_types'] : array(),
 				'components'   => isset( $result['components'] ) && is_array( $result['components'] ) ? $result['components'] : array(),
+				'document_metadata' => $this->document_metadata_from_compiled_site_report( $compiled_site ),
 				'documents'    => $documents,
 				'files'        => isset( $result['assets'] ) && is_array( $result['assets'] ) ? $result['assets'] : array(),
 				'site'         => $this->site_from_compiled_site_report( $compiled_site, $documents ),
+				'template_parts' => $this->template_parts_from_compiled_site_report( $compiled_site ),
+				'visual_repair' => $this->visual_repair_from_compiled_site_report( $compiled_site ),
 			),
 			'provenance'          => array(
 				'source_hash' => isset( $provenance['source_hash'] ) && is_scalar( $provenance['source_hash'] ) ? (string) $provenance['source_hash'] : (string) ( $source_report['source_hash'] ?? '' ),
@@ -101,6 +105,418 @@ class Static_Site_Importer_Transformer_Adapter {
 				'serialized_blocks' => $serialized,
 				'diagnostics'       => isset( $result['diagnostics'] ) && is_array( $result['diagnostics'] ) ? $result['diagnostics'] : array(),
 				'fallbacks'         => isset( $result['fallbacks'] ) && is_array( $result['fallbacks'] ) ? $result['fallbacks'] : array(),
+			),
+		);
+
+		if ( ! empty( $products ) ) {
+			$compiled['products_manifest'] = $products;
+		}
+
+		return $compiled;
+	}
+
+	/**
+	 * Extract SSI products from generic compiled-site/document reports.
+	 *
+	 * @param array<string,mixed> $result        Transformer result array.
+	 * @param array<string,mixed> $compiled_site Generic compiled-site report.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function products_manifest_from_transformer_reports( array $result, array $compiled_site ): array {
+		$candidates = array();
+		foreach ( array( $compiled_site['products'] ?? null, $compiled_site['commerce']['products'] ?? null, $result['products'] ?? null, $result['commerce']['products'] ?? null ) as $rows ) {
+			if ( is_array( $rows ) ) {
+				$candidates = array_merge( $candidates, $rows );
+			}
+		}
+
+		foreach ( isset( $compiled_site['pages'] ) && is_array( $compiled_site['pages'] ) ? $compiled_site['pages'] : array() as $page ) {
+			if ( is_array( $page ) && $this->is_product_report_row( $page ) ) {
+				$candidates[] = $page;
+			}
+		}
+
+		foreach ( isset( $result['documents'] ) && is_array( $result['documents'] ) ? $result['documents'] : array() as $document ) {
+			if ( is_array( $document ) && $this->is_product_report_row( $document ) ) {
+				$candidates[] = $document;
+			}
+		}
+
+		$products = array();
+		$seen     = array();
+		foreach ( $candidates as $candidate ) {
+			if ( ! is_array( $candidate ) ) {
+				continue;
+			}
+
+			$product = $this->normalize_product_report_row( $candidate );
+			if ( empty( $product ) || isset( $seen[ $product['slug'] ] ) ) {
+				continue;
+			}
+
+			$seen[ $product['slug'] ] = true;
+			$products[]              = $product;
+		}
+
+		return $products;
+	}
+
+	/**
+	 * Check whether a generic report row declares product content.
+	 *
+	 * @param array<string,mixed> $row Generic report row.
+	 * @return bool
+	 */
+	private function is_product_report_row( array $row ): bool {
+		foreach ( array( 'post_type', 'type', 'kind' ) as $key ) {
+			if ( isset( $row[ $key ] ) && is_scalar( $row[ $key ] ) && 'product' === strtolower( (string) $row[ $key ] ) ) {
+				return true;
+			}
+		}
+
+		$metadata = isset( $row['metadata'] ) && is_array( $row['metadata'] ) ? $row['metadata'] : array();
+		return isset( $metadata['post_type'] ) && is_scalar( $metadata['post_type'] ) && 'product' === strtolower( (string) $metadata['post_type'] );
+	}
+
+	/**
+	 * Normalize one generic product report row to SSI's products manifest contract.
+	 *
+	 * @param array<string,mixed> $row Generic report row.
+	 * @return array<string,mixed>
+	 */
+	private function normalize_product_report_row( array $row ): array {
+		$metadata = isset( $row['metadata'] ) && is_array( $row['metadata'] ) ? $row['metadata'] : array();
+		$data     = array_merge( $metadata, $row );
+
+		$name          = $this->scalar_string( $data, array( 'name', 'title' ) );
+		$slug          = $this->sanitize_slug( $this->scalar_string( $data, array( 'slug' ) ) );
+		$regular_price = $this->price_string( $this->scalar_string( $data, array( 'regular_price', 'price' ) ) );
+		if ( '' === $name || '' === $slug || '' === $regular_price ) {
+			return array();
+		}
+
+		$product = array(
+			'name'          => $name,
+			'slug'          => $slug,
+			'regular_price' => $regular_price,
+		);
+
+		foreach ( array( 'sale_price', 'description', 'short_description', 'image', 'status', 'stock_status' ) as $field ) {
+			$value = $this->scalar_string( $data, array( $field ) );
+			if ( '' !== $value ) {
+				$product[ $field ] = 'sale_price' === $field ? $this->price_string( $value ) : $value;
+			}
+		}
+
+		foreach ( array( 'categories', 'source_selectors' ) as $field ) {
+			if ( isset( $data[ $field ] ) && is_array( $data[ $field ] ) ) {
+				$product[ $field ] = array_values( array_filter( $data[ $field ], 'is_string' ) );
+			}
+		}
+
+		if ( isset( $data['stock_quantity'] ) && is_numeric( $data['stock_quantity'] ) ) {
+			$product['stock_quantity'] = (int) $data['stock_quantity'];
+		}
+
+		return array_filter( $product, static fn ( $value ): bool => '' !== $value && array() !== $value );
+	}
+
+	/**
+	 * Return the first scalar string value for candidate keys.
+	 *
+	 * @param array<string,mixed> $data Data row.
+	 * @param array<int,string>   $keys Candidate keys.
+	 * @return string
+	 */
+	private function scalar_string( array $data, array $keys ): string {
+		foreach ( $keys as $key ) {
+			if ( isset( $data[ $key ] ) && is_scalar( $data[ $key ] ) && '' !== trim( (string) $data[ $key ] ) ) {
+				return trim( (string) $data[ $key ] );
+			}
+		}
+
+		return '';
+	}
+
+	/**
+	 * Normalize a numeric price into SSI's decimal string contract.
+	 *
+	 * @param string $value Raw price.
+	 * @return string
+	 */
+	private function price_string( string $value ): string {
+		if ( '' === trim( $value ) || ! is_numeric( $value ) ) {
+			return '';
+		}
+
+		return number_format( (float) $value, 2, '.', '' );
+	}
+
+	/**
+	 * Convert generic compiled-site document metadata into SSI's BAC metadata shape.
+	 *
+	 * @param array<string,mixed> $compiled_site Generic compiled-site report.
+	 * @return array<string,mixed>
+	 */
+	private function document_metadata_from_compiled_site_report( array $compiled_site ): array {
+		$page = $this->entrypoint_compiled_site_page( $compiled_site );
+		if ( empty( $page ) ) {
+			return array();
+		}
+
+		$html = isset( $page['html'] ) && is_scalar( $page['html'] ) ? (string) $page['html'] : '';
+		if ( '' === trim( $html ) ) {
+			return array();
+		}
+
+		$metadata = $this->html_document_metadata( $html );
+		$metadata['schema']      = 'block-artifact-compiler/document-metadata/v1';
+		$metadata['source_path'] = isset( $page['source_path'] ) && is_scalar( $page['source_path'] ) ? (string) $page['source_path'] : '';
+
+		return $metadata;
+	}
+
+	/**
+	 * Return the compiled-site entrypoint page, falling back to the first page.
+	 *
+	 * @param array<string,mixed> $compiled_site Generic compiled-site report.
+	 * @return array<string,mixed>
+	 */
+	private function entrypoint_compiled_site_page( array $compiled_site ): array {
+		$pages = isset( $compiled_site['pages'] ) && is_array( $compiled_site['pages'] ) ? $compiled_site['pages'] : array();
+		foreach ( $pages as $page ) {
+			if ( is_array( $page ) && ! empty( $page['entrypoint'] ) ) {
+				return $page;
+			}
+		}
+
+		return isset( $pages[0] ) && is_array( $pages[0] ) ? $pages[0] : array();
+	}
+
+	/**
+	 * Extract title/meta/link/script rows from a full HTML document.
+	 *
+	 * @param string $html Full HTML document.
+	 * @return array<string,mixed>
+	 */
+	private function html_document_metadata( string $html ): array {
+		$dom      = new DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$dom->loadHTML( $html );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+
+		$title_nodes = $dom->getElementsByTagName( 'title' );
+		$title       = $title_nodes->length > 0 ? trim( (string) $title_nodes->item( 0 )->textContent ) : '';
+
+		$metadata = array(
+			'title'   => $title,
+			'meta'    => array(),
+			'links'   => array(),
+			'scripts' => array(),
+		);
+
+		foreach ( $dom->getElementsByTagName( 'meta' ) as $node ) {
+			$row = $this->html_attributes( $node, array( 'charset', 'name', 'property', 'http-equiv', 'content' ) );
+			if ( isset( $row['http-equiv'] ) ) {
+				$row['http_equiv'] = $row['http-equiv'];
+				unset( $row['http-equiv'] );
+			}
+			if ( ! empty( $row ) ) {
+				$metadata['meta'][] = $row;
+			}
+		}
+
+		foreach ( $dom->getElementsByTagName( 'link' ) as $node ) {
+			$row = $this->html_attributes( $node, array( 'rel', 'href', 'as', 'type', 'media', 'crossorigin', 'integrity' ) );
+			if ( ! empty( $row ) ) {
+				$metadata['links'][] = $row;
+			}
+		}
+
+		foreach ( $dom->getElementsByTagName( 'script' ) as $node ) {
+			$row = $this->html_attributes( $node, array( 'src', 'type', 'crossorigin', 'integrity' ) );
+			if ( $node->hasAttribute( 'defer' ) ) {
+				$row['defer'] = true;
+			}
+			if ( $node->hasAttribute( 'async' ) ) {
+				$row['async'] = true;
+			}
+			if ( '' !== trim( (string) $node->textContent ) && ! isset( $row['src'] ) ) {
+				$row['inline'] = array(
+					'bytes' => strlen( (string) $node->textContent ),
+					'hash'  => hash( 'sha256', (string) $node->textContent ),
+				);
+			}
+			$row['placement'] = $this->node_is_inside_head( $node ) ? 'head' : 'body';
+			if ( count( $row ) > 1 || isset( $row['src'] ) || isset( $row['inline'] ) ) {
+				$metadata['scripts'][] = $row;
+			}
+		}
+
+		return $metadata;
+	}
+
+	/**
+	 * Read selected scalar attributes from an element.
+	 *
+	 * @param DOMElement        $node Element.
+	 * @param array<int,string> $names Attribute names.
+	 * @return array<string,string>
+	 */
+	private function html_attributes( DOMElement $node, array $names ): array {
+		$attributes = array();
+		foreach ( $names as $name ) {
+			if ( $node->hasAttribute( $name ) && '' !== trim( $node->getAttribute( $name ) ) ) {
+				$attributes[ $name ] = trim( $node->getAttribute( $name ) );
+			}
+		}
+
+		return $attributes;
+	}
+
+	/**
+	 * Check whether a node is within the document head.
+	 *
+	 * @param DOMNode $node Node.
+	 * @return bool
+	 */
+	private function node_is_inside_head( DOMNode $node ): bool {
+		$parent = $node->parentNode;
+		while ( $parent instanceof DOMNode ) {
+			if ( $parent instanceof DOMElement && 'head' === strtolower( $parent->tagName ) ) {
+				return true;
+			}
+			$parent = $parent->parentNode;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Convert generic compiled-site template parts into BAC template part artifacts.
+	 *
+	 * @param array<string,mixed> $compiled_site Generic compiled-site report.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function template_parts_from_compiled_site_report( array $compiled_site ): array {
+		$template_parts = array();
+		foreach ( isset( $compiled_site['template_parts'] ) && is_array( $compiled_site['template_parts'] ) ? $compiled_site['template_parts'] : array() as $template_part ) {
+			if ( ! is_array( $template_part ) || ! isset( $template_part['block_markup'] ) || '' === trim( (string) $template_part['block_markup'] ) ) {
+				continue;
+			}
+
+			$template_parts[] = array_filter(
+				array(
+					'source_path'  => isset( $template_part['source_path'] ) && is_scalar( $template_part['source_path'] ) ? (string) $template_part['source_path'] : '',
+					'slug'         => isset( $template_part['slug'] ) && is_scalar( $template_part['slug'] ) ? $this->sanitize_slug( (string) $template_part['slug'] ) : '',
+					'title'        => isset( $template_part['title'] ) && is_scalar( $template_part['title'] ) ? (string) $template_part['title'] : '',
+					'area'         => isset( $template_part['area'] ) && is_scalar( $template_part['area'] ) ? (string) $template_part['area'] : '',
+					'body_format'  => isset( $template_part['body_format'] ) && is_scalar( $template_part['body_format'] ) ? (string) $template_part['body_format'] : '',
+					'block_markup' => (string) $template_part['block_markup'],
+				),
+				static fn ( $value ): bool => null !== $value && '' !== $value
+			);
+		}
+
+		if ( ! empty( $template_parts ) ) {
+			return $template_parts;
+		}
+
+		$page = $this->entrypoint_compiled_site_page( $compiled_site );
+		$html = isset( $page['html'] ) && is_scalar( $page['html'] ) ? (string) $page['html'] : '';
+		if ( '' === trim( $html ) ) {
+			return array();
+		}
+
+		foreach ( array( 'header', 'footer' ) as $area ) {
+			$markup = $this->template_part_markup_from_html( $html, $area );
+			if ( '' === trim( $markup ) ) {
+				continue;
+			}
+
+			$template_parts[] = array(
+				'source_path'  => isset( $page['source_path'] ) && is_scalar( $page['source_path'] ) ? (string) $page['source_path'] : '',
+				'slug'         => $area,
+				'area'         => $area,
+				'body_format'  => 'html',
+				'block_markup' => $markup,
+			);
+		}
+
+		return $template_parts;
+	}
+
+	/**
+	 * Build a simple block template part from a full HTML document landmark.
+	 *
+	 * @param string $html Full HTML document.
+	 * @param string $tag  Landmark tag name.
+	 * @return string Serialized block markup.
+	 */
+	private function template_part_markup_from_html( string $html, string $tag ): string {
+		$dom      = new DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$dom->loadHTML( $html );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+
+		$nodes = $dom->getElementsByTagName( $tag );
+		if ( 0 === $nodes->length ) {
+			return '';
+		}
+
+		$node = $nodes->item( 0 );
+		if ( ! $node instanceof DOMNode ) {
+			return '';
+		}
+
+		$markup = '';
+		foreach ( $node->childNodes as $child ) {
+			$child_markup = $dom->saveHTML( $child );
+			if ( is_string( $child_markup ) ) {
+				$markup .= $child_markup;
+			}
+		}
+
+		$markup = trim( $markup );
+		if ( '' === $markup ) {
+			$text = trim( (string) $node->textContent );
+			if ( '' === $text ) {
+				return '';
+			}
+
+			$markup = htmlspecialchars( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		}
+
+		$block_name = 'group';
+		$tag_name   = 'footer' === $tag ? 'footer' : 'header';
+		return '<!-- wp:' . $block_name . ' {"tagName":"' . $tag_name . '"} -->' . "\n" . '<' . $tag_name . ' class="wp-block-group">' . $markup . '</' . $tag_name . '>' . "\n" . '<!-- /wp:' . $block_name . ' -->';
+	}
+
+	/**
+	 * Convert generic compiled-site visual repair CSS into BAC visual repair artifacts.
+	 *
+	 * @param array<string,mixed> $compiled_site Generic compiled-site report.
+	 * @return array<string,mixed>
+	 */
+	private function visual_repair_from_compiled_site_report( array $compiled_site ): array {
+		$visual_repair = isset( $compiled_site['visual_repair'] ) && is_array( $compiled_site['visual_repair'] ) ? $compiled_site['visual_repair'] : array();
+		$css           = isset( $visual_repair['css'] ) && is_scalar( $visual_repair['css'] ) ? trim( (string) $visual_repair['css'] ) : '';
+		if ( '' === $css ) {
+			return array();
+		}
+
+		return array(
+			'styles' => array(
+				array(
+					'target'  => 'frontend',
+					'content' => $css,
+				),
+				array(
+					'target'  => 'editor',
+					'content' => $css,
+				),
 			),
 		);
 	}
@@ -171,12 +587,17 @@ class Static_Site_Importer_Transformer_Adapter {
 	private function documents_from_transformer_result( array $result, array $compiled_site ): array {
 		$documents = array();
 		foreach ( isset( $compiled_site['pages'] ) && is_array( $compiled_site['pages'] ) ? $compiled_site['pages'] : array() as $page ) {
-			if ( ! is_array( $page ) || ! isset( $page['block_markup'] ) || '' === trim( (string) $page['block_markup'] ) ) {
+			if ( ! is_array( $page ) ) {
 				continue;
 			}
 
 			$source_path = isset( $page['source_path'] ) && is_scalar( $page['source_path'] ) ? (string) $page['source_path'] : '';
 			if ( '' === $source_path ) {
+				continue;
+			}
+
+			$block_markup = $this->block_markup_from_compiled_site_page( $page );
+			if ( '' === trim( $block_markup ) ) {
 				continue;
 			}
 
@@ -189,7 +610,7 @@ class Static_Site_Importer_Transformer_Adapter {
 					'post_type'    => 'page',
 					'title'        => isset( $page['title'] ) && is_scalar( $page['title'] ) ? (string) $page['title'] : '',
 					'entrypoint'   => ! empty( $page['entrypoint'] ) ? '1' : '',
-					'block_markup' => (string) $page['block_markup'],
+					'block_markup' => $block_markup,
 				),
 				static fn ( $value ): bool => null !== $value && '' !== $value
 			);
@@ -202,6 +623,58 @@ class Static_Site_Importer_Transformer_Adapter {
 		}
 
 		return $documents;
+	}
+
+	/**
+	 * Resolve importable block markup from a generic compiled-site page row.
+	 *
+	 * @param array<string,mixed> $page Generic compiled-site page row.
+	 * @return string Serialized block markup.
+	 */
+	private function block_markup_from_compiled_site_page( array $page ): string {
+		$html = isset( $page['html'] ) && is_scalar( $page['html'] ) ? (string) $page['html'] : '';
+		if ( '' !== trim( $html ) && function_exists( 'html_to_blocks_convert' ) ) {
+			$converted = html_to_blocks_convert( $this->main_fragment_from_html( $html ), array( 'collect_selector_provenance' => true ) );
+			if ( is_array( $converted ) && isset( $converted['block_markup'] ) && is_scalar( $converted['block_markup'] ) && '' !== trim( (string) $converted['block_markup'] ) ) {
+				return (string) $converted['block_markup'];
+			}
+		}
+
+		return isset( $page['block_markup'] ) && is_scalar( $page['block_markup'] ) ? (string) $page['block_markup'] : '';
+	}
+
+	/**
+	 * Extract the main landmark from a full HTML document when present.
+	 *
+	 * @param string $html Full HTML document.
+	 * @return string HTML fragment.
+	 */
+	private function main_fragment_from_html( string $html ): string {
+		$dom      = new DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$dom->loadHTML( $html );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+
+		$nodes = $dom->getElementsByTagName( 'main' );
+		if ( 0 === $nodes->length ) {
+			return $html;
+		}
+
+		$node = $nodes->item( 0 );
+		if ( ! $node instanceof DOMNode ) {
+			return $html;
+		}
+
+		$fragment = '';
+		foreach ( $node->childNodes as $child ) {
+			$child_markup = $dom->saveHTML( $child );
+			if ( is_string( $child_markup ) ) {
+				$fragment .= $child_markup;
+			}
+		}
+
+		return '' !== trim( $fragment ) ? trim( $fragment ) : $html;
 	}
 
 	/**

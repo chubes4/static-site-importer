@@ -34,7 +34,7 @@ $assert(
 );
 
 $assert(
-	str_contains( $source, 'record_products_manifest_from_import_args( $args )' ),
+	str_contains( $source, 'record_products_manifest_from_import_args( $args, $compiled )' ),
 	'compiled artifact import records explicit products manifest before commerce context'
 );
 
@@ -44,7 +44,7 @@ $assert(
 );
 
 $assert(
-	str_contains( $source, "'source'        => 'import_args.products_manifest'" ),
+	str_contains( $source, "\$source = 'import_args.products_manifest'" ),
 	'products manifest report records explicit arg source'
 );
 
@@ -61,6 +61,17 @@ $assert(
 $assert(
 	str_contains( $source, 'validate_products_manifest(' ),
 	'explicit products manifest is still validated before seeding/reporting'
+);
+
+$adapter_source = file_get_contents( $root . '/includes/class-static-site-importer-transformer-adapter.php' );
+$assert(
+	false !== $adapter_source && str_contains( $adapter_source, 'products_manifest_from_transformer_reports' ),
+	'transformer adapter maps generic product reports in SSI'
+);
+
+$assert(
+	false !== $adapter_source && str_contains( $adapter_source, "\$compiled['products_manifest']" ),
+	'adapter exposes mapped product reports through compiled products_manifest'
 );
 
 fwrite( STDOUT, "website artifact products manifest smoke ok\n" );

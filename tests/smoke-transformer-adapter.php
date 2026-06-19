@@ -61,6 +61,15 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler {
 										'slug'        => 'about',
 										'title'       => 'About',
 									),
+									array(
+										'source_path'    => 'products/rye-loaf.md',
+										'entrypoint'     => false,
+										'post_type'      => 'product',
+										'slug'           => 'rye-loaf',
+										'title'          => 'Rye Loaf',
+										'regular_price'  => '12',
+										'categories'     => array( 'Bread' ),
+									),
 								),
 								'assets'      => array(
 									array( 'path' => 'assets/site.css', 'role' => 'stylesheet' ),
@@ -201,6 +210,7 @@ namespace {
 	$site      = $artifacts['site'] ?? array();
 	$pages     = $site['pages'] ?? array();
 	$documents = $artifacts['documents'] ?? array();
+	$products  = $compiled['products_manifest'] ?? array();
 	$assert( ! is_wp_error( $compiled ), 'native-compile-succeeds' );
 	$assert( 1 === count( $GLOBALS['ssi_transformer_adapter_artifact_compiler_calls'] ), 'native-artifact-compiler-called' );
 	$assert( 'block-artifact-compiler/result/v1' === ( $compiled['schema'] ?? '' ), 'native-result-mapped-to-bac-envelope' );
@@ -216,6 +226,9 @@ namespace {
 	$assert( 'website/index.html' === ( $documents[0]['source_path'] ?? '' ), 'native-document-from-compiled-site-page' );
 	$assert( 'content/about.md' === ( $documents[1]['source_path'] ?? '' ), 'native-document-from-transformer-documents' );
 	$assert( 'assets/site.css' === ( $artifacts['files'][0]['path'] ?? '' ), 'native-assets-report-preserved' );
+	$assert( 'rye-loaf' === ( $products[0]['slug'] ?? '' ), 'native-product-slug-mapped-from-generic-report' );
+	$assert( '12.00' === ( $products[0]['regular_price'] ?? '' ), 'native-product-price-normalized-from-generic-report' );
+	$assert( array( 'Bread' ) === ( $products[0]['categories'] ?? array() ), 'native-product-categories-mapped-from-generic-report' );
 
 	if ( $failures ) {
 		fwrite( STDERR, implode( "\n", $failures ) . "\n" );

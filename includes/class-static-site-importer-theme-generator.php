@@ -102,7 +102,7 @@ class Static_Site_Importer_Theme_Generator {
 		self::$conversion_report   = Static_Site_Importer_Report_Diagnostics::new_conversion_report( $html_path, $source_metadata );
 		Static_Site_Importer_Report_Diagnostics::record_website_artifact_compiler_result( self::$conversion_report, $compiled );
 		Static_Site_Importer_Report_Diagnostics::record_direct_website_artifact_source_summary( self::$conversion_report, $compiled );
-		self::record_products_manifest_from_import_args( $args );
+		self::record_products_manifest_from_import_args( $args, $compiled );
 		self::record_commerce_context_summary( $args );
 
 		self::$active_theme_dir         = $theme_dir;
@@ -123,15 +123,16 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		$permalinks     = Static_Site_Importer_Page_Materializer::page_permalinks( $page_ids );
-		$page_artifacts = Static_Site_Importer_Page_Materializer::page_artifacts( $document_pages, $theme_slug );
-		foreach ( $page_artifacts['diagnostics'] as $diagnostic ) {
-			self::$conversion_report['diagnostics'][] = $diagnostic;
-		}
-
 		$materialized = self::materialize_website_artifact_files_to_theme( $theme_dir, $artifacts );
 		if ( is_wp_error( $materialized ) ) {
 			return $materialized;
 		}
+
+		$page_artifacts = Static_Site_Importer_Page_Materializer::page_artifacts( $document_pages, $theme_slug, $materialized['assets'] );
+		foreach ( $page_artifacts['diagnostics'] as $diagnostic ) {
+			self::$conversion_report['diagnostics'][] = $diagnostic;
+		}
+
 		Static_Site_Importer_Document_Metadata_Reporter::record( self::$conversion_report, $artifacts );
 
 		$template_part_writes = self::template_part_artifact_writes( $theme_dir, $artifacts );
@@ -1246,7 +1247,7 @@ class Static_Site_Importer_Theme_Generator {
 	 *
 	 * @param string              $theme_dir Theme directory.
 	 * @param array<string,mixed> $artifacts WordPress artifacts from BAC.
-	 * @return array{css:string,js:string}|WP_Error
+	 * @return array{css:string,js:string,assets:array<string,array<string,mixed>>}|WP_Error
 	 */
 	private static function materialize_website_artifact_files_to_theme( string $theme_dir, array $artifacts ) {
 		$result = Static_Site_Importer_Theme_Materializer::materialize_website_artifact_files( $theme_dir, self::$active_theme_uri, $artifacts );
@@ -1258,8 +1259,9 @@ class Static_Site_Importer_Theme_Generator {
 			self::$conversion_report['diagnostics'][] = $diagnostic;
 		}
 		return array(
-			'css' => $result['css'],
-			'js'  => $result['js'],
+			'css'    => $result['css'],
+			'js'     => $result['js'],
+			'assets' => $result['assets'],
 		);
 	}
 
@@ -1783,15 +1785,21 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param array<string, mixed> $args Import args.
 	 * @return void
 	 */
-	private static function record_products_manifest_from_import_args( array $args ): void {
-		if ( ! isset( $args['products_manifest'] ) || ! is_array( $args['products_manifest'] ) ) {
+	private static function record_products_manifest_from_import_args( array $args, array $compiled = array() ): void {
+		$source = 'import_args.products_manifest';
+		if ( isset( $args['products_manifest'] ) && is_array( $args['products_manifest'] ) ) {
+			$products = $args['products_manifest'];
+		} elseif ( isset( $compiled['products_manifest'] ) && is_array( $compiled['products_manifest'] ) ) {
+			$products = $compiled['products_manifest'];
+			$source   = 'blocks-engine/php-transformer/reports';
+		} else {
 			return;
 		}
 
 		$validation = self::validate_products_manifest(
 			array(
 				'schema_version' => 1,
-				'products'       => $args['products_manifest'],
+				'products'       => $products,
 			)
 		);
 
@@ -1801,7 +1809,7 @@ class Static_Site_Importer_Theme_Generator {
 
 		self::$conversion_report['commerce']['products_manifest'] = array(
 			'present'       => true,
-			'source'        => 'import_args.products_manifest',
+			'source'        => $source,
 			'contract'      => array(
 				'schema'          => 'static-site-importer/products-manifest/v1',
 				'schema_version'  => 1,

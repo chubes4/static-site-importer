@@ -120,10 +120,8 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( true === ( $scripts[0]['defer'] ?? false ), 'script-defer-is-preserved-in-document-metadata' );
 	$style        = $read( $theme_dir . '/style.css' );
 	$editor_style = $read( $theme_dir . '/assets/css/editor-style.css' );
-	$assert( str_contains( $style, 'Block Artifact Compiler: visual repair artifacts.' ), 'style-includes-bac-frontend-visual-repair-css', $style );
-	$assert( str_contains( $style, '.wp-block-button.btn .wp-block-button__link' ), 'style-includes-bac-button-repair-css', $style );
-	$assert( str_contains( $editor_style, 'Block Artifact Compiler: editor visual repair artifacts.' ), 'editor-includes-bac-editor-visual-repair-css', $editor_style );
-	$assert( str_contains( $editor_style, '.editor-styles-wrapper .wp-block-group.glow-orb' ), 'editor-includes-bac-decorative-repair-css', $editor_style );
+	$assert( str_contains( $style, '.contact-actions .btn-ghost' ), 'style-includes-generic-compiled-site-css', $style );
+	$assert( str_contains( $editor_style, '.contact-actions .btn-ghost' ), 'editor-includes-generic-compiled-site-css', $editor_style );
 }
 
 $missing_template_parts_result = Static_Site_Importer_Theme_Generator::import_website_artifact(
