@@ -194,7 +194,7 @@ Important behavior:
 
 ## Website Artifact Export
 
-`static-site-importer/export-theme` exports an imported or active block theme as a BAC-compatible website artifact. SSI owns the WordPress import/export/materialization path; Block Artifact Compiler owns the website artifact compilation contract. Studio Web, WP Codebox, and other products should consume the exported `website_artifact` object rather than SSI-specific static-site wrappers.
+`static-site-importer/export-theme` exports an imported or active block theme as a BAC-compatible website artifact. SSI owns the WordPress import/export/materialization path; Blocks Engine PHP transformer owns generic website artifact compilation. Studio Web, WP Codebox, and other products should consume the exported `website_artifact` object rather than SSI-specific static-site wrappers.
 
 The export envelope includes:
 
@@ -239,7 +239,7 @@ npm run test:validation -- --json
 
 ### PHP Smokes
 
-PHP smokes run inside WordPress and load the plugin's bundled Block Format Bridge copy through the plugin runtime:
+PHP smokes run inside WordPress with the Blocks Engine PHP transformer plugin loaded through the plugin runtime:
 
 ```bash
 wp eval-file tests/smoke-admin-import-html-entry.php
@@ -305,9 +305,9 @@ This plugin owns static-site and website-artifact import workflows plus generate
 The intended dependency direction is:
 
 ```text
-Static Site Importer -> Blocks Engine PHP transformer -> Block Format Bridge -> HTML to Blocks Converter
+Static Site Importer -> Blocks Engine PHP transformer
 ```
 
-SSI import reports consume Blocks Engine PHP transformer result envelopes for conversion-quality diagnostics, and record the compiled-site contract when importing website artifacts. They should not call lower-level converter packages directly or re-derive semantic page-route intent when the transformer supplies it.
+SSI import reports consume Blocks Engine PHP transformer result envelopes for conversion-quality diagnostics, and record the compiled-site contract when importing website artifacts. BAC/BFB/H2BC names remain compatibility schemas or wrapper surfaces for older consumers; SSI should not call those lower-level converter packages directly or re-derive semantic page-route intent when the transformer supplies it.
 
 Imported pages remain WordPress pages for routing, titles, front-page assignment, editor visibility, and body content edits. Their imported body layouts live on the page posts as block markup in `post_content`. The generated block theme owns shared header/footer parts, optional background decoration, frontend/editor styles, scripts, and template wrappers that render page bodies through `core/post-content`; the generic `templates/page.html` stays the fallback for pages created after import.
