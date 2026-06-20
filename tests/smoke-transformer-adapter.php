@@ -177,21 +177,23 @@ namespace {
 	$assert( ! is_wp_error( $compiled ), 'native-compile-succeeds' );
 	$assert( 1 === count( $GLOBALS['ssi_transformer_adapter_artifact_compiler_calls'] ), 'native-artifact-compiler-called' );
 	$assert( 'block-artifact-compiler/result/v1' === ( $compiled['schema'] ?? '' ), 'native-result-mapped-to-bac-envelope' );
-	$assert( 'block-artifact-compiler/compiled-site/v1' === ( $site['schema'] ?? '' ), 'native-compiled-site-mapped-to-ssi-contract' );
-	$assert( 'blocks-engine/php-transformer/compiled-site/v1' === ( $site['source'] ?? '' ), 'native-compiled-site-source-recorded' );
-	$assert( 2 === count( $pages ), 'native-keeps-materializable-compiled-site-pages' );
+	$assert( 'blocks-engine/php-transformer/compiled-site/v1' === ( $site['schema'] ?? '' ), 'native-compiled-site-contract-is-preserved' );
+	$assert( 4 === count( $pages ), 'native-keeps-compiled-site-pages-without-adapter-filtering' );
 	$assert( 'website/index.html' === ( $pages[0]['source_path'] ?? '' ), 'native-entry-source-path' );
 	$assert( 'index' === ( $pages[0]['slug'] ?? '' ), 'native-entry-slug' );
-	$assert( 'page' === ( $pages[0]['post_type'] ?? '' ), 'native-entry-post-type-owned-by-ssi' );
 	$assert( true === ( $pages[0]['entrypoint'] ?? false ), 'native-entrypoint' );
-	$assert( 'about' === ( $pages[1]['slug'] ?? '' ), 'native-route-slug-from-source-document-compiled-site' );
-	$assert( 2 === count( $documents ), 'native-documents-include-compiled-page-markup-and-source-documents' );
-	$assert( 'website/index.html' === ( $documents[0]['source_path'] ?? '' ), 'native-document-from-compiled-site-page' );
-	$assert( 'content/about.md' === ( $documents[1]['source_path'] ?? '' ), 'native-document-from-transformer-documents' );
+	$assert( 'about' === ( $pages[2]['slug'] ?? '' ), 'native-route-slug-from-source-document-compiled-site' );
+	$assert( 1 === count( $documents ), 'native-documents-preserve-transformer-documents-without-compiled-site-synthesis' );
+	$assert( 'content/about.md' === ( $documents[0]['source_path'] ?? '' ), 'native-document-from-transformer-documents' );
 	$assert( 'assets/site.css' === ( $artifacts['files'][0]['path'] ?? '' ), 'native-assets-report-preserved' );
 	$assert( 'rye-loaf' === ( $products[0]['slug'] ?? '' ), 'native-product-slug-mapped-from-generic-report' );
 	$assert( '12.00' === ( $products[0]['regular_price'] ?? '' ), 'native-product-price-normalized-from-generic-report' );
 	$assert( array( 'Bread' ) === ( $products[0]['categories'] ?? array() ), 'native-product-categories-mapped-from-generic-report' );
+
+	$adapter_source = file_get_contents( dirname( __DIR__ ) . '/includes/class-static-site-importer-transformer-adapter.php' );
+	foreach ( array( 'transformer_result_to_bac_result', 'documents_from_transformer_result', 'site_from_compiled_site_report', 'template_parts_from_compiled_site_report', 'visual_repair_from_compiled_site_report', 'document_metadata_from_compiled_site_report', 'block_markup_from_compiled_site_page' ) as $removed_helper ) {
+		$assert( false !== $adapter_source && ! str_contains( $adapter_source, $removed_helper ), 'legacy-adapter-helper-removed-' . $removed_helper );
+	}
 
 	if ( $failures ) {
 		fwrite( STDERR, implode( "\n", $failures ) . "\n" );

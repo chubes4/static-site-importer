@@ -42,6 +42,7 @@ $assert = static function ( bool $condition, string $label, string $detail = '' 
 $artifacts = array(
 	'visual_repair' => array(
 		'schema' => 'block-artifact-compiler/visual-repair-artifacts/v1',
+		'css'    => '.compiled-site-repair { display: block; }',
 		'styles' => array(
 			array(
 				'schema'  => 'block-artifact-compiler/visual-repair-css/v1',
@@ -74,33 +75,29 @@ $writes     = Static_Site_Importer_Stylesheet_Materializer::stylesheet_writes( '
 $style_css  = (string) ( $writes['/tmp/bac-visual-repair-smoke/style.css'] ?? '' );
 $editor_css = (string) ( $writes['/tmp/bac-visual-repair-smoke/assets/css/editor-style.css'] ?? '' );
 
-$assert( 1 === count( $styles['frontend'] ?? array() ), 'collector-dedupes-frontend-repair-css' );
-$assert( 1 === count( $styles['editor'] ?? array() ), 'collector-reads-editor-repair-css' );
+$assert( 2 === count( $styles['frontend'] ?? array() ), 'collector-dedupes-frontend-repair-css' );
+$assert( 2 === count( $styles['editor'] ?? array() ), 'collector-reads-editor-repair-css' );
 $assert( str_contains( $style_css, 'Block Artifact Compiler: visual repair artifacts.' ), 'style-includes-bac-frontend-repair-comment', $style_css );
 $assert( str_contains( $style_css, '.wp-block-group.hero-shell { gap: 0; }' ), 'style-includes-bac-frontend-repair-rule', $style_css );
+$assert( str_contains( $style_css, '.compiled-site-repair { display: block; }' ), 'style-includes-compiled-site-repair-css', $style_css );
 $assert( ! str_contains( $style_css, 'editor visual repair artifacts' ), 'style-excludes-editor-repair-css', $style_css );
 $assert( str_contains( $editor_css, 'Block Artifact Compiler: editor visual repair artifacts.' ), 'editor-includes-bac-editor-repair-comment', $editor_css );
 $assert( str_contains( $editor_css, '.editor-styles-wrapper .glow-orb { opacity: 1 !important; }' ), 'editor-includes-bac-editor-repair-rule', $editor_css );
+$assert( str_contains( $editor_css, '.compiled-site-repair { display: block; }' ), 'editor-includes-compiled-site-repair-css', $editor_css );
 $assert( ! str_contains( $editor_css, '.should-not-appear' ), 'unknown-target-repair-css-is-ignored', $editor_css );
 
-$documents        = new ReflectionMethod( Static_Site_Importer_Theme_Generator::class, 'bac_documents_from_compiled_site_pages' );
-$missing_identity = $documents->invoke(
+$documents      = new ReflectionMethod( Static_Site_Importer_Theme_Generator::class, 'documents_from_compiled_site_pages' );
+$missing_source = $documents->invoke(
 	null,
 	array(
 		array(
-			'source_path' => 'index.html',
-			'slug'        => 'home',
+			'slug' => 'home',
 		),
 	),
-	array(
-		array(
-			'source_path'  => 'index.html',
-			'block_markup' => '<!-- wp:paragraph --><p>Home</p><!-- /wp:paragraph -->',
-		),
-	)
+	array()
 );
-$assert( $missing_identity instanceof WP_Error, 'compiled-site-page-identity-is-required' );
-$assert( 'static_site_importer_compiled_site_page_identity_incomplete' === ( $missing_identity instanceof WP_Error ? $missing_identity->get_error_code() : '' ), 'compiled-site-page-identity-error-code' );
+$assert( $missing_source instanceof WP_Error, 'compiled-site-page-source-is-required' );
+$assert( 'static_site_importer_compiled_site_page_missing_source' === ( $missing_source instanceof WP_Error ? $missing_source->get_error_code() : '' ), 'compiled-site-page-source-error-code' );
 
 if ( ! empty( $failures ) ) {
 	fwrite( STDERR, implode( "\n", $failures ) . "\n" );

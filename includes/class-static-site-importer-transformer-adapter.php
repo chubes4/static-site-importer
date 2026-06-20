@@ -53,19 +53,19 @@ class Static_Site_Importer_Transformer_Adapter {
 		}
 
 		if ( is_array( $result ) ) {
-			return $this->transformer_result_to_bac_result( $result );
+			return $this->compiled_result_from_transformer_contract( $result );
 		}
 
 		return new WP_Error( 'static_site_importer_transformer_compile_failed', 'Blocks Engine php-transformer did not return a compiler result.' );
 	}
 
 	/**
-	 * Map the generic php-transformer result into SSI's current BAC-compatible envelope.
+	 * Project the stable transformer contracts into SSI's compiled artifact envelope.
 	 *
 	 * @param array<string,mixed> $result TransformerResult::toArray() output.
 	 * @return array<string,mixed>
 	 */
-	private function transformer_result_to_bac_result( array $result ): array {
+	private function compiled_result_from_transformer_contract( array $result ): array {
 		$source_reports = isset( $result['source_reports'] ) && is_array( $result['source_reports'] ) ? $result['source_reports'] : array();
 		$source_report  = isset( $source_reports['artifact'] ) && is_array( $source_reports['artifact'] ) ? $source_reports['artifact'] : array();
 		$compiled_site  = isset( $source_reports['compiled_site'] ) && is_array( $source_reports['compiled_site'] ) ? $source_reports['compiled_site'] : array();
@@ -73,7 +73,6 @@ class Static_Site_Importer_Transformer_Adapter {
 		$provenance     = isset( $result['provenance'][0] ) && is_array( $result['provenance'][0] ) ? $result['provenance'][0] : array();
 		$blocks         = isset( $result['blocks'] ) && is_array( $result['blocks'] ) ? $result['blocks'] : array();
 		$serialized     = isset( $result['serialized_blocks'] ) && is_scalar( $result['serialized_blocks'] ) ? (string) $result['serialized_blocks'] : '';
-		$documents      = $this->documents_from_transformer_result( $result, $compiled_site );
 		$products       = $this->products_manifest_from_transformer_reports( $result, $compiled_site );
 
 		$compiled = array(
@@ -99,12 +98,12 @@ class Static_Site_Importer_Transformer_Adapter {
 				'block_tree'   => $this->block_tree_report( $blocks ),
 				'block_types'  => isset( $result['block_types'] ) && is_array( $result['block_types'] ) ? $result['block_types'] : array(),
 				'components'   => isset( $result['components'] ) && is_array( $result['components'] ) ? $result['components'] : array(),
-				'document_metadata' => $this->document_metadata_from_compiled_site_report( $compiled_site ),
-				'documents'    => $documents,
+				'document_metadata' => $this->document_metadata_from_compiled_site( $compiled_site ),
+				'documents'    => isset( $result['documents'] ) && is_array( $result['documents'] ) ? $result['documents'] : array(),
 				'files'        => isset( $result['assets'] ) && is_array( $result['assets'] ) ? $result['assets'] : array(),
-				'site'         => $this->site_from_compiled_site_report( $compiled_site, $documents ),
-				'template_parts' => $this->template_parts_from_compiled_site_report( $compiled_site ),
-				'visual_repair' => $this->visual_repair_from_compiled_site_report( $compiled_site ),
+				'site'         => $compiled_site,
+				'template_parts' => isset( $compiled_site['template_parts'] ) && is_array( $compiled_site['template_parts'] ) ? $compiled_site['template_parts'] : array(),
+				'visual_repair' => isset( $compiled_site['visual_repair'] ) && is_array( $compiled_site['visual_repair'] ) ? $compiled_site['visual_repair'] : array(),
 			),
 			'provenance'          => array(
 				'source_hash' => isset( $provenance['source_hash'] ) && is_scalar( $provenance['source_hash'] ) ? (string) $provenance['source_hash'] : (string) ( $source_report['source_hash'] ?? '' ),
@@ -264,12 +263,12 @@ class Static_Site_Importer_Transformer_Adapter {
 	}
 
 	/**
-	 * Convert generic compiled-site document metadata into SSI's BAC metadata shape.
+	 * Extract document metadata from the compiled-site entrypoint HTML contract.
 	 *
 	 * @param array<string,mixed> $compiled_site Generic compiled-site report.
 	 * @return array<string,mixed>
 	 */
-	private function document_metadata_from_compiled_site_report( array $compiled_site ): array {
+	private function document_metadata_from_compiled_site( array $compiled_site ): array {
 		$page = $this->entrypoint_compiled_site_page( $compiled_site );
 		if ( empty( $page ) ) {
 			return array();
@@ -405,248 +404,6 @@ class Static_Site_Importer_Transformer_Adapter {
 	}
 
 	/**
-	 * Convert generic compiled-site template parts into BAC template part artifacts.
-	 *
-	 * @param array<string,mixed> $compiled_site Generic compiled-site report.
-	 * @return array<int,array<string,mixed>>
-	 */
-	private function template_parts_from_compiled_site_report( array $compiled_site ): array {
-		$template_parts = array();
-		foreach ( isset( $compiled_site['template_parts'] ) && is_array( $compiled_site['template_parts'] ) ? $compiled_site['template_parts'] : array() as $template_part ) {
-			if ( ! is_array( $template_part ) || ! isset( $template_part['block_markup'] ) || '' === trim( (string) $template_part['block_markup'] ) ) {
-				continue;
-			}
-
-			$template_parts[] = array_filter(
-				array(
-					'source_path'  => isset( $template_part['source_path'] ) && is_scalar( $template_part['source_path'] ) ? (string) $template_part['source_path'] : '',
-					'slug'         => isset( $template_part['slug'] ) && is_scalar( $template_part['slug'] ) ? $this->sanitize_slug( (string) $template_part['slug'] ) : '',
-					'title'        => isset( $template_part['title'] ) && is_scalar( $template_part['title'] ) ? (string) $template_part['title'] : '',
-					'area'         => isset( $template_part['area'] ) && is_scalar( $template_part['area'] ) ? (string) $template_part['area'] : '',
-					'body_format'  => isset( $template_part['body_format'] ) && is_scalar( $template_part['body_format'] ) ? (string) $template_part['body_format'] : '',
-					'block_markup' => (string) $template_part['block_markup'],
-				),
-				static fn ( $value ): bool => null !== $value && '' !== $value
-			);
-		}
-
-		if ( ! empty( $template_parts ) ) {
-			return $template_parts;
-		}
-
-		$page = $this->entrypoint_compiled_site_page( $compiled_site );
-		$html = isset( $page['html'] ) && is_scalar( $page['html'] ) ? (string) $page['html'] : '';
-		if ( '' === trim( $html ) ) {
-			return array();
-		}
-
-		foreach ( array( 'header', 'footer' ) as $area ) {
-			$markup = $this->template_part_markup_from_html( $html, $area );
-			if ( '' === trim( $markup ) ) {
-				continue;
-			}
-
-			$template_parts[] = array(
-				'source_path'  => isset( $page['source_path'] ) && is_scalar( $page['source_path'] ) ? (string) $page['source_path'] : '',
-				'slug'         => $area,
-				'area'         => $area,
-				'body_format'  => 'html',
-				'block_markup' => $markup,
-			);
-		}
-
-		return $template_parts;
-	}
-
-	/**
-	 * Build a simple block template part from a full HTML document landmark.
-	 *
-	 * @param string $html Full HTML document.
-	 * @param string $tag  Landmark tag name.
-	 * @return string Serialized block markup.
-	 */
-	private function template_part_markup_from_html( string $html, string $tag ): string {
-		$dom      = new DOMDocument();
-		$previous = libxml_use_internal_errors( true );
-		$dom->loadHTML( $html );
-		libxml_clear_errors();
-		libxml_use_internal_errors( $previous );
-
-		$nodes = $dom->getElementsByTagName( $tag );
-		if ( 0 === $nodes->length ) {
-			return '';
-		}
-
-		$node = $nodes->item( 0 );
-		if ( ! $node instanceof DOMNode ) {
-			return '';
-		}
-
-		$markup = '';
-		foreach ( $node->childNodes as $child ) {
-			$child_markup = $dom->saveHTML( $child );
-			if ( is_string( $child_markup ) ) {
-				$markup .= $child_markup;
-			}
-		}
-
-		$markup = trim( $markup );
-		if ( '' === $markup ) {
-			$text = trim( (string) $node->textContent );
-			if ( '' === $text ) {
-				return '';
-			}
-
-			$markup = htmlspecialchars( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-		}
-
-		$block_name = 'group';
-		$tag_name   = 'footer' === $tag ? 'footer' : 'header';
-		return '<!-- wp:' . $block_name . ' {"tagName":"' . $tag_name . '"} -->' . "\n" . '<' . $tag_name . ' class="wp-block-group">' . $markup . '</' . $tag_name . '>' . "\n" . '<!-- /wp:' . $block_name . ' -->';
-	}
-
-	/**
-	 * Convert generic compiled-site visual repair CSS into BAC visual repair artifacts.
-	 *
-	 * @param array<string,mixed> $compiled_site Generic compiled-site report.
-	 * @return array<string,mixed>
-	 */
-	private function visual_repair_from_compiled_site_report( array $compiled_site ): array {
-		$visual_repair = isset( $compiled_site['visual_repair'] ) && is_array( $compiled_site['visual_repair'] ) ? $compiled_site['visual_repair'] : array();
-		$css           = isset( $visual_repair['css'] ) && is_scalar( $visual_repair['css'] ) ? trim( (string) $visual_repair['css'] ) : '';
-		if ( '' === $css ) {
-			return array();
-		}
-
-		return array(
-			'styles' => array(
-				array(
-					'target'  => 'frontend',
-					'content' => $css,
-				),
-				array(
-					'target'  => 'editor',
-					'content' => $css,
-				),
-			),
-		);
-	}
-
-	/**
-	 * Convert generic compiled-site pages into SSI's BAC compiled-site page shape.
-	 *
-	 * @param array<string,mixed>            $compiled_site Generic compiled-site report.
-	 * @param array<int,array<string,mixed>> $documents     Materializable document artifacts.
-	 * @return array<string,mixed>
-	 */
-	private function site_from_compiled_site_report( array $compiled_site, array $documents ): array {
-		$pages            = array();
-		$document_sources = array();
-		foreach ( $documents as $document ) {
-			if ( isset( $document['source_path'] ) && is_scalar( $document['source_path'] ) && '' !== (string) $document['source_path'] ) {
-				$document_sources[ (string) $document['source_path'] ] = true;
-			}
-		}
-
-		foreach ( isset( $compiled_site['pages'] ) && is_array( $compiled_site['pages'] ) ? $compiled_site['pages'] : array() as $page ) {
-			if ( ! is_array( $page ) ) {
-				continue;
-			}
-
-			$source_path = isset( $page['source_path'] ) && is_scalar( $page['source_path'] ) ? (string) $page['source_path'] : '';
-			if ( '' === $source_path ) {
-				continue;
-			}
-			if ( empty( $document_sources[ $source_path ] ) ) {
-				continue;
-			}
-
-			$slug    = isset( $page['slug'] ) && is_scalar( $page['slug'] ) && '' !== trim( (string) $page['slug'] ) ? $this->sanitize_slug( (string) $page['slug'] ) : $this->document_slug( $page, $source_path, ! empty( $page['entrypoint'] ) );
-			$pages[] = array_filter(
-				array(
-					'source_path' => $source_path,
-					'route_key'   => $slug,
-					'slug'        => $slug,
-					'post_type'   => 'page',
-					'title'       => isset( $page['title'] ) && is_scalar( $page['title'] ) ? (string) $page['title'] : '',
-					'entrypoint'  => ! empty( $page['entrypoint'] ),
-				),
-				static fn ( $value ): bool => null !== $value && '' !== $value
-			);
-		}
-
-		return array_filter(
-			array(
-				'schema'      => 'block-artifact-compiler/compiled-site/v1',
-				'pages'       => $pages,
-				'assets'      => isset( $compiled_site['assets'] ) && is_array( $compiled_site['assets'] ) ? $compiled_site['assets'] : array(),
-				'theme'       => isset( $compiled_site['theme'] ) && is_array( $compiled_site['theme'] ) ? $compiled_site['theme'] : array(),
-				'source'      => 'blocks-engine/php-transformer/compiled-site/v1',
-				'source_hash' => isset( $compiled_site['source_hash'] ) && is_scalar( $compiled_site['source_hash'] ) ? (string) $compiled_site['source_hash'] : '',
-			),
-			static fn ( $value ): bool => array() !== $value && '' !== $value
-		);
-	}
-
-	/**
-	 * Prefer compiled-site pages that include block markup, then include source documents.
-	 *
-	 * @param array<string,mixed> $result        Transformer result array.
-	 * @param array<string,mixed> $compiled_site Generic compiled-site report.
-	 * @return array<int,array<string,mixed>>
-	 */
-	private function documents_from_transformer_result( array $result, array $compiled_site ): array {
-		$documents = array();
-		foreach ( isset( $compiled_site['pages'] ) && is_array( $compiled_site['pages'] ) ? $compiled_site['pages'] : array() as $page ) {
-			if ( ! is_array( $page ) ) {
-				continue;
-			}
-
-			$source_path = isset( $page['source_path'] ) && is_scalar( $page['source_path'] ) ? (string) $page['source_path'] : '';
-			if ( '' === $source_path ) {
-				continue;
-			}
-
-			$block_markup = $this->block_markup_from_compiled_site_page( $page );
-			if ( '' === trim( $block_markup ) ) {
-				continue;
-			}
-
-			$slug        = isset( $page['slug'] ) && is_scalar( $page['slug'] ) && '' !== trim( (string) $page['slug'] ) ? $this->sanitize_slug( (string) $page['slug'] ) : $this->document_slug( $page, $source_path, ! empty( $page['entrypoint'] ) );
-			$documents[] = array_filter(
-				array(
-					'source_path'  => $source_path,
-					'slug'         => $slug,
-					'route_key'    => $slug,
-					'post_type'    => 'page',
-					'title'        => isset( $page['title'] ) && is_scalar( $page['title'] ) ? (string) $page['title'] : '',
-					'entrypoint'   => ! empty( $page['entrypoint'] ) ? '1' : '',
-					'block_markup' => $block_markup,
-				),
-				static fn ( $value ): bool => null !== $value && '' !== $value
-			);
-		}
-
-		foreach ( isset( $result['documents'] ) && is_array( $result['documents'] ) ? $result['documents'] : array() as $document ) {
-			if ( is_array( $document ) ) {
-				$documents[] = $document;
-			}
-		}
-
-		return $documents;
-	}
-
-	/**
-	 * Resolve importable block markup from a generic compiled-site page row.
-	 *
-	 * @param array<string,mixed> $page Generic compiled-site page row.
-	 * @return string Serialized block markup.
-	 */
-	private function block_markup_from_compiled_site_page( array $page ): string {
-		return isset( $page['block_markup'] ) && is_scalar( $page['block_markup'] ) ? (string) $page['block_markup'] : '';
-	}
-
-	/**
 	 * Build a compact block tree report without depending on BAC helpers.
 	 *
 	 * @param array<int|string,mixed> $blocks Parsed blocks.
@@ -673,28 +430,6 @@ class Static_Site_Importer_Transformer_Adapter {
 		$walk( $blocks, 1 );
 
 		return $report;
-	}
-
-	/**
-	 * Resolve a WordPress page slug from document metadata.
-	 *
-	 * @param array<string,mixed> $document    Document artifact.
-	 * @param string              $source_path Source path.
-	 * @param bool                $entrypoint  Whether this is the entrypoint document.
-	 * @return string
-	 */
-	private function document_slug( array $document, string $source_path, bool $entrypoint ): string {
-		if ( isset( $document['slug'] ) && is_scalar( $document['slug'] ) && '' !== trim( (string) $document['slug'] ) ) {
-			return $this->sanitize_slug( (string) $document['slug'] );
-		}
-
-		$basename = pathinfo( $source_path, PATHINFO_FILENAME );
-		if ( $entrypoint && in_array( strtolower( $basename ), array( 'index', 'home', '' ), true ) ) {
-			return 'home';
-		}
-
-		$slug = $this->sanitize_slug( $basename );
-		return '' !== $slug ? $slug : 'page';
 	}
 
 	/**

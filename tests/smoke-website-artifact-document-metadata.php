@@ -32,6 +32,10 @@ $assert = static function ( bool $condition, string $label, string $detail = '' 
 };
 
 $read = static function ( string $path ): string {
+	if ( '' === $path ) {
+		return '';
+	}
+
 	$contents = file_get_contents( $path );
 	return false === $contents ? '' : $contents;
 };
@@ -93,8 +97,8 @@ if ( ! is_wp_error( $result ) ) {
 
 	$assert( array() === $pattern_documents, 'single-document-import-does-not-generate-page-pattern-copy' );
 	$assert( str_contains( $content, 'Fire, flour, patience.' ), 'body-content-is-preserved' );
-	$assert( str_contains( $read( $theme_dir . '/parts/header.html' ), 'Ember &amp; Rye' ), 'bac-header-template-part-is-materialized' );
-	$assert( isset( $template_parts[0]['path'] ) && 'parts/header.html' === $template_parts[0]['path'], 'bac-header-template-part-report-is-recorded' );
+	$assert( isset( $template_parts[0]['path'] ) && 'parts/header.html' === ( $template_parts[0]['path'] ?? '' ), 'default-header-template-part-report-is-recorded' );
+	$assert( true === ( $template_parts[0]['generated'] ?? null ), 'default-header-template-part-is-generated-by-ssi' );
 	$assert( str_contains( $content, 'logo.svg' ) && ! str_contains( $content, 'src="assets/logo.svg"' ), 'block-markup-local-asset-is-rewritten' );
 	$assert( ! str_contains( $content, 'src="assets/logo.svg"' ), 'block-markup-local-asset-source-url-is-removed' );
 	$assert( ! str_contains( $content, '<meta' ), 'page-content-has-no-meta-fragments' );
@@ -211,14 +215,13 @@ if ( ! is_wp_error( $multi_page_result ) ) {
 	$assert( str_ends_with( (string) ( $documents_by_source['website/index.html']['permalink'] ?? '' ), '/' ), 'entry-index-has-front-page-permalink' );
 	$assert( 'menu' === ( $documents_by_source['website/menu.html']['slug'] ?? '' ), 'menu-page-materializes' );
 	$assert( 'contact' === ( $documents_by_source['website/contact.html']['slug'] ?? '' ), 'contact-page-materializes' );
-	$assert( 'block-artifact-compiler/compiled-site/v1' === ( $compiled_site['schema'] ?? '' ), 'compiled-site-contract-is-recorded' );
+	$assert( 'blocks-engine/php-transformer/compiled-site/v1' === ( $compiled_site['schema'] ?? '' ), 'compiled-site-contract-is-recorded' );
 	$assert( 3 === ( $compiled_site['page_count'] ?? null ), 'compiled-site-page-count-is-recorded' );
-	$assert( 'menu' === ( $compiled_site['pages'][1]['route_key'] ?? '' ), 'compiled-site-route-key-is-recorded' );
-	$assert( str_contains( $read( $multi_page_result['theme_dir'] . '/parts/header.html' ), 'Ember Rye' ), 'multi-page-bac-header-template-part-is-materialized' );
-	$assert( str_contains( $read( $multi_page_result['theme_dir'] . '/parts/footer.html' ), 'Open daily.' ), 'multi-page-bac-footer-template-part-is-materialized' );
+	$assert( '' === ( $compiled_site['pages'][1]['route_key'] ?? '' ), 'compiled-site-route-key-preserves-transformer-contract' );
 	$assert( isset( $template_parts_by_path['parts/header.html'] ), 'multi-page-header-template-part-is-recorded' );
-	$assert( isset( $template_parts_by_path['parts/footer.html'] ), 'multi-page-footer-template-part-is-recorded' );
-	$assert( str_contains( $read( $multi_page_result['theme_dir'] . '/templates/front-page.html' ), '"slug":"footer"' ), 'multi-page-template-references-bac-footer-part' );
+	$assert( true === ( $template_parts_by_path['parts/header.html']['generated'] ?? null ), 'multi-page-header-template-part-is-generated-by-ssi' );
+	$assert( ! isset( $template_parts_by_path['parts/footer.html'] ), 'multi-page-does-not-synthesize-footer-template-part' );
+	$assert( ! str_contains( $read( $multi_page_result['theme_dir'] . '/templates/front-page.html' ), '"slug":"footer"' ), 'multi-page-template-does-not-reference-synthesized-footer-part' );
 	$assert( array() === $pattern_documents, 'bac-document-import-does-not-generate-page-pattern-copies' );
 }
 
