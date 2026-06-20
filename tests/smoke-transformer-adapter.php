@@ -1,6 +1,6 @@
 <?php
 /**
- * Smoke test: SSI transformer adapter owns php-transformer/BAC migration shims.
+ * Smoke test: SSI transformer adapter maps Blocks Engine php-transformer output.
  *
  * Run from the repository root:
  * php tests/smoke-transformer-adapter.php
@@ -121,7 +121,6 @@ namespace {
 	}
 
 	$GLOBALS['ssi_transformer_adapter_format_bridge_calls'] = array();
-	$GLOBALS['ssi_transformer_adapter_bfb_calls']           = array();
 	$GLOBALS['ssi_transformer_adapter_artifact_compiler_calls'] = array();
 
 	if ( ! class_exists( 'WP_Error' ) ) {
@@ -150,41 +149,6 @@ namespace {
 		}
 	}
 
-	if ( ! function_exists( 'bfb_convert' ) ) {
-		function bfb_convert( string $content, string $from, string $to ): string {
-			$GLOBALS['ssi_transformer_adapter_bfb_calls'][] = array( $content, $from, $to );
-			return '<p>BFB rendered</p>';
-		}
-	}
-
-	if ( ! function_exists( 'bac_compile_website_artifact' ) ) {
-		function bac_compile_website_artifact( array $artifact, array $options = array() ): array {
-			return array(
-				'schema'              => 'block-artifact-compiler/result/v1',
-				'status'              => 'success',
-				'input'               => array(
-					'entry_path' => 'website/index.html',
-					'options'    => $options,
-				),
-				'wordpress_artifacts' => array(
-					'documents' => array(
-						array(
-							'source_path'  => 'website/index.html',
-							'title'        => 'Home Page',
-							'block_markup' => '<!-- wp:paragraph --><p>Home</p><!-- /wp:paragraph -->',
-						),
-						array(
-							'source_path'  => 'website/menu.html',
-							'title'        => 'Menu Page',
-							'block_markup' => '<!-- wp:paragraph --><p>Menu</p><!-- /wp:paragraph -->',
-						),
-					),
-				),
-				'diagnostics'         => array(),
-			);
-		}
-	}
-
 	require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-transformer-adapter.php';
 
 	$failures   = array();
@@ -200,7 +164,6 @@ namespace {
 	$html    = $adapter->blocks_to_html( '<!-- wp:paragraph --><p>Edited</p><!-- /wp:paragraph -->', array( 'source' => 'smoke' ) );
 	$assert( '<p>FormatBridge rendered</p>' === $html, 'format-bridge-result-is-used' );
 	$assert( 1 === count( $GLOBALS['ssi_transformer_adapter_format_bridge_calls'] ), 'format-bridge-called' );
-	$assert( array() === $GLOBALS['ssi_transformer_adapter_bfb_calls'], 'bfb-not-called-when-format-bridge-exists' );
 	$assert( 'blocks' === ( $GLOBALS['ssi_transformer_adapter_format_bridge_calls'][0][1] ?? '' ), 'format-bridge-from-format' );
 	$assert( 'html' === ( $GLOBALS['ssi_transformer_adapter_format_bridge_calls'][0][2] ?? '' ), 'format-bridge-to-format' );
 	$assert( 'smoke' === ( $GLOBALS['ssi_transformer_adapter_format_bridge_calls'][0][3]['source'] ?? '' ), 'format-bridge-options-forwarded' );

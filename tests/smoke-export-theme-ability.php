@@ -27,7 +27,6 @@ file_put_contents( $theme_dir . '/templates/front-page.html', '<!-- wp:post-cont
 file_put_contents( $theme_dir . '/import-report.json', '{"status":"completed","source_documents":{"direct_website_artifact":{"document_count":1}}}' );
 
 $GLOBALS['ssi_export_theme_root'] = $theme_root;
-$GLOBALS['ssi_export_bfb_calls']  = array();
 $GLOBALS['ssi_export_format_bridge_calls'] = array();
 eval(
 	'namespace Automattic\\BlocksEngine\\PhpTransformer\\FormatBridge {' .
@@ -149,13 +148,6 @@ if ( ! function_exists( 'get_posts' ) ) {
 	}
 }
 
-if ( ! function_exists( 'bfb_convert' ) ) {
-	function bfb_convert( string $content, string $from, string $to ): string {
-		$GLOBALS['ssi_export_bfb_calls'][] = array( $from, $to );
-		return str_replace( array( '<!-- wp:paragraph -->', '<!-- /wp:paragraph -->', '<!-- wp:post-content /-->' ), '', $content );
-	}
-}
-
 if ( ! function_exists( '__' ) ) {
 	function __( string $text, string $domain = 'default' ): string {
 		return $text;
@@ -180,11 +172,6 @@ if ( ! function_exists( 'add_action' ) ) {
 
 require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-theme-exporter.php';
 require_once dirname( __DIR__ ) . '/includes/abilities.php';
-$bac_library = dirname( __DIR__ ) . '/vendor/chubes4/block-artifact-compiler/library.php';
-if ( is_readable( $bac_library ) ) {
-	require_once $bac_library;
-}
-
 $result = static_site_importer_ability_export_theme(
 	array(
 		'theme_slug'      => 'fixture-theme',
@@ -241,21 +228,11 @@ $assert( 'smoke' === ( $artifact['provenance']['source_metadata']['source'] ?? '
 $assert( 'website/import-report.json' === ( $artifact['reports'][0]['path'] ?? '' ), 'report-ref' );
 $assert( 'smoke' === ( $artifact['report']['source_metadata']['source'] ?? '' ), 'source-metadata-preserved' );
 $assert( 'completed' === ( $artifact['report']['import_report']['status'] ?? '' ), 'import-report-preserved' );
-if ( function_exists( 'bac_compile_website_artifact' ) ) {
-	$compiled = bac_compile_website_artifact( $artifact );
-	$assert( 'block-artifact-compiler/result/v1' === ( $compiled['schema'] ?? '' ), 'bac-compiles-exported-artifact' );
-	$assert( 'website/index.html' === ( $compiled['input']['entry_path'] ?? '' ), 'bac-uses-website-entrypoint' );
-}
 $export_format_bridge_calls = array_filter(
 	$GLOBALS['ssi_export_format_bridge_calls'],
 	static fn ( array $call ): bool => 'blocks' === $call[0] && 'html' === $call[1]
 );
-$export_bfb_calls           = array_filter(
-	$GLOBALS['ssi_export_bfb_calls'],
-	static fn ( array $call ): bool => 'blocks' === $call[0] && 'html' === $call[1]
-);
 $assert( count( $export_format_bridge_calls ) >= 4, 'format-bridge-called-for-block-to-html' );
-$assert( array() === $export_bfb_calls, 'bfb-not-called-for-export' );
 $assert( class_exists( 'Static_Site_Importer_Transformer_Adapter' ), 'export-routes-through-transformer-adapter' );
 
 if ( $failures ) {

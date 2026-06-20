@@ -2,7 +2,7 @@
 /**
  * Smoke test: full-document website artifacts route head metadata out of blocks.
  *
- * Run inside a WordPress site with BAC/BFB available:
+ * Run inside a WordPress site with Blocks Engine php-transformer available:
  * wp eval-file tests/smoke-website-artifact-document-metadata.php
  *
  * @package StaticSiteImporter

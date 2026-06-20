@@ -40,30 +40,23 @@ class Static_Site_Importer_Transformer_Adapter {
 	 * @return array<string,mixed>|WP_Error
 	 */
 	public function compile_website_artifact( array $artifact, array $options = array() ) {
-		if ( $this->supports_website_artifact_compile() ) {
-			unset( $options );
+		unset( $options );
 
-			$compiler = new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler();
-			$result   = $compiler->compile( $artifact );
-			if ( is_object( $result ) && method_exists( $result, 'toArray' ) ) {
-				$result = $result->toArray();
-			}
-
-			if ( is_array( $result ) ) {
-				return $this->transformer_result_to_bac_result( $result );
-			}
+		if ( ! $this->supports_website_artifact_compile() ) {
+			return new WP_Error( 'static_site_importer_missing_transformer', 'Blocks Engine php-transformer is required to import a website artifact.' );
 		}
 
-		if ( ! function_exists( 'bac_compile_website_artifact' ) ) {
-			return new WP_Error( 'static_site_importer_missing_bac', 'Block Artifact Compiler is required until php-transformer emits the compiled-site contract SSI imports.' );
+		$compiler = new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler();
+		$result   = $compiler->compile( $artifact );
+		if ( is_object( $result ) && method_exists( $result, 'toArray' ) ) {
+			$result = $result->toArray();
 		}
 
-		$compiled = bac_compile_website_artifact( $artifact, $options );
-		if ( is_wp_error( $compiled ) || ! is_array( $compiled ) ) {
-			return $compiled;
+		if ( is_array( $result ) ) {
+			return $this->transformer_result_to_bac_result( $result );
 		}
 
-		return $this->with_compiled_site_fallback( $compiled );
+		return new WP_Error( 'static_site_importer_transformer_compile_failed', 'Blocks Engine php-transformer did not return a compiler result.' );
 	}
 
 	/**
@@ -650,49 +643,7 @@ class Static_Site_Importer_Transformer_Adapter {
 	 * @return string Serialized block markup.
 	 */
 	private function block_markup_from_compiled_site_page( array $page ): string {
-		$html = isset( $page['html'] ) && is_scalar( $page['html'] ) ? (string) $page['html'] : '';
-		if ( '' !== trim( $html ) && function_exists( 'html_to_blocks_convert' ) ) {
-			$converted = html_to_blocks_convert( $this->main_fragment_from_html( $html ), array( 'collect_selector_provenance' => true ) );
-			if ( is_array( $converted ) && isset( $converted['block_markup'] ) && is_scalar( $converted['block_markup'] ) && '' !== trim( (string) $converted['block_markup'] ) ) {
-				return (string) $converted['block_markup'];
-			}
-		}
-
 		return isset( $page['block_markup'] ) && is_scalar( $page['block_markup'] ) ? (string) $page['block_markup'] : '';
-	}
-
-	/**
-	 * Extract the main landmark from a full HTML document when present.
-	 *
-	 * @param string $html Full HTML document.
-	 * @return string HTML fragment.
-	 */
-	private function main_fragment_from_html( string $html ): string {
-		$dom      = new DOMDocument();
-		$previous = libxml_use_internal_errors( true );
-		$dom->loadHTML( $html );
-		libxml_clear_errors();
-		libxml_use_internal_errors( $previous );
-
-		$nodes = $dom->getElementsByTagName( 'main' );
-		if ( 0 === $nodes->length ) {
-			return $html;
-		}
-
-		$node = $nodes->item( 0 );
-		if ( ! $node instanceof DOMNode ) {
-			return $html;
-		}
-
-		$fragment = '';
-		foreach ( $node->childNodes as $child ) {
-			$child_markup = $dom->saveHTML( $child );
-			if ( is_string( $child_markup ) ) {
-				$fragment .= $child_markup;
-			}
-		}
-
-		return '' !== trim( $fragment ) ? trim( $fragment ) : $html;
 	}
 
 	/**
@@ -722,89 +673,6 @@ class Static_Site_Importer_Transformer_Adapter {
 		$walk( $blocks, 1 );
 
 		return $report;
-	}
-
-	/**
-	 * Backfill the compiled-site contract from legacy document artifacts.
-	 *
-	 * @param array<string,mixed> $compiled Compiler result envelope.
-	 * @return array<string,mixed>
-	 */
-	private function with_compiled_site_fallback( array $compiled ): array {
-		$artifacts = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
-		$site      = isset( $artifacts['site'] ) && is_array( $artifacts['site'] ) ? $artifacts['site'] : array();
-		if ( 'block-artifact-compiler/compiled-site/v1' === (string) ( $site['schema'] ?? '' ) && isset( $site['pages'] ) && is_array( $site['pages'] ) ) {
-			return $compiled;
-		}
-
-		$documents = isset( $artifacts['documents'] ) && is_array( $artifacts['documents'] ) ? $artifacts['documents'] : array();
-		if ( empty( $documents ) ) {
-			return $compiled;
-		}
-
-		$entry_path = isset( $compiled['input']['entry_path'] ) && is_scalar( $compiled['input']['entry_path'] ) ? (string) $compiled['input']['entry_path'] : '';
-		$pages      = array();
-		foreach ( $documents as $index => $document ) {
-			if ( ! is_array( $document ) ) {
-				continue;
-			}
-
-			$source_path = $this->document_source_path( $document, $index );
-			if ( '' === $source_path ) {
-				continue;
-			}
-
-			$is_entrypoint = ! empty( $document['entrypoint'] ) || ( '' !== $entry_path && $source_path === $entry_path ) || ( '' === $entry_path && 0 === $index );
-			$slug          = $this->document_slug( $document, $source_path, $is_entrypoint );
-			$pages[] = array_filter(
-				array(
-					'source_path' => $source_path,
-					'route_key'   => $slug,
-					'slug'        => $slug,
-					'post_type'   => 'page',
-					'title'       => isset( $document['title'] ) && is_scalar( $document['title'] ) ? (string) $document['title'] : '',
-					'entrypoint'  => $is_entrypoint,
-				),
-				static fn ( $value ): bool => null !== $value && '' !== $value
-			);
-		}
-
-		if ( empty( $pages ) ) {
-			return $compiled;
-		}
-
-		$compiled['wordpress_artifacts']['site'] = array(
-			'schema'  => 'block-artifact-compiler/compiled-site/v1',
-			'pages'   => $pages,
-			'source'  => 'static-site-importer-legacy-adapter-fallback',
-			'warning' => 'BAC did not emit compiled-site pages; SSI synthesized page routing from document artifacts.',
-		);
-		$diagnostics                            = isset( $compiled['diagnostics'] ) && is_array( $compiled['diagnostics'] ) ? $compiled['diagnostics'] : array();
-		$diagnostics[]                          = array(
-			'level'   => 'warning',
-			'code'    => 'static_site_importer_legacy_compiled_site_fallback',
-			'message' => 'BAC did not emit compiled-site pages; SSI synthesized page routing from document artifacts.',
-		);
-		$compiled['diagnostics']                = $diagnostics;
-
-		return $compiled;
-	}
-
-	/**
-	 * Resolve a document source path from legacy document fields.
-	 *
-	 * @param array<string,mixed> $document Document artifact.
-	 * @param int                 $index    Document index.
-	 * @return string
-	 */
-	private function document_source_path( array $document, int $index ): string {
-		foreach ( array( 'source_path', 'path', 'slug' ) as $key ) {
-			if ( isset( $document[ $key ] ) && is_scalar( $document[ $key ] ) && '' !== trim( (string) $document[ $key ] ) ) {
-				return (string) $document[ $key ];
-			}
-		}
-
-		return 0 === $index ? 'index.html' : '';
 	}
 
 	/**
@@ -850,11 +718,6 @@ class Static_Site_Importer_Transformer_Adapter {
 	 * @return array<string,mixed>
 	 */
 	public function summarize_result( array $compiled ): array {
-		if ( function_exists( 'bac_summarize_result' ) ) {
-			$summary = bac_summarize_result( $compiled );
-			return is_array( $summary ) ? $summary : array();
-		}
-
 		$artifacts   = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
 		$block_tree  = isset( $artifacts['block_tree'] ) && is_array( $artifacts['block_tree'] ) ? $artifacts['block_tree'] : array();
 		$block_types = isset( $artifacts['block_types'] ) && is_array( $artifacts['block_types'] ) ? $artifacts['block_types'] : array();
@@ -892,6 +755,6 @@ class Static_Site_Importer_Transformer_Adapter {
 			return $bridge->convert( $block_markup, 'blocks', 'html', $options );
 		}
 
-		return function_exists( 'bfb_convert' ) ? bfb_convert( $block_markup, 'blocks', 'html' ) : '';
+		return '';
 	}
 }
