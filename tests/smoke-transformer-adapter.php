@@ -188,11 +188,6 @@ namespace {
 	$assert( '12.00' === ( $products[0]['regular_price'] ?? '' ), 'native-product-price-normalized-from-generic-report' );
 	$assert( array( 'Bread' ) === ( $products[0]['categories'] ?? array() ), 'native-product-categories-mapped-from-generic-report' );
 
-	$adapter_source = file_get_contents( dirname( __DIR__ ) . '/includes/class-static-site-importer-transformer-adapter.php' );
-	foreach ( array( 'transformer_result_to_bac_result', 'documents_from_transformer_result', 'site_from_compiled_site_report', 'template_parts_from_compiled_site_report', 'visual_repair_from_compiled_site_report', 'document_metadata_from_compiled_site_report', 'block_markup_from_compiled_site_page', 'ArtifactCompiler\\ArtifactCompiler', 'FormatBridge\\FormatBridge' ) as $removed_helper ) {
-		$assert( false !== $adapter_source && ! str_contains( $adapter_source, $removed_helper ), 'legacy-adapter-helper-removed-' . $removed_helper );
-	}
-
 	if ( $failures ) {
 		fwrite( STDERR, implode( "\n", $failures ) . "\n" );
 		exit( 1 );

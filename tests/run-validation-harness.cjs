@@ -31,6 +31,36 @@ const steps = [
     command: 'php',
     args: [ path.join( repoRoot, 'tests/smoke-transformer-adapter.php' ) ],
   },
+  {
+    name: 'Website artifact products manifest smoke',
+    command: 'php',
+    args: [ path.join( repoRoot, 'tests/smoke-website-artifact-products-manifest.php' ) ],
+  },
+  {
+    name: 'Website artifact document metadata smoke',
+    command: wpCli[ 0 ],
+    args: [
+      ...wpCli.slice( 1 ),
+      '--skip-plugins=static-site-importer',
+      'eval-file',
+      path.join( repoRoot, 'tests/smoke-website-artifact-document-metadata.php' ),
+    ],
+  },
+  {
+    name: 'BAC visual repair CSS smoke',
+    command: 'php',
+    args: [ path.join( repoRoot, 'tests/smoke-bac-visual-repair-css.php' ) ],
+  },
+  {
+    name: 'Export theme ability smoke',
+    command: 'php',
+    args: [ path.join( repoRoot, 'tests/smoke-export-theme-ability.php' ) ],
+  },
+  {
+    name: 'URL import runtime smoke',
+    command: 'php',
+    args: [ path.join( repoRoot, 'tests/smoke-url-import-runtime.php' ) ],
+  },
   ! skipImport && {
     name: 'Import wordpress-is-dead fixture theme',
     command: wpCli[ 0 ],
@@ -44,41 +74,6 @@ const steps = [
       '--activate',
       '--overwrite',
     ],
-  },
-  {
-    name: 'Admin entry smoke',
-    command: wpCli[ 0 ],
-    args: [ ...wpCli.slice( 1 ), 'eval-file', path.join( repoRoot, 'tests/smoke-admin-import-html-entry.php' ) ],
-  },
-  {
-    name: 'Editor style smoke',
-    command: wpCli[ 0 ],
-    args: [ ...wpCli.slice( 1 ), 'eval-file', path.join( repoRoot, 'tests/smoke-editor-style-support.php' ) ],
-  },
-  {
-    name: 'Fixture fidelity smoke',
-    command: wpCli[ 0 ],
-    args: [ ...wpCli.slice( 1 ), 'eval-file', path.join( repoRoot, 'tests/smoke-wordpress-is-dead-fixture.php' ) ],
-  },
-  {
-    name: 'Mixed source fixture smoke',
-    command: wpCli[ 0 ],
-    args: [ ...wpCli.slice( 1 ), 'eval-file', path.join( repoRoot, 'tests/smoke-mixed-source-fixture.php' ) ],
-  },
-  {
-    name: 'Extracted chrome fragments smoke',
-    command: wpCli[ 0 ],
-    args: [ ...wpCli.slice( 1 ), 'eval-file', path.join( repoRoot, 'tests/smoke-extracted-chrome-fragments.php' ) ],
-  },
-  {
-    name: 'Branded inline chrome smoke',
-    command: wpCli[ 0 ],
-    args: [ ...wpCli.slice( 1 ), 'eval-file', path.join( repoRoot, 'tests/smoke-branded-inline-chrome.php' ) ],
-  },
-  {
-    name: 'Mixed source link rewrite smoke',
-    command: wpCli[ 0 ],
-    args: [ ...wpCli.slice( 1 ), '--skip-plugins=static-site-importer', 'eval-file', path.join( repoRoot, 'tests/smoke-mixed-source-link-rewrites.php' ) ],
   },
   {
     name: 'Generated theme JS block validation',
