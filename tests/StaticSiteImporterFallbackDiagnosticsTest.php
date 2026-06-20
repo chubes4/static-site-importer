@@ -48,7 +48,7 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 						'source_html_preview'    => '<iframe id="store-widget" class="embedded checkout"></iframe>',
 						'emitted_block_preview'  => '<!-- wp:html --><iframe id="store-widget" class="embedded checkout"></iframe><!-- /wp:html -->',
 						'block_name'             => 'core/html',
-						'converter'              => 'html-to-blocks-converter',
+						'converter'              => 'blocks-engine-php-transformer',
 						'stage'                  => 'generated_theme_block_analysis',
 						'reason'                 => 'generated_document_contains_core_html',
 						'html_length'            => 64,
@@ -140,7 +140,7 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 					'source_html_preview'    => '<iframe id="store-widget" class="embedded checkout"></iframe>',
 					'emitted_block_preview'  => '<!-- wp:html --><iframe id="store-widget" class="embedded checkout"></iframe><!-- /wp:html -->',
 					'block_name'             => 'core/html',
-					'converter'              => 'html-to-blocks-converter',
+					'converter'              => 'blocks-engine-php-transformer',
 					'stage'                  => 'generated_theme_block_analysis',
 					'reason'                 => 'generated_document_contains_core_html',
 					'block_path'             => '0',
@@ -166,7 +166,7 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 		$this->assertSame( 'FindingPacket', $packet['artifact_type'] ?? '' );
 		$this->assertSame( 'core_html_block', $packet['type'] ?? '' );
 		$this->assertSame( 'warning', $packet['severity'] ?? '' );
-		$this->assertSame( 'html-to-blocks-converter', $packet['owner'] ?? '' );
+		$this->assertSame( 'blocks-engine-php-transformer', $packet['owner'] ?? '' );
 		$this->assertSame( 'replace_fallback_block', $packet['routing']['suggested_repair_class'] ?? '' );
 		$this->assertSame( 'templates/front-page.html', $packet['source']['path'] ?? '' );
 		$this->assertStringContainsString( '<iframe', $packet['source']['snippet'] ?? '' );
@@ -265,7 +265,7 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 		$this->assertSame( 'templates/front-page.html', $diagnostics[0]['source'] ?? '' );
 		$this->assertSame( 'aside.widget-card', $diagnostics[0]['selector'] ?? '' );
 		$this->assertSame( 'core/html', $diagnostics[0]['block_name'] ?? '' );
-		$this->assertSame( 'html-to-blocks-converter', $diagnostics[0]['converter'] ?? '' );
+		$this->assertSame( 'blocks-engine-php-transformer', $diagnostics[0]['converter'] ?? '' );
 		$this->assertSame( 'generated_theme_block_analysis', $diagnostics[0]['stage'] ?? '' );
 		$this->assertSame( 'generated_document_contains_core_html', $diagnostics[0]['reason'] ?? '' );
 		$this->assertSame( '0', $diagnostics[0]['block_path'] ?? '' );

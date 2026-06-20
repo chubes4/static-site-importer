@@ -241,7 +241,7 @@ class Static_Site_Importer_Report_Diagnostics {
 			'reason'                => isset( $context['reason'] ) ? (string) $context['reason'] : 'unknown',
 			'tag_name'              => isset( $context['tag_name'] ) ? (string) $context['tag_name'] : self::diagnostic_tag_name_from_html( $element_html ),
 			'block_name'            => isset( $block['blockName'] ) ? (string) $block['blockName'] : null,
-			'converter'             => 'html-to-blocks-converter',
+			'converter'             => 'blocks-engine-php-transformer',
 			'stage'                 => isset( $context['stage'] ) ? (string) $context['stage'] : 'html_to_blocks',
 			'html_length'           => strlen( $element_html ),
 			'html_excerpt'          => self::diagnostic_excerpt( $element_html ),
