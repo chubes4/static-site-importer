@@ -1,8 +1,8 @@
 # Static Site Importer
 
-Import a static site or Block Artifact Compiler website artifact into WordPress pages and a companion block theme.
+Import a static site or generated website artifact into WordPress pages and a companion block theme.
 
-Static Site Importer is a WordPress plugin. It installs [Block Artifact Compiler](https://github.com/chubes4/block-artifact-compiler) and [Block Format Bridge](https://github.com/chubes4/block-format-bridge) through Composer and loads the bundled conversion stack directly from `vendor/`.
+Static Site Importer is a WordPress plugin. It requires the [Blocks Engine PHP transformer](https://github.com/Automattic/blocks-engine/tree/trunk/php-transformer) plugin and calls that plugin's canonical helper functions for generic artifact compilation and format conversion.
 
 ## Architecture Stack
 
@@ -14,9 +14,7 @@ Static Site Importer is the WordPress materialization layer for static website i
 The conversion stack is split by responsibility:
 
 - **Static Site Importer** owns WordPress intake, safety checks, page/theme creation, asset placement, import reports, quality gates, and block-theme materialization.
-- **Block Artifact Compiler** owns the generated website artifact contract and compilation of artifact files into a materializable website model.
-- **Block Format Bridge** owns format normalization across HTML, Markdown, and Gutenberg block markup conversion requests.
-- **HTML to Blocks Converter** owns raw HTML-to-Gutenberg block fidelity underneath Block Format Bridge.
+- **Blocks Engine PHP transformer** owns the generic artifact compiler, `blocks-engine/php-transformer/compiled-site/v1` source report, source documents, asset reports, and format conversion helpers. SSI maps those generic results into its current WordPress materialization envelope inside `Static_Site_Importer_Transformer_Adapter`.
 
 When a generated artifact contains full-document HTML, Static Site Importer routes document metadata, head content, styles, scripts, and page body fragments to the right WordPress destinations before calling the conversion stack. A `core/html` block in imported page content is therefore a materialization/conversion quality issue to fix in this stack, not a product-layer workaround to hide upstream.
 
@@ -27,7 +25,7 @@ When a generated artifact contains full-document HTML, Static Site Importer rout
 - Allows ZIP/CLI source-site imports to include nested `.md` / `.markdown` content documents; `.mdx` is skipped with explicit diagnostics because MDX runtime components are not supported.
 - Provides a WP-CLI importer for a local HTML entry file or one public HTML URL; the local source file does not need to be named `index.html` unless you want automatic front-page assignment.
 - Discovers readable sibling `*.html` files beside the selected entry file and recursive Markdown content documents under the source tree, then imports them as WordPress pages.
-- Compiles static HTML fragments through Block Artifact Compiler, which delegates deterministic format conversion to Block Format Bridge and the bundled HTML-to-blocks converter. Markdown content still routes through Block Format Bridge's Markdown adapter.
+- Compiles static HTML fragments and Markdown content through the Blocks Engine PHP transformer plugin helpers.
 - Stores converted page bodies on the imported WordPress pages as `post_content`.
 - Generates a block theme with shared header/footer template parts, `core/post-content` templates, page patterns for reusable/reference artifacts, `theme.json`, `style.css`, and optional `assets/site.js`.
 - Rewrites local `.html` links to the imported WordPress page permalinks.
@@ -39,10 +37,10 @@ When a generated artifact contains full-document HTML, Static Site Importer rout
 
 - WordPress 6.6 or later.
 - PHP 8.1 or later.
-- Composer dependencies installed for development/source checkouts.
+- Blocks Engine PHP transformer plugin installed and active.
 - Node dependencies installed only when running the JavaScript block-validation smoke tests.
 
-The current Composer dependencies are [`chubes4/block-artifact-compiler`](https://github.com/chubes4/block-artifact-compiler) and [`chubes4/block-format-bridge`](https://github.com/chubes4/block-format-bridge). Block Format Bridge includes the prefixed HTML-to-blocks converter used by the importer.
+SSI does not load the transformer through Packagist or a local `vendor/` autoloader at runtime; WordPress loads the transformer plugin, and SSI calls `blocks_engine_php_transformer_compile_artifact()` and `blocks_engine_php_transformer_convert_format()`.
 
 ## Admin Usage
 
@@ -251,6 +249,10 @@ wp eval-file tests/smoke-wordpress-is-dead-fixture.php
 wp eval-file tests/smoke-mixed-source-fixture.php
 ```
 
+`php tests/smoke-transformer-adapter.php` runs outside WordPress and verifies the SSI-owned transformer adapter prefers php-transformer FormatBridge for export rendering, consumes the native artifact compiler's generic compiled-site/source-document/asset reports, keeps WordPress page mapping in SSI, and still contains the isolated legacy BAC compiled-site fallback.
+
+The native compiled-site report may include route metadata for HTML pages before every route has block markup. SSI's adapter records the generic report fields it consumes, but only forwards pages with matching materializable document artifacts to the current WordPress page materializer. The legacy BAC fallback remains isolated for older runtimes that emit document artifacts without a compiled-site route contract.
+
 The `wordpress-is-dead` smoke verifies the multi-page fixture, generated block-theme artifacts, internal-link rewrites, persistent navigation entities, source CSS preservation, editor style support, conservative `theme.json` palette extraction, and selector fidelity across stored/rendered paths. The `mixed-source-site` smoke verifies an Astro-like source tree with `index.html`, nested Markdown content documents, explicit skipped-MDX diagnostics, report source counts, and generated page block markup.
 
 ### PHPUnit Fixture Test
@@ -288,7 +290,7 @@ This repo is Homeboy-managed:
 
 ## Current Boundaries And Limitations
 
-- The importer is intentionally static-site/artifact-to-block-theme glue. Block Artifact Compiler owns generated website artifact and fragment compilation envelopes; Block Format Bridge owns format routing and conversion reports; HTML-to-block transform fidelity belongs upstream in BFB/h2bc.
+- The importer is intentionally static-site/artifact-to-block-theme glue. Blocks Engine PHP transformer owns generic artifact compilation, format conversion, and conversion reports; SSI owns WordPress uploads, import workflows, media, route rewriting, page/product materialization, and theme assembly.
 - The importer currently discovers flat sibling `*.html` files beside the selected entry file and recursive Markdown content documents; it does not crawl arbitrary nested HTML routes.
 - Admin imports accept pasted HTML, one public URL, a direct `.html` / `.htm` file, or a ZIP with a root `index.html` or exactly one nested `index.html`; CLI imports take a direct HTML entry path or one public URL.
 - MDX, Astro, Eleventy, Hugo, and other runtime/build orchestration is out of scope. Build those projects to static HTML first, or provide plain `.md` / `.markdown` source content alongside the HTML shell.
@@ -298,14 +300,14 @@ This repo is Homeboy-managed:
 
 ## Boundary
 
-This plugin owns static-site and website-artifact import workflows plus generated WordPress artifacts. [Block Artifact Compiler](https://github.com/chubes4/block-artifact-compiler) owns generated website artifact and fragment compilation, including the materializer-neutral `block-artifact-compiler/compiled-site/v1` page route, shared-region, and theme-asset contract. [Block Format Bridge](https://github.com/chubes4/block-format-bridge) owns content-format routing, conversion reports, and adapter ergonomics. The bundled HTML-to-blocks converter owns raw HTML transform mechanics underneath BFB.
+This plugin owns static-site and website-artifact import workflows plus generated WordPress artifacts. [Blocks Engine PHP transformer](https://github.com/Automattic/blocks-engine/tree/trunk/php-transformer) owns generic artifact compilation, including the materializer-neutral `blocks-engine/php-transformer/compiled-site/v1` page route and theme-asset report. SSI maps that report into its WordPress import contract and keeps product-specific page/product mapping here.
 
 The intended dependency direction is:
 
 ```text
-Static Site Importer -> Block Artifact Compiler -> Block Format Bridge -> HTML to Blocks Converter
+Static Site Importer -> Blocks Engine PHP transformer -> Block Format Bridge -> HTML to Blocks Converter
 ```
 
-SSI import reports consume BAC/BFB result envelopes for fallback and conversion-quality diagnostics, and record BAC's compiled-site contract when importing website artifacts. They should not depend on lower-level h2bc hook names directly or re-derive semantic page-route intent when BAC supplies it.
+SSI import reports consume Blocks Engine PHP transformer result envelopes for conversion-quality diagnostics, and record the compiled-site contract when importing website artifacts. They should not call lower-level converter packages directly or re-derive semantic page-route intent when the transformer supplies it.
 
 Imported pages remain WordPress pages for routing, titles, front-page assignment, editor visibility, and body content edits. Their imported body layouts live on the page posts as block markup in `post_content`. The generated block theme owns shared header/footer parts, optional background decoration, frontend/editor styles, scripts, and template wrappers that render page bodies through `core/post-content`; the generic `templates/page.html` stays the fallback for pages created after import.

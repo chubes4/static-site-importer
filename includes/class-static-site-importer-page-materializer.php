@@ -56,9 +56,10 @@ class Static_Site_Importer_Page_Materializer {
 	 *
 	 * @param array<string, Static_Site_Importer_Source_Page> $pages      Pages.
 	 * @param string                                          $theme_slug Theme slug.
+	 * @param array<string,array<string,mixed>>                 $assets     Materialized assets keyed by source path.
 	 * @return array{patterns:array<string,string>,files:array<string,string>,contents:array<string,string>,diagnostics:array<int,array<string,mixed>>}
 	 */
-	public static function page_artifacts( array $pages, string $theme_slug ): array {
+	public static function page_artifacts( array $pages, string $theme_slug, array $assets = array() ): array {
 		$patterns    = array();
 		$files       = array();
 		$contents    = array();
@@ -67,7 +68,7 @@ class Static_Site_Importer_Page_Materializer {
 		foreach ( $pages as $filename => $page ) {
 			$slug         = self::page_slug( $filename, $page );
 			$pattern_slug = sanitize_key( $theme_slug ) . '/page-' . $slug;
-			$content      = self::source_page_content_blocks( $page, $diagnostics );
+			$content      = self::rewrite_materialized_asset_references( self::source_page_content_blocks( $page, $diagnostics ), $assets );
 
 			$patterns[ $filename ] = $pattern_slug;
 			$files[ $filename ]    = Static_Site_Importer_Theme_Materializer::pattern_file( self::page_title( $filename, $page ), $pattern_slug, $content );
@@ -238,6 +239,49 @@ class Static_Site_Importer_Page_Materializer {
 		}
 
 		return trim( $page->body() );
+	}
+
+	/**
+	 * Rewrite source-relative asset URLs to generated-theme asset URLs.
+	 *
+	 * @param string                              $markup Serialized block markup.
+	 * @param array<string,array<string,mixed>>   $assets Materialized assets keyed by source path.
+	 * @return string Updated markup.
+	 */
+	private static function rewrite_materialized_asset_references( string $markup, array $assets ): string {
+		if ( '' === trim( $markup ) || empty( $assets ) ) {
+			return $markup;
+		}
+
+		$replacements = array();
+		foreach ( $assets as $source => $asset ) {
+			if ( ! is_string( $source ) || ! isset( $asset['final_url'] ) || ! is_scalar( $asset['final_url'] ) ) {
+				continue;
+			}
+
+			$normalized_source = self::normalize_route_path( $source );
+			if ( '' !== $normalized_source ) {
+				$replacements[ $normalized_source ] = (string) $asset['final_url'];
+			}
+		}
+
+		if ( empty( $replacements ) ) {
+			return $markup;
+		}
+
+		return preg_replace_callback(
+			'/\b(src|href)=([' . "'\"" . '])([^' . "'\"" . ']*)\2/i',
+			static function ( array $matches ) use ( $replacements ): string {
+				$url        = html_entity_decode( (string) $matches[3], ENT_QUOTES | ENT_HTML5 );
+				$normalized = self::normalize_route_path( $url );
+				if ( '' === $normalized || ! isset( $replacements[ $normalized ] ) ) {
+					return $matches[0];
+				}
+
+				return $matches[1] . '=' . $matches[2] . esc_url( $replacements[ $normalized ] ) . $matches[2];
+			},
+			$markup
+		) ?? $markup;
 	}
 
 	/**

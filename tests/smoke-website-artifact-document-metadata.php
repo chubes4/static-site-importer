@@ -2,7 +2,7 @@
 /**
  * Smoke test: full-document website artifacts route head metadata out of blocks.
  *
- * Run inside a WordPress site with BAC/BFB available:
+ * Run inside a WordPress site with Blocks Engine php-transformer available:
  * wp eval-file tests/smoke-website-artifact-document-metadata.php
  *
  * @package StaticSiteImporter
@@ -32,6 +32,10 @@ $assert = static function ( bool $condition, string $label, string $detail = '' 
 };
 
 $read = static function ( string $path ): string {
+	if ( '' === $path ) {
+		return '';
+	}
+
 	$contents = file_get_contents( $path );
 	return false === $contents ? '' : $contents;
 };
@@ -93,8 +97,8 @@ if ( ! is_wp_error( $result ) ) {
 
 	$assert( array() === $pattern_documents, 'single-document-import-does-not-generate-page-pattern-copy' );
 	$assert( str_contains( $content, 'Fire, flour, patience.' ), 'body-content-is-preserved' );
-	$assert( str_contains( $read( $theme_dir . '/parts/header.html' ), 'Ember &amp; Rye' ), 'bac-header-template-part-is-materialized' );
-	$assert( isset( $template_parts[0]['path'] ) && 'parts/header.html' === $template_parts[0]['path'], 'bac-header-template-part-report-is-recorded' );
+	$assert( isset( $template_parts[0]['path'] ) && 'parts/header.html' === ( $template_parts[0]['path'] ?? '' ), 'default-header-template-part-report-is-recorded' );
+	$assert( true === ( $template_parts[0]['generated'] ?? null ), 'default-header-template-part-is-generated-by-ssi' );
 	$assert( str_contains( $content, 'logo.svg' ) && ! str_contains( $content, 'src="assets/logo.svg"' ), 'block-markup-local-asset-is-rewritten' );
 	$assert( ! str_contains( $content, 'src="assets/logo.svg"' ), 'block-markup-local-asset-source-url-is-removed' );
 	$assert( ! str_contains( $content, '<meta' ), 'page-content-has-no-meta-fragments' );
@@ -120,10 +124,8 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( true === ( $scripts[0]['defer'] ?? false ), 'script-defer-is-preserved-in-document-metadata' );
 	$style        = $read( $theme_dir . '/style.css' );
 	$editor_style = $read( $theme_dir . '/assets/css/editor-style.css' );
-	$assert( str_contains( $style, 'Block Artifact Compiler: visual repair artifacts.' ), 'style-includes-bac-frontend-visual-repair-css', $style );
-	$assert( str_contains( $style, '.wp-block-button.btn .wp-block-button__link' ), 'style-includes-bac-button-repair-css', $style );
-	$assert( str_contains( $editor_style, 'Block Artifact Compiler: editor visual repair artifacts.' ), 'editor-includes-bac-editor-visual-repair-css', $editor_style );
-	$assert( str_contains( $editor_style, '.editor-styles-wrapper .wp-block-group.glow-orb' ), 'editor-includes-bac-decorative-repair-css', $editor_style );
+	$assert( str_contains( $style, '.contact-actions .btn-ghost' ), 'style-includes-generic-compiled-site-css', $style );
+	$assert( str_contains( $editor_style, '.contact-actions .btn-ghost' ), 'editor-includes-generic-compiled-site-css', $editor_style );
 }
 
 $missing_template_parts_result = Static_Site_Importer_Theme_Generator::import_website_artifact(
@@ -213,14 +215,13 @@ if ( ! is_wp_error( $multi_page_result ) ) {
 	$assert( str_ends_with( (string) ( $documents_by_source['website/index.html']['permalink'] ?? '' ), '/' ), 'entry-index-has-front-page-permalink' );
 	$assert( 'menu' === ( $documents_by_source['website/menu.html']['slug'] ?? '' ), 'menu-page-materializes' );
 	$assert( 'contact' === ( $documents_by_source['website/contact.html']['slug'] ?? '' ), 'contact-page-materializes' );
-	$assert( 'block-artifact-compiler/compiled-site/v1' === ( $compiled_site['schema'] ?? '' ), 'compiled-site-contract-is-recorded' );
+	$assert( 'blocks-engine/php-transformer/compiled-site/v1' === ( $compiled_site['schema'] ?? '' ), 'compiled-site-contract-is-recorded' );
 	$assert( 3 === ( $compiled_site['page_count'] ?? null ), 'compiled-site-page-count-is-recorded' );
-	$assert( 'menu' === ( $compiled_site['pages'][1]['route_key'] ?? '' ), 'compiled-site-route-key-is-recorded' );
-	$assert( str_contains( $read( $multi_page_result['theme_dir'] . '/parts/header.html' ), 'Ember Rye' ), 'multi-page-bac-header-template-part-is-materialized' );
-	$assert( str_contains( $read( $multi_page_result['theme_dir'] . '/parts/footer.html' ), 'Open daily.' ), 'multi-page-bac-footer-template-part-is-materialized' );
+	$assert( '' === ( $compiled_site['pages'][1]['route_key'] ?? '' ), 'compiled-site-route-key-preserves-transformer-contract' );
 	$assert( isset( $template_parts_by_path['parts/header.html'] ), 'multi-page-header-template-part-is-recorded' );
-	$assert( isset( $template_parts_by_path['parts/footer.html'] ), 'multi-page-footer-template-part-is-recorded' );
-	$assert( str_contains( $read( $multi_page_result['theme_dir'] . '/templates/front-page.html' ), '"slug":"footer"' ), 'multi-page-template-references-bac-footer-part' );
+	$assert( true === ( $template_parts_by_path['parts/header.html']['generated'] ?? null ), 'multi-page-header-template-part-is-generated-by-ssi' );
+	$assert( ! isset( $template_parts_by_path['parts/footer.html'] ), 'multi-page-does-not-synthesize-footer-template-part' );
+	$assert( ! str_contains( $read( $multi_page_result['theme_dir'] . '/templates/front-page.html' ), '"slug":"footer"' ), 'multi-page-template-does-not-reference-synthesized-footer-part' );
 	$assert( array() === $pattern_documents, 'bac-document-import-does-not-generate-page-pattern-copies' );
 }
 

@@ -11,6 +11,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+if ( ! class_exists( 'Static_Site_Importer_Transformer_Adapter' ) ) {
+	require_once __DIR__ . '/class-static-site-importer-transformer-adapter.php';
+}
+
 /**
  * Generates a block theme from a static HTML document.
  */
@@ -45,12 +49,15 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return array<string,mixed>|WP_Error
 	 */
 	public static function import_website_artifact( array $artifact, array $args = array() ) {
-		if ( ! function_exists( 'bac_compile_website_artifact' ) || ! function_exists( 'bac_summarize_result' ) ) {
-			return new WP_Error( 'static_site_importer_missing_bac', 'Block Artifact Compiler is required to import a website artifact.' );
+		if ( ! class_exists( 'Static_Site_Importer_Transformer_Adapter' ) ) {
+			return new WP_Error( 'static_site_importer_missing_transformer_adapter', 'Static Site Importer transformer adapter is required to import a website artifact.' );
 		}
 
 		$compiler_options = isset( $args['compiler_options'] ) && is_array( $args['compiler_options'] ) ? $args['compiler_options'] : array();
-		$compiled         = bac_compile_website_artifact( $artifact, array_merge( array( 'include_bfb_report' => true ), $compiler_options ) );
+		$compiled         = ( new Static_Site_Importer_Transformer_Adapter() )->compile_website_artifact( $artifact, array_merge( array( 'include_bfb_report' => true ), $compiler_options ) );
+		if ( is_wp_error( $compiled ) ) {
+			return $compiled;
+		}
 		$document_pages   = self::bac_document_pages( $compiled );
 		if ( is_wp_error( $document_pages ) ) {
 			return $document_pages;
@@ -95,7 +102,7 @@ class Static_Site_Importer_Theme_Generator {
 		self::$conversion_report   = Static_Site_Importer_Report_Diagnostics::new_conversion_report( $html_path, $source_metadata );
 		Static_Site_Importer_Report_Diagnostics::record_website_artifact_compiler_result( self::$conversion_report, $compiled );
 		Static_Site_Importer_Report_Diagnostics::record_direct_website_artifact_source_summary( self::$conversion_report, $compiled );
-		self::record_products_manifest_from_import_args( $args );
+		self::record_products_manifest_from_import_args( $args, $compiled );
 		self::record_commerce_context_summary( $args );
 
 		self::$active_theme_dir         = $theme_dir;
@@ -116,15 +123,16 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		$permalinks     = Static_Site_Importer_Page_Materializer::page_permalinks( $page_ids );
-		$page_artifacts = Static_Site_Importer_Page_Materializer::page_artifacts( $document_pages, $theme_slug );
-		foreach ( $page_artifacts['diagnostics'] as $diagnostic ) {
-			self::$conversion_report['diagnostics'][] = $diagnostic;
-		}
-
 		$materialized = self::materialize_website_artifact_files_to_theme( $theme_dir, $artifacts );
 		if ( is_wp_error( $materialized ) ) {
 			return $materialized;
 		}
+
+		$page_artifacts = Static_Site_Importer_Page_Materializer::page_artifacts( $document_pages, $theme_slug, $materialized['assets'] );
+		foreach ( $page_artifacts['diagnostics'] as $diagnostic ) {
+			self::$conversion_report['diagnostics'][] = $diagnostic;
+		}
+
 		Static_Site_Importer_Document_Metadata_Reporter::record( self::$conversion_report, $artifacts );
 
 		$template_part_writes = self::template_part_artifact_writes( $theme_dir, $artifacts );
@@ -261,8 +269,9 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return array{website_artifact:array<string,mixed>}|WP_Error
 	 */
 	public static function export_theme( array $args = array() ) {
-		if ( ! function_exists( 'bfb_convert' ) ) {
-			return new WP_Error( 'static_site_importer_missing_bfb', 'Block Format Bridge is required to export a website artifact.' );
+		$transformer = new Static_Site_Importer_Transformer_Adapter();
+		if ( ! $transformer->supports_blocks_to_html() ) {
+			return new WP_Error( 'static_site_importer_missing_transformer', 'Blocks Engine php-transformer is required to export a website artifact.' );
 		}
 
 		$theme_slug = isset( $args['theme_slug'] ) && '' !== trim( (string) $args['theme_slug'] ) ? sanitize_title( (string) $args['theme_slug'] ) : self::active_theme_slug();
@@ -296,7 +305,7 @@ class Static_Site_Importer_Theme_Generator {
 			);
 			$files[] = self::export_file_entry(
 				$entrypoint,
-				self::export_html_document( '', self::export_theme_chrome_html( $theme_dir, 'front-page' ), $theme_slug, null !== $stylesheet ),
+				self::export_html_document( '', self::export_theme_chrome_html( $theme_dir, 'front-page', $transformer ), $theme_slug, null !== $stylesheet ),
 				'document',
 				'entrypoint'
 			);
@@ -308,11 +317,11 @@ class Static_Site_Importer_Theme_Generator {
 				$is_front  = $first || ( $front_page_id > 0 && $page_id === $front_page_id );
 				$path      = $is_front ? $entrypoint : self::export_page_artifact_path( $page, $root );
 				$template  = $is_front ? 'front-page' : 'page';
-				$page_html = bfb_convert( isset( $page->post_content ) ? (string) $page->post_content : '', 'blocks', 'html' );
+				$page_html = $transformer->blocks_to_html( isset( $page->post_content ) ? (string) $page->post_content : '' );
 
 				$files[] = self::export_file_entry(
 					$path,
-					self::export_html_document( $page_html, self::export_theme_chrome_html( $theme_dir, $template ), self::export_page_title( $page, $theme_slug ), null !== $stylesheet ),
+					self::export_html_document( $page_html, self::export_theme_chrome_html( $theme_dir, $template, $transformer ), self::export_page_title( $page, $theme_slug ), null !== $stylesheet ),
 					'document',
 					$is_front ? 'entrypoint' : 'page',
 					array(
@@ -534,17 +543,17 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param string $template  Template slug.
 	 * @return array{before:string,after:string}
 	 */
-	private static function export_theme_chrome_html( string $theme_dir, string $template ): array {
-		$before = self::convert_theme_block_file_to_html( $theme_dir . '/parts/header.html' );
-		$after  = self::convert_theme_block_file_to_html( $theme_dir . '/parts/footer.html' );
+	private static function export_theme_chrome_html( string $theme_dir, string $template, Static_Site_Importer_Transformer_Adapter $transformer ): array {
+		$before = self::convert_theme_block_file_to_html( $theme_dir . '/parts/header.html', $transformer );
+		$after  = self::convert_theme_block_file_to_html( $theme_dir . '/parts/footer.html', $transformer );
 
 		$template_html = self::read_file_if_readable( $theme_dir . '/templates/' . $template . '.html' );
 		if ( '' === $template_html && 'front-page' !== $template ) {
 			$template_html = self::read_file_if_readable( $theme_dir . '/templates/index.html' );
 		}
 
-		if ( '' !== $template_html && function_exists( 'bfb_convert' ) ) {
-			$converted_template = bfb_convert( $template_html, 'blocks', 'html' );
+		if ( '' !== $template_html ) {
+			$converted_template = $transformer->blocks_to_html( $template_html );
 			if ( '' !== trim( $converted_template ) && '' === trim( $before . $after ) ) {
 				$before = $converted_template;
 			}
@@ -562,9 +571,9 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param string $path File path.
 	 * @return string
 	 */
-	private static function convert_theme_block_file_to_html( string $path ): string {
+	private static function convert_theme_block_file_to_html( string $path, Static_Site_Importer_Transformer_Adapter $transformer ): string {
 		$content = self::read_file_if_readable( $path );
-		return '' === $content || ! function_exists( 'bfb_convert' ) ? '' : bfb_convert( $content, 'blocks', 'html' );
+		return '' === $content ? '' : $transformer->blocks_to_html( $content );
 	}
 
 	/**
@@ -1029,12 +1038,12 @@ class Static_Site_Importer_Theme_Generator {
 		$artifacts = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
 		$documents = isset( $artifacts['documents'] ) && is_array( $artifacts['documents'] ) ? $artifacts['documents'] : array();
 		$site      = isset( $artifacts['site'] ) && is_array( $artifacts['site'] ) ? $artifacts['site'] : array();
-		if ( ! empty( $documents ) ) {
-			if ( 'block-artifact-compiler/compiled-site/v1' !== (string) ( $site['schema'] ?? '' ) || ! isset( $site['pages'] ) || ! is_array( $site['pages'] ) ) {
-				return new WP_Error( 'static_site_importer_bac_compiled_site_missing', 'BAC document artifacts require the block-artifact-compiler/compiled-site/v1 site contract.' );
+		if ( ! empty( $site['pages'] ) && is_array( $site['pages'] ) ) {
+			if ( ! in_array( (string) ( $site['schema'] ?? '' ), array( 'block-artifact-compiler/compiled-site/v1', 'blocks-engine/php-transformer/compiled-site/v1' ), true ) ) {
+				return new WP_Error( 'static_site_importer_compiled_site_missing', 'Website artifact document pages require a supported compiled-site contract.' );
 			}
 
-			$documents = self::bac_documents_from_compiled_site_pages( $site['pages'], $documents );
+			$documents = self::documents_from_compiled_site_pages( $site['pages'], $documents );
 			if ( is_wp_error( $documents ) ) {
 				return $documents;
 			}
@@ -1065,7 +1074,7 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param array<int,mixed>               $documents  BAC document artifacts.
 	 * @return array<int,array<string,mixed>>|WP_Error Document artifacts ordered by compiled-site pages.
 	 */
-	private static function bac_documents_from_compiled_site_pages( array $site_pages, array $documents ) {
+	private static function documents_from_compiled_site_pages( array $site_pages, array $documents ) {
 		$documents_by_source = array();
 		foreach ( $documents as $document ) {
 			if ( ! is_array( $document ) ) {
@@ -1088,23 +1097,37 @@ class Static_Site_Importer_Theme_Generator {
 			if ( '' === $source_path ) {
 				return new WP_Error( 'static_site_importer_compiled_site_page_missing_source', 'BAC compiled-site page is missing source_path.' );
 			}
-			$route_key = isset( $page['route_key'] ) && is_scalar( $page['route_key'] ) ? trim( (string) $page['route_key'] ) : '';
-			$slug      = isset( $page['slug'] ) && is_scalar( $page['slug'] ) ? trim( (string) $page['slug'] ) : '';
+			$metadata  = isset( $page['metadata'] ) && is_array( $page['metadata'] ) ? $page['metadata'] : array();
+			$slug      = isset( $page['slug'] ) && is_scalar( $page['slug'] ) ? sanitize_title( (string) $page['slug'] ) : '';
+			if ( '' === $slug ) {
+				$slug = Static_Site_Importer_Page_Materializer::page_slug( $source_path );
+			}
+			if ( ! empty( $page['entrypoint'] ) && in_array( $slug, array( 'index', 'home' ), true ) ) {
+				$slug = 'home';
+			}
+			$route_key = isset( $page['route_key'] ) && is_scalar( $page['route_key'] ) ? trim( (string) $page['route_key'] ) : $slug;
 			$post_type = isset( $page['post_type'] ) && is_scalar( $page['post_type'] ) ? trim( (string) $page['post_type'] ) : '';
+			if ( '' === $post_type && isset( $metadata['post_type'] ) && is_scalar( $metadata['post_type'] ) ) {
+				$post_type = trim( (string) $metadata['post_type'] );
+			}
+			if ( '' === $post_type && in_array( (string) ( $page['kind'] ?? 'html' ), array( 'html', 'document', 'markdown', 'mdx' ), true ) ) {
+				$post_type = 'page';
+			}
 			if ( '' === $route_key || '' === $slug || '' === $post_type ) {
 				return new WP_Error( 'static_site_importer_compiled_site_page_identity_incomplete', sprintf( 'BAC compiled-site page is missing route_key, slug, or post_type: %s', $source_path ) );
 			}
-			if ( ! isset( $documents_by_source[ $source_path ] ) ) {
+			if ( ! isset( $documents_by_source[ $source_path ] ) && ( ! isset( $page['block_markup'] ) || ! is_scalar( $page['block_markup'] ) || '' === trim( (string) $page['block_markup'] ) ) ) {
 				return new WP_Error( 'static_site_importer_compiled_site_page_missing_document', sprintf( 'BAC compiled-site page does not reference a document artifact: %s', $source_path ) );
 			}
 
-			$document = array_merge( $documents_by_source[ $source_path ], array_filter(
+			$document = array_merge( $documents_by_source[ $source_path ] ?? array(), array_filter(
 				array(
 					'source_path' => $source_path,
 					'slug'        => $slug,
 					'route_key'   => $route_key,
 					'post_type'   => $post_type,
 					'title'       => isset( $page['title'] ) && is_scalar( $page['title'] ) ? (string) $page['title'] : '',
+					'block_markup' => isset( $page['block_markup'] ) && is_scalar( $page['block_markup'] ) ? (string) $page['block_markup'] : '',
 				),
 				static fn ( string $value ): bool => '' !== $value
 			) );
@@ -1237,7 +1260,7 @@ class Static_Site_Importer_Theme_Generator {
 	 *
 	 * @param string              $theme_dir Theme directory.
 	 * @param array<string,mixed> $artifacts WordPress artifacts from BAC.
-	 * @return array{css:string,js:string}|WP_Error
+	 * @return array{css:string,js:string,assets:array<string,array<string,mixed>>}|WP_Error
 	 */
 	private static function materialize_website_artifact_files_to_theme( string $theme_dir, array $artifacts ) {
 		$result = Static_Site_Importer_Theme_Materializer::materialize_website_artifact_files( $theme_dir, self::$active_theme_uri, $artifacts );
@@ -1249,8 +1272,9 @@ class Static_Site_Importer_Theme_Generator {
 			self::$conversion_report['diagnostics'][] = $diagnostic;
 		}
 		return array(
-			'css' => $result['css'],
-			'js'  => $result['js'],
+			'css'    => $result['css'],
+			'js'     => $result['js'],
+			'assets' => $result['assets'],
 		);
 	}
 
@@ -1266,7 +1290,19 @@ class Static_Site_Importer_Theme_Generator {
 			'editor'   => array(),
 		);
 
-		$repair_styles = isset( $artifacts['visual_repair']['styles'] ) && is_array( $artifacts['visual_repair']['styles'] ) ? $artifacts['visual_repair']['styles'] : array();
+		$visual_repair = isset( $artifacts['visual_repair'] ) && is_array( $artifacts['visual_repair'] ) ? $artifacts['visual_repair'] : array();
+		$repair_styles = isset( $visual_repair['styles'] ) && is_array( $visual_repair['styles'] ) ? $visual_repair['styles'] : array();
+		$repair_css    = isset( $visual_repair['css'] ) && is_scalar( $visual_repair['css'] ) ? trim( (string) $visual_repair['css'] ) : '';
+		if ( '' !== $repair_css ) {
+			$repair_styles[] = array(
+				'target'  => 'frontend',
+				'content' => $repair_css,
+			);
+			$repair_styles[] = array(
+				'target'  => 'editor',
+				'content' => $repair_css,
+			);
+		}
 		foreach ( $repair_styles as $style ) {
 			if ( ! is_array( $style ) || ! isset( $style['target'], $style['content'] ) || ! is_scalar( $style['target'] ) || ! is_scalar( $style['content'] ) ) {
 				continue;
@@ -1757,6 +1793,27 @@ class Static_Site_Importer_Theme_Generator {
 			}
 		}
 
+		if ( empty( $records ) ) {
+			foreach ( $pages as $source_path => $page ) {
+				if ( ! $page instanceof Static_Site_Importer_Source_Page ) {
+					continue;
+				}
+
+				$post_id   = (int) ( $page_ids[ $source_path ] ?? 0 );
+				$records[] = array(
+					'source_path'  => (string) $source_path,
+					'post_id'      => $post_id,
+					'post_type'    => Static_Site_Importer_Page_Materializer::page_post_type( $page ),
+					'slug'         => Static_Site_Importer_Page_Materializer::page_slug( (string) $source_path, $page ),
+					'title'        => Static_Site_Importer_Page_Materializer::page_title( (string) $source_path, $page ),
+					'status'       => Static_Site_Importer_Page_Materializer::page_status( $page ),
+					'permalink'    => $permalinks[ $source_path ] ?? '',
+					'diagnostics'  => array(),
+					'materialized' => $post_id > 0,
+				);
+			}
+		}
+
 		self::$conversion_report['source_documents'] = array_merge(
 			self::$conversion_report['source_documents'],
 			array(
@@ -1774,15 +1831,21 @@ class Static_Site_Importer_Theme_Generator {
 	 * @param array<string, mixed> $args Import args.
 	 * @return void
 	 */
-	private static function record_products_manifest_from_import_args( array $args ): void {
-		if ( ! isset( $args['products_manifest'] ) || ! is_array( $args['products_manifest'] ) ) {
+	private static function record_products_manifest_from_import_args( array $args, array $compiled = array() ): void {
+		$source = 'import_args.products_manifest';
+		if ( isset( $args['products_manifest'] ) && is_array( $args['products_manifest'] ) ) {
+			$products = $args['products_manifest'];
+		} elseif ( isset( $compiled['products_manifest'] ) && is_array( $compiled['products_manifest'] ) ) {
+			$products = $compiled['products_manifest'];
+			$source   = 'blocks-engine/php-transformer/reports';
+		} else {
 			return;
 		}
 
 		$validation = self::validate_products_manifest(
 			array(
 				'schema_version' => 1,
-				'products'       => $args['products_manifest'],
+				'products'       => $products,
 			)
 		);
 
@@ -1792,7 +1855,7 @@ class Static_Site_Importer_Theme_Generator {
 
 		self::$conversion_report['commerce']['products_manifest'] = array(
 			'present'       => true,
-			'source'        => 'import_args.products_manifest',
+			'source'        => $source,
 			'contract'      => array(
 				'schema'          => 'static-site-importer/products-manifest/v1',
 				'schema_version'  => 1,

@@ -9,6 +9,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+if ( ! class_exists( 'Static_Site_Importer_Transformer_Adapter' ) ) {
+	require_once __DIR__ . '/class-static-site-importer-transformer-adapter.php';
+}
+
 /**
  * Builds SSI import reports and normalizes diagnostics for repair loops.
  */
@@ -131,8 +135,8 @@ class Static_Site_Importer_Report_Diagnostics {
 			),
 			'diagnostics'             => array(),
 			'notes'                   => array(
-				'Block Artifact Compiler owns the website-artifact to WordPress-artifact envelope; Static Site Importer materializes the result and records compiler summaries.',
-				'Block Format Bridge owns HTML-to-block transform fidelity; Static Site Importer records converter diagnostics and quality gates the generated theme.',
+				'Blocks Engine transformer owns the website-artifact to WordPress-artifact envelope; Static Site Importer materializes the result, records compiler summaries, and owns product seeding.',
+				'Blocks Engine transformer owns HTML/block transform fidelity; Static Site Importer records converter diagnostics and quality gates the generated theme.',
 				'Generated-theme block validation uses WordPress server-side block parsing and serialization checks; editor-runtime validation remains the exact Gutenberg authority.',
 				'Visual fidelity requires browser rendering; use visual_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',
 				'Semantic fidelity requires browser DOM extraction; use semantic_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',
@@ -152,13 +156,13 @@ class Static_Site_Importer_Report_Diagnostics {
 		$site      = isset( $artifacts['site'] ) && is_array( $artifacts['site'] ) ? $artifacts['site'] : array();
 		$report['block_artifact_compiler']['available']        = true;
 		$report['block_artifact_compiler']['website_artifact'] = array(
-			'summary'     => function_exists( 'bac_summarize_result' ) ? bac_summarize_result( $compiled ) : array(),
+			'summary'     => ( new Static_Site_Importer_Transformer_Adapter() )->summarize_result( $compiled ),
 			'provenance'  => isset( $compiled['provenance'] ) && is_array( $compiled['provenance'] ) ? $compiled['provenance'] : array(),
 			'input'       => isset( $compiled['input'] ) && is_array( $compiled['input'] ) ? $compiled['input'] : array(),
 			'diagnostics' => isset( $compiled['diagnostics'] ) && is_array( $compiled['diagnostics'] ) ? $compiled['diagnostics'] : array(),
 		);
 
-		if ( 'block-artifact-compiler/compiled-site/v1' === (string) ( $site['schema'] ?? '' ) ) {
+		if ( in_array( (string) ( $site['schema'] ?? '' ), array( 'block-artifact-compiler/compiled-site/v1', 'blocks-engine/php-transformer/compiled-site/v1' ), true ) ) {
 			$report['block_artifact_compiler']['compiled_site'] = self::compiled_site_report_payload( $site );
 		}
 	}
@@ -196,7 +200,7 @@ class Static_Site_Importer_Report_Diagnostics {
 		$report['diagnostics'][] = array(
 			'type'        => 'website_artifact_materialization_contract_note',
 			'source'      => '' !== $source ? $source : 'website_artifact',
-			'message'     => 'Direct materialization consumed BAC block_markup, documents, files, and compiled-site artifacts. SSI owns WordPress writes while BAC owns materializer-neutral site/theme compilation.',
+			'message'     => 'Direct materialization consumed block_markup, documents, files, and compiled-site artifacts. SSI owns WordPress writes and product seeding while Blocks Engine owns materializer-neutral site/theme compilation.',
 			'contract'    => 'block-artifact-compiler/result/v1',
 			'constraints' => 'report_only',
 		);
@@ -220,7 +224,7 @@ class Static_Site_Importer_Report_Diagnostics {
 
 		$emitted = '';
 		if ( function_exists( 'serialize_blocks' ) ) {
-			// @phpstan-ignore-next-line argument.type -- Parsed block shape comes from WordPress parse_blocks() or h2bc.
+			// @phpstan-ignore-next-line argument.type -- Parsed block shape comes from WordPress parse_blocks() or transformer diagnostics.
 			$emitted = serialize_blocks( array( $block ) );
 		}
 		if ( '' === trim( $emitted ) || preg_match( '/^<!--\s+wp:[^>]+\/-->$/', trim( $emitted ) ) ) {

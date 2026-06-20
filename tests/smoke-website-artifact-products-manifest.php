@@ -1,66 +1,133 @@
 <?php
 /**
- * Smoke coverage for explicit products_manifest materialization.
+ * Smoke coverage for transformer product reports exposed to SSI imports.
  *
- * This intentionally avoids WP_UnitTestCase so it can run in lightweight agent
- * shells while guarding the explicit commerce handoff contract.
+ * Run from the repository root:
+ * php tests/smoke-website-artifact-products-manifest.php
+ *
+ * @package StaticSiteImporter
  */
 
-$root   = dirname( __DIR__ );
-$source = file_get_contents( $root . '/includes/class-static-site-importer-theme-generator.php' );
-
-if ( false === $source ) {
-	fwrite( STDERR, "Could not read theme generator source.\n" );
-	exit( 1 );
-}
-
-$assert = static function ( bool $condition, string $message ) use ( $source ): void {
-	if ( $condition ) {
-		return;
+namespace {
+	function blocks_engine_php_transformer_compile_artifact( array $artifact, array $options = array() ): array {
+		return array(
+			'schema'         => 'blocks-engine/php-transformer/result/v1',
+			'status'         => 'success',
+			'source_reports' => array(
+				'artifact'      => array(
+					'schema'      => 'blocks-engine/php-transformer/site-artifact/v1',
+					'entry_path'  => 'website/index.html',
+					'source_hash' => 'products-smoke',
+				),
+				'compiled_site' => array(
+					'schema'   => 'blocks-engine/php-transformer/compiled-site/v1',
+					'products' => array(
+						array(
+							'post_type'      => 'product',
+							'slug'           => 'rye-loaf',
+							'title'          => 'Rye Loaf',
+							'price'          => '12',
+							'categories'     => array( 'Bread', 12 ),
+							'stock_quantity' => '7',
+						),
+					),
+					'commerce' => array(
+						'products' => array(
+							array(
+								'kind'          => 'product',
+								'slug'          => 'seeded-coffee',
+								'name'          => 'Seeded Coffee',
+								'regular_price' => '5.5',
+								'sale_price'    => '4',
+							),
+						),
+					),
+					'pages'    => array(
+						array(
+							'post_type'     => 'product',
+							'slug'          => 'rye-loaf',
+							'title'         => 'Duplicate Rye Loaf',
+							'regular_price' => '99',
+						),
+					),
+				),
+			),
+			'documents'      => array(
+				array(
+					'metadata' => array(
+						'post_type'     => 'product',
+						'slug'          => 'olive-rolls',
+						'title'         => 'Olive Rolls',
+						'regular_price' => '8.25',
+					),
+				),
+			),
+			'provenance'     => array(
+				array( 'source_hash' => 'products-smoke' ),
+			),
+		);
 	}
 
-	fwrite( STDERR, "FAIL: {$message}\n" );
-	exit( 1 );
-};
+	if ( ! defined( 'ABSPATH' ) ) {
+		define( 'ABSPATH', dirname( __DIR__ ) . '/' );
+	}
 
-$assert(
-	! str_contains( $source, 'products_manifest_from_website_artifact' ),
-	'website artifact import does not scan raw files for products.json'
-);
+	if ( ! class_exists( 'WP_Error' ) ) {
+		class WP_Error {
+			private string $code;
+			private string $message;
 
-$assert(
-	! str_contains( $source, 'website_artifact_file_text_content' ),
-	'website artifact import does not decode raw artifact file content for commerce manifests'
-);
+			public function __construct( string $code, string $message ) {
+				$this->code    = $code;
+				$this->message = $message;
+			}
 
-$assert(
-	str_contains( $source, 'record_products_manifest_from_import_args( $args )' ),
-	'compiled artifact import records explicit products manifest before commerce context'
-);
+			public function get_error_code(): string {
+				return $this->code;
+			}
 
-$assert(
-	str_contains( $source, "isset( \$args['products_manifest'] )" ),
-	'products manifest recording reads only explicit import args'
-);
+			public function get_error_message(): string {
+				return $this->message;
+			}
+		}
+	}
 
-$assert(
-	str_contains( $source, "'source'        => 'import_args.products_manifest'" ),
-	'products manifest report records explicit arg source'
-);
+	if ( ! function_exists( 'is_wp_error' ) ) {
+		function is_wp_error( mixed $thing ): bool {
+			return $thing instanceof WP_Error;
+		}
+	}
 
-$assert(
-	str_contains( $source, 'record_commerce_context_summary( $args )' ),
-	'compiled artifact import builds commerce context from explicit products manifest'
-);
+	require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-transformer-adapter.php';
 
-$assert(
-	str_contains( $source, 'self::materialize_required_plugins( $args );' ),
-	'direct compiled artifact import materializes plugins before product seeding'
-);
+	$failures   = array();
+	$assertions = 0;
+	$assert     = static function ( bool $condition, string $label, string $detail = '' ) use ( &$assertions, &$failures ): void {
+		++$assertions;
+		if ( ! $condition ) {
+			$failures[] = 'FAIL [' . $label . ']' . ( '' !== $detail ? ': ' . $detail : '' );
+		}
+	};
 
-$assert(
-	str_contains( $source, 'validate_products_manifest(' ),
-	'explicit products manifest is still validated before seeding/reporting'
-);
+	$compiled = ( new Static_Site_Importer_Transformer_Adapter() )->compile_website_artifact( array( 'schema' => 'block-artifact-compiler/website-artifact/v1' ) );
+	$products = is_array( $compiled ) ? ( $compiled['products_manifest'] ?? array() ) : array();
 
-fwrite( STDOUT, "website artifact products manifest smoke ok\n" );
+	$assert( ! is_wp_error( $compiled ), 'compile-succeeds', is_wp_error( $compiled ) ? $compiled->get_error_message() : '' );
+	$assert( 3 === count( $products ), 'maps-unique-product-reports' );
+	$assert( 'rye-loaf' === ( $products[0]['slug'] ?? '' ), 'maps-compiled-site-product-slug' );
+	$assert( 'Rye Loaf' === ( $products[0]['name'] ?? '' ), 'maps-title-to-name' );
+	$assert( '12.00' === ( $products[0]['regular_price'] ?? '' ), 'normalizes-price' );
+	$assert( array( 'Bread' ) === ( $products[0]['categories'] ?? array() ), 'filters-categories-to-strings' );
+	$assert( 7 === ( $products[0]['stock_quantity'] ?? null ), 'normalizes-stock-quantity' );
+	$assert( 'seeded-coffee' === ( $products[1]['slug'] ?? '' ), 'maps-commerce-product' );
+	$assert( '5.50' === ( $products[1]['regular_price'] ?? '' ), 'normalizes-commerce-regular-price' );
+	$assert( '4.00' === ( $products[1]['sale_price'] ?? '' ), 'normalizes-commerce-sale-price' );
+	$assert( 'olive-rolls' === ( $products[2]['slug'] ?? '' ), 'maps-document-metadata-product' );
+
+	if ( $failures ) {
+		fwrite( STDERR, implode( "\n", $failures ) . "\n" );
+		exit( 1 );
+	}
+
+	echo 'OK: website artifact products manifest smoke passed (' . $assertions . " assertions)\n";
+}

@@ -6,6 +6,7 @@
  * Author: Chris Huber
  * Requires at least: 6.9
  * Requires PHP: 8.1
+ * Requires Plugins: blocks-engine-php-transformer
  * Text Domain: static-site-importer
  *
  * @package StaticSiteImporter
@@ -18,10 +19,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 define( 'STATIC_SITE_IMPORTER_PATH', plugin_dir_path( __FILE__ ) );
 define( 'STATIC_SITE_IMPORTER_URL', plugin_dir_url( __FILE__ ) );
 define( 'STATIC_SITE_IMPORTER_VERSION', '1.1.4' );
-
-if ( is_readable( STATIC_SITE_IMPORTER_PATH . 'vendor/autoload.php' ) ) {
-	require_once STATIC_SITE_IMPORTER_PATH . 'vendor/autoload.php';
-}
 
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-document.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-source-page.php';
@@ -36,6 +33,7 @@ require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-st
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-woo-product-seeder.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-wp-codebox-artifact-diagnostics-normalizer.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-report-diagnostics.php';
+require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-transformer-adapter.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-theme-exporter.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-theme-generator.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/abilities.php';
