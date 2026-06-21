@@ -76,7 +76,7 @@ class Static_Site_Importer_URL_Import_Runtime {
 		 * Filters URL import provider output before the built-in public URL fetcher runs.
 		 *
 		 * Return WP_Error to fail the import, or an array with an `artifact` key to import
-		 * a provider-built website artifact. Hosted/private DLA runtimes should hook here
+		 * a provider-built website artifact. Hosted/private runtimes should hook here
 		 * rather than product code spawning local processes.
 		 *
 		 * @param null|array<string,mixed>|WP_Error $provider_output Provider output.
