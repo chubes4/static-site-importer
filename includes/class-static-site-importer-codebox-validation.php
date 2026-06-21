@@ -19,6 +19,44 @@ class Static_Site_Importer_Codebox_Validation {
 	private const ARTIFACT_SCHEMA = 'static-site-importer/codebox-validation-artifacts/v1';
 
 	/**
+	 * Register the default WP Codebox host-delegation bridge.
+	 *
+	 * @return void
+	 */
+	public static function register_default_provider(): void {
+		add_filter( 'static_site_importer_codebox_validation_result', array( self::class, 'delegate_to_wp_codebox_host_delegation' ), 10, 3 );
+	}
+
+	/**
+	 * Delegate SSI validation requests to WP Codebox/Homeboy host providers.
+	 *
+	 * @param mixed               $result  Existing provider result.
+	 * @param array<string,mixed> $request SSI validation request.
+	 * @param array<string,mixed> $input   Raw caller input.
+	 * @return array<string,mixed>|WP_Error|null
+	 */
+	public static function delegate_to_wp_codebox_host_delegation( mixed $result, array $request, array $input ) {
+		if ( null !== $result ) {
+			return $result;
+		}
+
+		$delegation_request = self::host_delegation_request( $request, $input );
+		if ( class_exists( 'WP_Codebox_Abilities' ) && method_exists( 'WP_Codebox_Abilities', 'request_host_delegation' ) ) {
+			$delegation_result = WP_Codebox_Abilities::request_host_delegation( $delegation_request );
+		} elseif ( function_exists( 'has_filter' ) && has_filter( 'wp_codebox_host_delegation_request' ) ) {
+			$delegation_result = apply_filters( 'wp_codebox_host_delegation_request', null, $delegation_request );
+		} else {
+			return null;
+		}
+
+		if ( is_wp_error( $delegation_result ) ) {
+			return $delegation_result;
+		}
+
+		return self::provider_result_from_host_delegation( $delegation_result );
+	}
+
+	/**
 	 * Validate an imported/generated site in a disposable Codebox runtime.
 	 *
 	 * @param array<string,mixed> $input Validation input.
@@ -123,6 +161,112 @@ class Static_Site_Importer_Codebox_Validation {
 			'required_artifacts' => self::required_artifacts(),
 			'operator_notes'     => self::operator_notes( $input ),
 		);
+	}
+
+	/**
+	 * Build a WP Codebox host-delegation request for SSI validation.
+	 *
+	 * @param array<string,mixed> $request SSI validation request.
+	 * @param array<string,mixed> $input   Raw caller input.
+	 * @return array<string,mixed>
+	 */
+	private static function host_delegation_request( array $request, array $input ): array {
+		return array(
+			'schema'     => 'wp-codebox/host-delegation-request/v1',
+			'request_id' => self::request_id(),
+			'task'       => 'static-site-importer.validate-in-codebox',
+			'task_input' => $request,
+			'execution'  => array(
+				'kind'         => 'runtime-validation',
+				'product_path' => 'static-site-importer/validate-in-codebox',
+			),
+			'metadata'   => array(
+				'product'        => 'static-site-importer',
+				'request_schema' => self::REQUEST_SCHEMA,
+				'input_keys'     => array_values( array_map( 'strval', array_keys( $input ) ) ),
+			),
+		);
+	}
+
+	/**
+	 * Normalize WP Codebox host-delegation output into the SSI provider shape.
+	 *
+	 * @param mixed $delegation_result WP Codebox host delegation result.
+	 * @return array<string,mixed>|WP_Error|null
+	 */
+	private static function provider_result_from_host_delegation( mixed $delegation_result ) {
+		if ( null === $delegation_result ) {
+			return null;
+		}
+
+		if ( ! is_array( $delegation_result ) ) {
+			return new WP_Error( 'static_site_importer_codebox_host_delegation_result_invalid', 'WP Codebox host delegation providers must return an array, WP_Error, or null.' );
+		}
+
+		if ( 'wp-codebox/host-delegation-result/v1' !== (string) ( $delegation_result['schema'] ?? '' ) ) {
+			return $delegation_result;
+		}
+
+		$status = sanitize_key( (string) ( $delegation_result['status'] ?? '' ) );
+		if ( 'unavailable' === $status ) {
+			return null;
+		}
+
+		$result    = isset( $delegation_result['result'] ) && is_array( $delegation_result['result'] ) ? $delegation_result['result'] : array();
+		$artifacts = isset( $result['artifacts'] ) && is_array( $result['artifacts'] ) ? $result['artifacts'] : ( isset( $delegation_result['artifacts'] ) && is_array( $delegation_result['artifacts'] ) ? $delegation_result['artifacts'] : array() );
+		$summary   = isset( $result['summary'] ) && is_array( $result['summary'] ) ? $result['summary'] : array();
+
+		$provider_result = array(
+			'success'   => ! empty( $delegation_result['success'] ),
+			'status'    => self::provider_status_from_host_delegation_status( $status, ! empty( $delegation_result['success'] ) ),
+			'runtime'   => array(
+				'provider'                => (string) ( $delegation_result['provider'] ?? 'wp-codebox/host-delegation' ),
+				'host_delegation_status'  => $status,
+				'host_delegation_request' => (string) ( $delegation_result['request_id'] ?? '' ),
+			),
+			'summary'   => $summary,
+			'artifacts' => $artifacts,
+		);
+
+		if ( ! empty( $result['upstream_gaps'] ) && is_array( $result['upstream_gaps'] ) ) {
+			$provider_result['upstream_gaps'] = array_values( $result['upstream_gaps'] );
+		} elseif ( empty( $provider_result['success'] ) && ! empty( $delegation_result['error'] ) ) {
+			$provider_result['upstream_gaps'] = array( $delegation_result['error'] );
+		}
+
+		return $provider_result;
+	}
+
+	/**
+	 * Map WP Codebox host-delegation statuses to SSI provider statuses.
+	 *
+	 * @param string $status  Host-delegation status.
+	 * @param bool   $success Whether host delegation succeeded.
+	 * @return string
+	 */
+	private static function provider_status_from_host_delegation_status( string $status, bool $success ): string {
+		if ( 'completed' === $status || ( $success && '' === $status ) ) {
+			return 'succeeded';
+		}
+
+		if ( 'accepted' === $status ) {
+			return 'running';
+		}
+
+		return $success ? 'succeeded' : 'failed';
+	}
+
+	/**
+	 * Create a stable-enough request id for host delegation.
+	 *
+	 * @return string
+	 */
+	private static function request_id(): string {
+		if ( function_exists( 'wp_generate_uuid4' ) ) {
+			return wp_generate_uuid4();
+		}
+
+		return uniqid( 'ssi-codebox-', true );
 	}
 
 	/**
