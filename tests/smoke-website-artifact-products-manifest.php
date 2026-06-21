@@ -62,19 +62,6 @@ namespace {
 					),
 				),
 			),
-			'legacy_mapping' => array(
-				'block-artifact-compiler/result/v1' => array(
-					'status'                           => 'status',
-					'input'                            => 'source_reports.artifact',
-					'wordpress_artifacts.block_markup' => 'serialized_blocks',
-					'wordpress_artifacts.blocks'       => 'blocks',
-					'wordpress_artifacts.block_types'  => 'block_types',
-					'wordpress_artifacts.components'   => 'components',
-					'wordpress_artifacts.files'        => 'assets',
-					'diagnostics'                      => 'diagnostics',
-					'provenance'                       => 'provenance',
-				),
-			),
 			'provenance'     => array(
 				array( 'source_hash' => 'products-smoke' ),
 			),
@@ -126,6 +113,7 @@ namespace {
 	$products = is_array( $compiled ) ? ( $compiled['products_manifest'] ?? array() ) : array();
 
 	$assert( ! is_wp_error( $compiled ), 'compile-succeeds', is_wp_error( $compiled ) ? $compiled->get_error_message() : '' );
+	$assert( 'website/index.html' === ( $compiled['input']['entry_path'] ?? '' ), 'preserves-native-artifact-input' );
 	$assert( 3 === count( $products ), 'maps-unique-product-reports' );
 	$assert( 'rye-loaf' === ( $products[0]['slug'] ?? '' ), 'maps-compiled-site-product-slug' );
 	$assert( 'Rye Loaf' === ( $products[0]['name'] ?? '' ), 'maps-title-to-name' );
