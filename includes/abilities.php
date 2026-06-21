@@ -100,6 +100,7 @@ if ( ! function_exists( 'static_site_importer_register_abilities' ) ) {
 						'asset_map'                    => array( 'type' => 'object' ),
 						'compiler_options'             => array( 'type' => 'object' ),
 						'source_metadata'              => array( 'type' => 'object' ),
+						'validation_artifacts'         => array( 'type' => 'object' ),
 					),
 					'required'   => array( 'artifact' ),
 				),
@@ -137,6 +138,7 @@ if ( ! function_exists( 'static_site_importer_register_abilities' ) ) {
 						'asset_map'                    => array( 'type' => 'object' ),
 						'compiler_options'             => array( 'type' => 'object' ),
 						'source_metadata'              => array( 'type' => 'object' ),
+						'validation_artifacts'         => array( 'type' => 'object' ),
 					),
 					'required'   => array( 'url' ),
 				),
@@ -295,6 +297,7 @@ if ( ! function_exists( 'static_site_importer_ability_import_website_artifact' )
 			'asset_map'                    => isset( $input['asset_map'] ) && is_array( $input['asset_map'] ) ? $input['asset_map'] : array(),
 			'compiler_options'             => isset( $input['compiler_options'] ) && is_array( $input['compiler_options'] ) ? $input['compiler_options'] : array(),
 			'source_metadata'              => isset( $input['source_metadata'] ) && is_array( $input['source_metadata'] ) ? $input['source_metadata'] : array(),
+			'validation_artifacts'         => isset( $input['validation_artifacts'] ) && is_array( $input['validation_artifacts'] ) ? $input['validation_artifacts'] : array(),
 		);
 
 		$result = Static_Site_Importer_Theme_Generator::import_website_artifact( $artifact, $args );
