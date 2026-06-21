@@ -15,18 +15,43 @@ if ( ! defined( 'ABSPATH' ) ) {
 if ( ! class_exists( 'WP_Error' ) ) {
 	class WP_Error {
 		private string $code;
+		private string $message;
 
-		public function __construct( string $code ) {
-			$this->code = $code;
+		public function __construct( string $code, string $message = '' ) {
+			$this->code    = $code;
+			$this->message = $message;
 		}
 
 		public function get_error_code(): string {
 			return $this->code;
 		}
+
+		public function get_error_message(): string {
+			return $this->message;
+		}
+	}
+}
+
+if ( ! function_exists( 'is_wp_error' ) ) {
+	function is_wp_error( mixed $thing ): bool {
+		return $thing instanceof WP_Error;
+	}
+}
+
+if ( ! function_exists( 'sanitize_key' ) ) {
+	function sanitize_key( string $key ): string {
+		return preg_replace( '/[^a-z0-9_\-]/', '', strtolower( $key ) ) ?? '';
+	}
+}
+
+if ( ! function_exists( 'trailingslashit' ) ) {
+	function trailingslashit( string $value ): string {
+		return rtrim( $value, '/\\' ) . '/';
 	}
 }
 
 require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-stylesheet-materializer.php';
+require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-theme-materializer.php';
 require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-theme-generator.php';
 
 $failures   = array();
@@ -98,6 +123,54 @@ $missing_source = $documents->invoke(
 );
 $assert( $missing_source instanceof WP_Error, 'compiled-site-page-source-is-required' );
 $assert( 'static_site_importer_compiled_site_page_missing_source' === ( $missing_source instanceof WP_Error ? $missing_source->get_error_code() : '' ), 'compiled-site-page-source-error-code' );
+
+$template_part_result = Static_Site_Importer_Theme_Materializer::template_part_artifact_writes(
+	'/tmp/bac-visual-repair-smoke',
+	array(
+		'site'           => array(
+			'schema'               => 'blocks-engine/php-transformer/materialization-plan/v1',
+			'template_part_writes' => array(
+				array(
+					'type'        => 'wp_template_part',
+					'source_path' => 'parts/header.html',
+					'slug'        => 'header',
+					'area'        => 'header',
+					'content'     => '<!-- wp:group {"tagName":"header"} --><header class="wp-block-group">Plan Header</header><!-- /wp:group -->',
+				),
+			),
+		),
+		'template_parts' => array(
+			array(
+				'slug'         => 'header',
+				'area'         => 'header',
+				'block_markup' => '<!-- wp:paragraph --><p>Legacy Header</p><!-- /wp:paragraph -->',
+			),
+		),
+	)
+);
+$assert( is_array( $template_part_result ), 'materialization-plan-template-part-writes-succeed' );
+$template_part_writes = is_array( $template_part_result ) ? $template_part_result['writes'] : array();
+$template_part_reports = is_array( $template_part_result ) ? $template_part_result['reports'] : array();
+$assert( str_contains( (string) ( $template_part_writes['/tmp/bac-visual-repair-smoke/parts/header.html'] ?? '' ), 'Plan Header' ), 'materialization-plan-template-part-write-is-used' );
+$assert( ! str_contains( (string) ( $template_part_writes['/tmp/bac-visual-repair-smoke/parts/header.html'] ?? '' ), 'Legacy Header' ), 'legacy-template-part-is-ignored-when-plan-writes-exist' );
+$assert( array( 'parts/header.html' ) === ( $template_part_reports[0]['source_paths'] ?? array() ), 'materialization-plan-template-part-source-path-is-reported' );
+
+$missing_content = Static_Site_Importer_Theme_Materializer::template_part_artifact_writes(
+	'/tmp/bac-visual-repair-smoke',
+	array(
+		'site' => array(
+			'schema'               => 'blocks-engine/php-transformer/materialization-plan/v1',
+			'template_part_writes' => array(
+				array(
+					'type' => 'wp_template_part',
+					'slug' => 'header',
+				),
+			),
+		),
+	)
+);
+$assert( $missing_content instanceof WP_Error, 'materialization-plan-template-part-content-is-required' );
+$assert( 'static_site_importer_materialization_plan_template_part_content_missing' === ( $missing_content instanceof WP_Error ? $missing_content->get_error_code() : '' ), 'materialization-plan-template-part-content-error-code' );
 
 if ( ! empty( $failures ) ) {
 	fwrite( STDERR, implode( "\n", $failures ) . "\n" );

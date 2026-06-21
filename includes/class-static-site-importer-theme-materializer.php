@@ -170,7 +170,15 @@ class Static_Site_Importer_Theme_Materializer {
 	 * @return array{writes:array<string,string>,reports:array<int,array<string,mixed>>}|WP_Error Absolute write paths and report rows.
 	 */
 	public static function template_part_artifact_writes( string $theme_dir, array $artifacts ) {
-		$template_parts = isset( $artifacts['template_parts'] ) && is_array( $artifacts['template_parts'] ) ? $artifacts['template_parts'] : array();
+		$template_parts = self::template_part_artifacts_from_materialization_plan( $artifacts );
+		if ( is_wp_error( $template_parts ) ) {
+			return $template_parts;
+		}
+
+		if ( null === $template_parts ) {
+			$template_parts = isset( $artifacts['template_parts'] ) && is_array( $artifacts['template_parts'] ) ? $artifacts['template_parts'] : array();
+		}
+
 		$writes  = array();
 		$reports = array();
 		foreach ( $template_parts as $template_part ) {
@@ -206,6 +214,52 @@ class Static_Site_Importer_Theme_Materializer {
 			'writes'  => $writes,
 			'reports' => $reports,
 		);
+	}
+
+	/**
+	 * Read generic WordPress template-part writes from a Blocks Engine materialization plan.
+	 *
+	 * @param array<string,mixed> $artifacts WordPress artifacts from the transformer adapter.
+	 * @return array<int,array<string,mixed>>|null|WP_Error Template part artifacts, null when no plan write list exists.
+	 */
+	private static function template_part_artifacts_from_materialization_plan( array $artifacts ) {
+		$site = isset( $artifacts['site'] ) && is_array( $artifacts['site'] ) ? $artifacts['site'] : array();
+		if ( 'blocks-engine/php-transformer/materialization-plan/v1' !== (string) ( $site['schema'] ?? '' ) || ! array_key_exists( 'template_part_writes', $site ) ) {
+			return null;
+		}
+
+		if ( ! is_array( $site['template_part_writes'] ) ) {
+			return new WP_Error( 'static_site_importer_materialization_plan_template_part_writes_invalid', 'Blocks Engine materialization_plan.template_part_writes must be an array.' );
+		}
+
+		$template_parts = array();
+		foreach ( $site['template_part_writes'] as $write ) {
+			if ( ! is_array( $write ) ) {
+				return new WP_Error( 'static_site_importer_materialization_plan_template_part_write_invalid', 'Blocks Engine template part write entries must be arrays.' );
+			}
+
+			if ( 'wp_template_part' !== (string) ( $write['type'] ?? '' ) ) {
+				continue;
+			}
+
+			$content = isset( $write['content'] ) && is_scalar( $write['content'] ) ? (string) $write['content'] : '';
+			if ( '' === trim( $content ) ) {
+				return new WP_Error( 'static_site_importer_materialization_plan_template_part_content_missing', 'Blocks Engine wp_template_part writes must include non-empty content.' );
+			}
+
+			$template_parts[] = array_filter(
+				array(
+					'source_path'  => isset( $write['source_path'] ) && is_scalar( $write['source_path'] ) ? (string) $write['source_path'] : '',
+					'slug'         => isset( $write['slug'] ) && is_scalar( $write['slug'] ) ? (string) $write['slug'] : '',
+					'title'        => isset( $write['title'] ) && is_scalar( $write['title'] ) ? (string) $write['title'] : '',
+					'area'         => isset( $write['area'] ) && is_scalar( $write['area'] ) ? (string) $write['area'] : '',
+					'block_markup' => $content,
+				),
+				static fn ( string $value ): bool => '' !== $value
+			);
+		}
+
+		return $template_parts;
 	}
 
 	/**
@@ -280,12 +334,17 @@ class Static_Site_Importer_Theme_Materializer {
 	 * @return array<string,mixed>
 	 */
 	private static function template_part_artifact_report_payload( string $path, array $template_part, string $markup ): array {
+		$source_paths = isset( $template_part['source_paths'] ) && is_array( $template_part['source_paths'] ) ? array_values( array_filter( $template_part['source_paths'], 'is_scalar' ) ) : array();
+		if ( empty( $source_paths ) && isset( $template_part['source_path'] ) && is_scalar( $template_part['source_path'] ) && '' !== (string) $template_part['source_path'] ) {
+			$source_paths = array( (string) $template_part['source_path'] );
+		}
+
 		return array(
 			'path'               => $path,
 			'slug'               => isset( $template_part['slug'] ) && is_scalar( $template_part['slug'] ) ? (string) $template_part['slug'] : '',
 			'area'               => isset( $template_part['area'] ) && is_scalar( $template_part['area'] ) ? (string) $template_part['area'] : '',
 			'generated'          => ! empty( $template_part['generated'] ),
-			'source_paths'       => isset( $template_part['source_paths'] ) && is_array( $template_part['source_paths'] ) ? array_values( array_filter( $template_part['source_paths'], 'is_scalar' ) ) : array(),
+			'source_paths'       => $source_paths,
 			'source_hash'        => isset( $template_part['source_hash'] ) && is_scalar( $template_part['source_hash'] ) ? (string) $template_part['source_hash'] : '',
 			'block_markup_bytes' => strlen( $markup ),
 			'block_markup_hash'  => hash( 'sha256', $markup ),
