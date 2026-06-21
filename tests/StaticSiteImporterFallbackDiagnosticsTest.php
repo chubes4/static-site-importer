@@ -175,6 +175,65 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Codebox/runtime visual parity artifacts use durable refs and explicit pending slots.
+	 */
+	public function test_visual_parity_artifacts_are_stable_and_omit_local_paths(): void {
+		$report = Static_Site_Importer_Report_Diagnostics::new_conversion_report( '/tmp/source/index.html' );
+		$report['theme_slug'] = 'visual-parity-fixture';
+
+		Static_Site_Importer_Report_Diagnostics::finalize_report(
+			$report,
+			array(
+				'validation_artifacts' => array(
+					'browser_render'      => array(
+						'kind'        => 'browser_render_evidence',
+						'artifact_id' => 'codebox-run-123/render.json',
+						'url'         => 'https://artifacts.example.test/runs/123/render.json',
+						'path'        => '/tmp/codebox/render.json',
+					),
+					'imported_screenshot' => array(
+						'kind' => 'imported_screenshot',
+						'path' => 'screenshots/imported.png',
+					),
+					'visual_diff'         => array(
+						'kind' => 'visual_diff',
+						'path' => '/Users/chubes/Downloads/local-diff.png',
+					),
+					'block_validation'    => array(
+						'kind'          => 'gutenberg_block_validation',
+						'artifact_name' => 'block-validation.json',
+					),
+				),
+			)
+		);
+
+		$visual = $report['visual_parity_artifacts'] ?? array();
+		$this->assertSame( 'static-site-importer/visual-parity-artifacts/v1', $visual['schema'] ?? '' );
+		$this->assertSame( 'pending', $visual['status'] ?? '' );
+		$this->assertSame( 'codebox_runtime', $visual['owner'] ?? '' );
+		$this->assertSame( 'durable_artifact_refs_only', $visual['contract'] ?? '' );
+
+		$artifacts = $visual['artifacts'] ?? array();
+		$this->assertSame( 'captured', $artifacts['browser_render']['status'] ?? '' );
+		$this->assertSame( 'codebox-run-123/render.json', $artifacts['browser_render']['ref']['artifact_id'] ?? '' );
+		$this->assertSame( 'https://artifacts.example.test/runs/123/render.json', $artifacts['browser_render']['ref']['url'] ?? '' );
+		$this->assertArrayNotHasKey( 'path', $artifacts['browser_render']['ref'] ?? array() );
+		$this->assertSame( 'captured', $artifacts['imported_screenshot']['status'] ?? '' );
+		$this->assertSame( 'imported.png', $artifacts['imported_screenshot']['ref']['artifact_name'] ?? '' );
+		$this->assertSame( 'pending', $artifacts['source_screenshot']['status'] ?? '' );
+		$this->assertSame( 'not_captured', $artifacts['source_screenshot']['capture_state'] ?? '' );
+		$this->assertStringContainsString( 'not captured', $artifacts['source_screenshot']['reason'] ?? '' );
+		$this->assertSame( 'pending', $artifacts['visual_diff']['status'] ?? '' );
+		$this->assertSame( 'not_captured', $artifacts['visual_diff']['capture_state'] ?? '' );
+		$this->assertSame( 'captured', $artifacts['import_report']['status'] ?? '' );
+		$this->assertSame( 'import-report.json', $artifacts['import_report']['ref']['artifact_name'] ?? '' );
+		$this->assertSame( 'block-validation.json', $artifacts['block_validation']['ref']['artifact_name'] ?? '' );
+		$this->assertSame( $visual, $report['import_validation_result']['visual_parity_artifacts'] ?? array() );
+		$this->assertSame( $visual, $report['compact_summary']['visual_parity_artifacts'] ?? array() );
+		$this->assertReportValueHasNoLocalPath( $visual );
+	}
+
+	/**
 	 * Artifact diagnostics use SSI's schema when no WP Codebox PHP normalizer is available.
 	 */
 	public function test_artifact_diagnostics_adapter_emits_static_site_importer_fallback_shape(): void {
@@ -222,6 +281,27 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 		$this->assertSame( 'clean', $empty['status'] ?? '' );
 		$this->assertSame( array( 'total' => 0, 'error' => 0, 'warning' => 0, 'notice' => 0, 'info' => 0 ), $empty['summary'] ?? array() );
 		$this->assertSame( array(), $empty['diagnostics'] ?? null );
+	}
+
+	/**
+	 * Assert that a report value does not expose local filesystem paths.
+	 *
+	 * @param mixed $value Report value.
+	 */
+	private function assertReportValueHasNoLocalPath( mixed $value ): void {
+		if ( is_array( $value ) ) {
+			foreach ( $value as $item ) {
+				$this->assertReportValueHasNoLocalPath( $item );
+			}
+
+			return;
+		}
+
+		if ( ! is_string( $value ) ) {
+			return;
+		}
+
+		$this->assertDoesNotMatchRegularExpression( '#^(?:/|[A-Za-z]:\\\\|file://|~[/\\\\]|(?:\.\.?[/\\\\]))#', $value );
 	}
 
 	/**
