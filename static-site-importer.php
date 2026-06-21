@@ -39,8 +39,13 @@ require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-tr
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-theme-exporter.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-theme-generator.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/abilities.php';
+require_once STATIC_SITE_IMPORTER_PATH . 'includes/block.php';
+require_once STATIC_SITE_IMPORTER_PATH . 'includes/rest.php';
 
 Static_Site_Importer_Codebox_Validation::register_default_provider();
+
+add_action( 'init', 'static_site_importer_register_block' );
+add_action( 'rest_api_init', 'static_site_importer_register_rest_routes' );
 
 if ( defined( 'WP_CLI' ) && WP_CLI && class_exists( 'WP_CLI' ) ) {
 	WP_CLI::add_command(

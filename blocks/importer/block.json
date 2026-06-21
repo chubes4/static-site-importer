@@ -1,0 +1,30 @@
+{
+  "apiVersion": 3,
+  "name": "static-site-importer/importer",
+  "title": "Static Site Importer",
+  "category": "widgets",
+  "description": "Import a URL, HTML, or static site files into a WordPress block theme.",
+  "textdomain": "static-site-importer",
+  "attributes": {
+    "title": {
+      "type": "string",
+      "default": "Bring a site into WordPress."
+    },
+    "intro": {
+      "type": "string",
+      "default": "Paste a URL, upload site files, or add HTML. Static Site Importer will compile it into a block theme."
+    },
+    "provider": {
+      "type": "string",
+      "default": ""
+    },
+    "defaultUrl": {
+      "type": "string",
+      "default": ""
+    }
+  },
+  "editorScript": "file:./editor.js",
+  "viewScript": "file:./view.js",
+  "style": "file:./style.css",
+  "editorStyle": "file:./style.css"
+}
