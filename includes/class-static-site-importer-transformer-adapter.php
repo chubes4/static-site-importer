@@ -62,19 +62,17 @@ class Static_Site_Importer_Transformer_Adapter {
 	 * Project the stable transformer contracts into SSI's compiled artifact envelope.
 	 *
 	 * @param array<string,mixed> $result TransformerResult::toArray() output.
-	 * @return array<string,mixed>
+	 * @return array<string,mixed>|WP_Error
 	 */
-	private function compiled_result_from_transformer_contract( array $result ): array {
+	private function compiled_result_from_transformer_contract( array $result ) {
 		$compiled = $this->compiled_result_from_native_transformer_contract( $result );
-		if ( empty( $compiled['wordpress_artifacts'] ) ) {
-			$compiled = $this->compiled_result_from_legacy_mapping_compatibility( $result );
+		if ( is_wp_error( $compiled ) ) {
+			return $compiled;
 		}
 
 		$source_reports       = isset( $result['source_reports'] ) && is_array( $result['source_reports'] ) ? $result['source_reports'] : array();
-		$compiled_site        = isset( $source_reports['compiled_site'] ) && is_array( $source_reports['compiled_site'] ) ? $source_reports['compiled_site'] : array();
 		$materialization_plan = isset( $source_reports['materialization_plan'] ) && is_array( $source_reports['materialization_plan'] ) ? $source_reports['materialization_plan'] : array();
-		$site_report          = ! empty( $materialization_plan ) ? $materialization_plan : $compiled_site;
-		$products             = $this->products_manifest_from_transformer_reports( $result, $site_report );
+		$products             = $this->products_manifest_from_transformer_reports( $result, $materialization_plan );
 		$artifacts            = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
 		$blocks               = isset( $artifacts['blocks'] ) && is_array( $artifacts['blocks'] ) ? $artifacts['blocks'] : array();
 
@@ -82,12 +80,12 @@ class Static_Site_Importer_Transformer_Adapter {
 			$artifacts['block_tree'] = $this->block_tree_report( $blocks );
 		}
 
-		$artifacts['document_metadata'] = $this->document_metadata_from_compiled_site( $site_report );
+		$artifacts['document_metadata'] = $this->document_metadata_from_compiled_site( $materialization_plan );
 		$artifacts['documents']         = isset( $result['documents'] ) && is_array( $result['documents'] ) ? $result['documents'] : array();
-		$artifacts['files']             = $this->artifact_files_from_site_report( $site_report, $result );
-		$artifacts['site']              = $site_report;
-		$artifacts['template_parts']    = isset( $site_report['template_parts'] ) && is_array( $site_report['template_parts'] ) ? $site_report['template_parts'] : array();
-		$artifacts['visual_repair']     = isset( $site_report['visual_repair'] ) && is_array( $site_report['visual_repair'] ) ? $site_report['visual_repair'] : array();
+		$artifacts['files']             = $this->artifact_files_from_site_report( $materialization_plan, $result );
+		$artifacts['site']              = $materialization_plan;
+		$artifacts['template_parts']    = isset( $materialization_plan['template_parts'] ) && is_array( $materialization_plan['template_parts'] ) ? $materialization_plan['template_parts'] : array();
+		$artifacts['visual_repair']     = isset( $materialization_plan['visual_repair'] ) && is_array( $materialization_plan['visual_repair'] ) ? $materialization_plan['visual_repair'] : array();
 
 		$compiled['wordpress_artifacts'] = $artifacts;
 
@@ -102,12 +100,17 @@ class Static_Site_Importer_Transformer_Adapter {
 	 * Build SSI's consumed compiler envelope from the native Blocks Engine result.
 	 *
 	 * @param array<string,mixed> $result TransformerResult::toArray() output.
-	 * @return array<string,mixed>
+	 * @return array<string,mixed>|WP_Error
 	 */
-	private function compiled_result_from_native_transformer_contract( array $result ): array {
+	private function compiled_result_from_native_transformer_contract( array $result ) {
 		$source_reports = isset( $result['source_reports'] ) && is_array( $result['source_reports'] ) ? $result['source_reports'] : array();
 		if ( empty( $source_reports ) ) {
-			return array();
+			return new WP_Error( 'static_site_importer_transformer_missing_source_reports', 'Blocks Engine php-transformer compile results must include source_reports.' );
+		}
+
+		$materialization_plan = isset( $source_reports['materialization_plan'] ) && is_array( $source_reports['materialization_plan'] ) ? $source_reports['materialization_plan'] : array();
+		if ( 'blocks-engine/php-transformer/materialization-plan/v1' !== (string) ( $materialization_plan['schema'] ?? '' ) ) {
+			return new WP_Error( 'static_site_importer_transformer_missing_materialization_plan', 'Blocks Engine php-transformer compile results must include source_reports.materialization_plan.' );
 		}
 
 		$artifact = isset( $source_reports['artifact'] ) && is_array( $source_reports['artifact'] ) ? $source_reports['artifact'] : array();
@@ -126,7 +129,6 @@ class Static_Site_Importer_Transformer_Adapter {
 			'diagnostics'         => isset( $result['diagnostics'] ) && is_array( $result['diagnostics'] ) ? $result['diagnostics'] : array(),
 			'provenance'          => isset( $result['provenance'] ) && is_array( $result['provenance'] ) ? $result['provenance'] : array(),
 		);
-
 		if ( isset( $result['conversion_report'] ) && is_array( $result['conversion_report'] ) ) {
 			$compiled['conversion_report'] = $result['conversion_report'];
 		}
@@ -146,34 +148,6 @@ class Static_Site_Importer_Transformer_Adapter {
 		}
 
 		return $options;
-	}
-
-	/**
-	 * Project pre-source_reports transformer output through the legacy compiled-result map.
-	 *
-	 * Native Blocks Engine source_reports are the importer contract. This compatibility
-	 * path exists only for older transformer results that did not expose that contract.
-	 *
-	 * @param array<string,mixed> $result TransformerResult::toArray() output.
-	 * @return array<string,mixed>
-	 */
-	private function compiled_result_from_legacy_mapping_compatibility( array $result ): array {
-		$mapping   = isset( $result['legacy_mapping'][ self::COMPILED_RESULT_SCHEMA ] ) && is_array( $result['legacy_mapping'][ self::COMPILED_RESULT_SCHEMA ] ) ? $result['legacy_mapping'][ self::COMPILED_RESULT_SCHEMA ] : array();
-		$projected = array( 'schema' => self::COMPILED_RESULT_SCHEMA );
-
-		foreach ( $mapping as $target_path => $source_path ) {
-			if ( ! is_string( $target_path ) || ! is_string( $source_path ) ) {
-				continue;
-			}
-
-			$found = false;
-			$value = $this->array_path_get( $result, $source_path, $found );
-			if ( $found ) {
-				$this->array_path_set( $projected, $target_path, $value );
-			}
-		}
-
-		return $projected;
 	}
 
 	/**
@@ -206,55 +180,6 @@ class Static_Site_Importer_Transformer_Adapter {
 		}
 
 		return false;
-	}
-
-	/**
-	 * Read a dot-notated array path.
-	 *
-	 * @param array<string,mixed> $data  Source data.
-	 * @param string              $path  Dot-notated path.
-	 * @param bool                $found Whether the path exists.
-	 * @return mixed
-	 */
-	private function array_path_get( array $data, string $path, bool &$found ) {
-		$value = $data;
-		foreach ( explode( '.', $path ) as $part ) {
-			if ( ! is_array( $value ) || ! array_key_exists( $part, $value ) ) {
-				$found = false;
-				return null;
-			}
-
-			$value = $value[ $part ];
-		}
-
-		$found = true;
-		return $value;
-	}
-
-	/**
-	 * Write a dot-notated array path.
-	 *
-	 * @param array<string,mixed> $data  Target data.
-	 * @param string              $path  Dot-notated path.
-	 * @param mixed               $value Value to set.
-	 * @return void
-	 */
-	private function array_path_set( array &$data, string $path, $value ): void {
-		$cursor = &$data;
-		$parts  = explode( '.', $path );
-		$last   = array_pop( $parts );
-
-		foreach ( $parts as $part ) {
-			if ( ! isset( $cursor[ $part ] ) || ! is_array( $cursor[ $part ] ) ) {
-				$cursor[ $part ] = array();
-			}
-
-			$cursor = &$cursor[ $part ];
-		}
-
-		if ( null !== $last ) {
-			$cursor[ $last ] = $value;
-		}
 	}
 
 	/**

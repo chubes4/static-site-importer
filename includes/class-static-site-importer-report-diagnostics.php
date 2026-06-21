@@ -165,6 +165,9 @@ class Static_Site_Importer_Report_Diagnostics {
 		if ( in_array( (string) ( $site['schema'] ?? '' ), array( 'block-artifact-compiler/compiled-site/v1', 'blocks-engine/php-transformer/compiled-site/v1' ), true ) ) {
 			$report['blocks_engine']['compiled_site'] = self::compiled_site_report_payload( $site );
 		}
+		if ( 'blocks-engine/php-transformer/materialization-plan/v1' === (string) ( $site['schema'] ?? '' ) ) {
+			$report['block_artifact_compiler']['materialization_plan'] = self::compiled_site_report_payload( $site );
+		}
 	}
 
 	/**

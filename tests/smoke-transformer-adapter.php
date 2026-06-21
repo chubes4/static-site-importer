@@ -11,6 +11,9 @@
 namespace {
 	function blocks_engine_php_transformer_compile_artifact( array $artifact, array $options = array() ): array {
 		$GLOBALS['ssi_transformer_adapter_compile_calls'][] = array( $artifact, $options );
+		if ( isset( $GLOBALS['ssi_transformer_adapter_result_override'] ) && is_array( $GLOBALS['ssi_transformer_adapter_result_override'] ) ) {
+			return $GLOBALS['ssi_transformer_adapter_result_override'];
+		}
 
 		return array(
 						'schema'            => 'blocks-engine/php-transformer/result/v1',
@@ -33,47 +36,6 @@ namespace {
 								'files_by_role'   => array( 'document' => 2, 'stylesheet' => 1 ),
 								'files_by_mime'   => array( 'text/html' => 2, 'text/css' => 1 ),
 								'source_hash'     => 'abc123',
-							),
-							'compiled_site' => array(
-								'schema'      => 'blocks-engine/php-transformer/compiled-site/v1',
-								'source_hash' => 'abc123',
-								'entry_path'  => 'website/index.html',
-								'pages'       => array(
-									array(
-										'source_path'  => 'website/index.html',
-										'entrypoint'   => true,
-										'slug'         => 'index',
-										'title'        => 'Home Page',
-										'block_markup' => '<!-- wp:paragraph --><p>Home</p><!-- /wp:paragraph -->',
-									),
-									array(
-										'source_path' => 'website/menu.html',
-										'entrypoint'  => false,
-										'slug'        => 'menu',
-										'title'       => 'Menu Page',
-									),
-									array(
-										'source_path' => 'content/about.md',
-										'entrypoint'  => false,
-										'slug'        => 'about',
-										'title'       => 'About',
-									),
-									array(
-										'source_path'    => 'products/rye-loaf.md',
-										'entrypoint'     => false,
-										'post_type'      => 'product',
-										'slug'           => 'rye-loaf',
-										'title'          => 'Rye Loaf',
-										'regular_price'  => '12',
-										'categories'     => array( 'Bread' ),
-									),
-								),
-								'assets'      => array(
-									array( 'path' => 'assets/site.css', 'role' => 'stylesheet' ),
-								),
-								'theme'       => array(
-									'stylesheets' => array( 'assets/site.css' ),
-								),
 							),
 							'materialization_plan' => array(
 								'schema'      => 'blocks-engine/php-transformer/materialization-plan/v1',
@@ -169,18 +131,6 @@ namespace {
 								'count'  => 1,
 							),
 						),
-						'legacy_mapping'    => array(
-							'block-artifact-compiler/result/v1' => array(
-								'wordpress_artifacts.site.pages.0.slug' => 'legacy.slug',
-								'wordpress_artifacts.documents.0.source_path' => 'legacy.documents.0.source_path',
-							),
-						),
-						'legacy'            => array(
-							'slug'      => 'legacy-home',
-							'documents' => array(
-								array( 'source_path' => 'legacy/about.html' ),
-							),
-						),
 						'provenance'        => array(
 							array( 'source_hash' => 'abc123' ),
 						),
@@ -271,15 +221,13 @@ namespace {
 	$assert( 'legacy-top-level' !== ( $compiled['conversion_report']['fallbacks'][0]['source'] ?? '' ), 'conversion-report-ignores-top-level-fallbacks' );
 	$assert( 'website/index.html' === ( $compiled['input']['entry_path'] ?? '' ), 'native-artifact-report-preserved-as-input' );
 	$assert( 'blocks-engine/php-transformer/materialization-plan/v1' === ( $site['schema'] ?? '' ), 'native-materialization-plan-contract-is-used' );
-	$assert( 4 === count( $pages ), 'native-keeps-compiled-site-pages-without-adapter-filtering' );
+	$assert( 4 === count( $pages ), 'native-keeps-materialization-plan-pages-without-adapter-filtering' );
 	$assert( 'website/index.html' === ( $pages[0]['source_path'] ?? '' ), 'native-entry-source-path' );
 	$assert( 'home-canonical' === ( $pages[0]['slug'] ?? '' ), 'native-entry-slug-from-materialization-plan' );
-	$assert( 'legacy-home' !== ( $pages[0]['slug'] ?? '' ), 'legacy-mapping-does-not-override-native-materialization-plan' );
 	$assert( true === ( $pages[0]['entrypoint'] ?? false ), 'native-entrypoint' );
 	$assert( 'about-canonical' === ( $pages[2]['slug'] ?? '' ), 'native-route-slug-from-materialization-plan' );
-	$assert( 1 === count( $documents ), 'native-documents-preserve-transformer-documents-without-compiled-site-synthesis' );
+	$assert( 1 === count( $documents ), 'native-documents-preserve-transformer-documents-without-site-report-synthesis' );
 	$assert( 'content/about.md' === ( $documents[0]['source_path'] ?? '' ), 'native-document-from-transformer-documents' );
-	$assert( 'legacy/about.html' !== ( $documents[0]['source_path'] ?? '' ), 'legacy-mapping-does-not-override-native-documents' );
 	$assert( 'assets/native-site.css' === ( $artifacts['files'][0]['path'] ?? '' ), 'native-materialization-plan-assets-drive-artifact-files' );
 	$assert( 'assets/legacy-site.css' !== ( $artifacts['files'][0]['path'] ?? '' ), 'legacy-assets-do-not-override-native-materialization-plan-assets' );
 	$assert( 'rye-loaf-canonical' === ( $products[0]['slug'] ?? '' ), 'native-product-slug-mapped-from-generic-report' );
@@ -291,6 +239,18 @@ namespace {
 	$assert( 2 === count( $GLOBALS['ssi_transformer_adapter_compile_calls'] ), 'plugin-compile-helper-called-for-native-report' );
 	$assert( true === ( $GLOBALS['ssi_transformer_adapter_compile_calls'][1][1]['include_conversion_report'] ?? false ), 'native-report-option-forwarded' );
 	$assert( isset( $native_report_compiled['conversion_report'] ) && is_array( $native_report_compiled['conversion_report'] ), 'native-report-request-exposes-conversion-report' );
+
+	$GLOBALS['ssi_transformer_adapter_result_override'] = array(
+		'schema' => 'blocks-engine/php-transformer/result/v1',
+		'status' => 'success',
+		'source_reports' => array(
+			'artifact' => array( 'entry_path' => 'website/index.html' ),
+		),
+	);
+	$missing_plan = $adapter->compile_website_artifact( array( 'schema' => 'block-artifact-compiler/website-artifact/v1' ) );
+	unset( $GLOBALS['ssi_transformer_adapter_result_override'] );
+	$assert( is_wp_error( $missing_plan ), 'missing-materialization-plan-errors' );
+	$assert( 'static_site_importer_transformer_missing_materialization_plan' === ( is_wp_error( $missing_plan ) ? $missing_plan->get_error_code() : '' ), 'missing-materialization-plan-error-code' );
 
 	if ( $failures ) {
 		fwrite( STDERR, implode( "\n", $failures ) . "\n" );
