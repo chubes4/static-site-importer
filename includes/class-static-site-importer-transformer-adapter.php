@@ -63,7 +63,10 @@ class Static_Site_Importer_Transformer_Adapter {
 	 * @return array<string,mixed>
 	 */
 	private function compiled_result_from_transformer_contract( array $result ): array {
-		$compiled = $this->project_transformer_result( $result, self::COMPILED_RESULT_SCHEMA );
+		$compiled = $this->compiled_result_from_native_transformer_contract( $result );
+		if ( empty( $compiled['wordpress_artifacts'] ) ) {
+			$compiled = $this->project_transformer_result( $result, self::COMPILED_RESULT_SCHEMA );
+		}
 
 		$source_reports       = isset( $result['source_reports'] ) && is_array( $result['source_reports'] ) ? $result['source_reports'] : array();
 		$compiled_site        = isset( $source_reports['compiled_site'] ) && is_array( $source_reports['compiled_site'] ) ? $source_reports['compiled_site'] : array();
@@ -88,6 +91,38 @@ class Static_Site_Importer_Transformer_Adapter {
 		if ( ! empty( $products ) ) {
 			$compiled['products_manifest'] = $products;
 		}
+
+		return $compiled;
+	}
+
+	/**
+	 * Build SSI's consumed compiler envelope from the native Blocks Engine result.
+	 *
+	 * @param array<string,mixed> $result TransformerResult::toArray() output.
+	 * @return array<string,mixed>
+	 */
+	private function compiled_result_from_native_transformer_contract( array $result ): array {
+		$source_reports = isset( $result['source_reports'] ) && is_array( $result['source_reports'] ) ? $result['source_reports'] : array();
+		if ( empty( $source_reports ) ) {
+			return array();
+		}
+
+		$artifact = isset( $source_reports['artifact'] ) && is_array( $source_reports['artifact'] ) ? $source_reports['artifact'] : array();
+
+		$compiled = array(
+			'schema'              => self::COMPILED_RESULT_SCHEMA,
+			'status'              => isset( $result['status'] ) && is_scalar( $result['status'] ) ? (string) $result['status'] : '',
+			'input'               => $artifact,
+			'wordpress_artifacts' => array(
+				'block_markup' => isset( $result['serialized_blocks'] ) && is_scalar( $result['serialized_blocks'] ) ? (string) $result['serialized_blocks'] : '',
+				'blocks'       => isset( $result['blocks'] ) && is_array( $result['blocks'] ) ? $result['blocks'] : array(),
+				'block_types'  => isset( $result['block_types'] ) && is_array( $result['block_types'] ) ? $result['block_types'] : array(),
+				'components'   => isset( $result['components'] ) && is_array( $result['components'] ) ? $result['components'] : array(),
+				'files'        => isset( $result['assets'] ) && is_array( $result['assets'] ) ? $result['assets'] : array(),
+			),
+			'diagnostics'         => isset( $result['diagnostics'] ) && is_array( $result['diagnostics'] ) ? $result['diagnostics'] : array(),
+			'provenance'          => isset( $result['provenance'] ) && is_array( $result['provenance'] ) ? $result['provenance'] : array(),
+		);
 
 		return $compiled;
 	}

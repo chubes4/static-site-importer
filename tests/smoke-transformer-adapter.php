@@ -124,19 +124,6 @@ namespace {
 						'blocks'            => array(
 							array( 'blockName' => 'core/paragraph', 'innerBlocks' => array() ),
 						),
-						'legacy_mapping'    => array(
-							'block-artifact-compiler/result/v1' => array(
-								'status'                           => 'status',
-								'input'                            => 'source_reports.artifact',
-								'wordpress_artifacts.block_markup' => 'serialized_blocks',
-								'wordpress_artifacts.blocks'       => 'blocks',
-								'wordpress_artifacts.block_types'  => 'block_types',
-								'wordpress_artifacts.components'   => 'components',
-								'wordpress_artifacts.files'        => 'assets',
-								'diagnostics'                      => 'diagnostics',
-								'provenance'                       => 'provenance',
-							),
-						),
 						'serialized_blocks' => '<!-- wp:paragraph --><p>Home</p><!-- /wp:paragraph -->',
 						'documents'         => array(
 							array(
@@ -233,6 +220,7 @@ namespace {
 	$assert( 1 === count( $GLOBALS['ssi_transformer_adapter_artifact_compiler_calls'] ), 'plugin-artifact-helper-called' );
 	$assert( true === ( $GLOBALS['ssi_transformer_adapter_artifact_compiler_calls'][0][1]['include_bfb_report'] ?? false ), 'compile-options-forwarded' );
 	$assert( 'block-artifact-compiler/result/v1' === ( $compiled['schema'] ?? '' ), 'native-result-mapped-to-bac-envelope' );
+	$assert( 'website/index.html' === ( $compiled['input']['entry_path'] ?? '' ), 'native-artifact-report-preserved-as-input' );
 	$assert( 'blocks-engine/php-transformer/materialization-plan/v1' === ( $site['schema'] ?? '' ), 'native-materialization-plan-contract-is-used' );
 	$assert( 4 === count( $pages ), 'native-keeps-compiled-site-pages-without-adapter-filtering' );
 	$assert( 'website/index.html' === ( $pages[0]['source_path'] ?? '' ), 'native-entry-source-path' );
