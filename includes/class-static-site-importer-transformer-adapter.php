@@ -18,6 +18,7 @@ class Static_Site_Importer_Transformer_Adapter {
 	public const COMPILED_RESULT_SCHEMA  = 'block-artifact-compiler/result/v1';
 	private const CONVERSION_REPORT_OPTION = 'include_conversion_report';
 	private const LEGACY_BFB_REPORT_OPTION = 'include_bfb_report';
+	private const LEGACY_BFB_REPORT_FIELD  = 'bfb_report';
 
 	/**
 	 * Check whether the default Blocks Engine artifact compiler is available.
@@ -127,7 +128,7 @@ class Static_Site_Importer_Transformer_Adapter {
 			'provenance'          => isset( $result['provenance'] ) && is_array( $result['provenance'] ) ? $result['provenance'] : array(),
 		);
 
-		$compiled['bfb_report'] = $this->legacy_bfb_report_from_transformer_result( $result );
+		$compiled[ self::LEGACY_BFB_REPORT_FIELD ] = $this->legacy_conversion_report_from_transformer_result( $result );
 
 		return $compiled;
 	}
@@ -150,18 +151,53 @@ class Static_Site_Importer_Transformer_Adapter {
 	}
 
 	/**
-	 * Preserve SSI's legacy BFB report field from the native Blocks Engine result.
+	 * Preserve SSI's legacy report field from the native Blocks Engine conversion report.
 	 *
 	 * @param array<string,mixed> $result TransformerResult::toArray() output.
 	 * @return array<string,mixed>
 	 */
-	private function legacy_bfb_report_from_transformer_result( array $result ): array {
+	private function legacy_conversion_report_from_transformer_result( array $result ): array {
+		$report = isset( $result['conversion_report'] ) && is_array( $result['conversion_report'] ) ? $result['conversion_report'] : array();
+
 		return array(
-			'status'            => isset( $result['status'] ) && is_scalar( $result['status'] ) ? (string) $result['status'] : 'failed',
-			'serialized_blocks' => isset( $result['serialized_blocks'] ) && is_scalar( $result['serialized_blocks'] ) ? (string) $result['serialized_blocks'] : '',
-			'diagnostics'       => isset( $result['diagnostics'] ) && is_array( $result['diagnostics'] ) ? $result['diagnostics'] : array(),
-			'fallbacks'         => isset( $result['fallbacks'] ) && is_array( $result['fallbacks'] ) ? $result['fallbacks'] : array(),
+			'status'            => $this->conversion_report_scalar( $report, $result, 'status', 'failed' ),
+			'serialized_blocks' => $this->conversion_report_scalar( $report, $result, 'serialized_blocks', '' ),
+			'diagnostics'       => $this->conversion_report_array( $report, $result, 'diagnostics' ),
+			'fallbacks'         => $this->conversion_report_array( $report, $result, 'fallbacks' ),
 		);
+	}
+
+	/**
+	 * Read a scalar value from the native conversion report with an explicit legacy fallback.
+	 *
+	 * @param array<string,mixed> $report   Native conversion report payload.
+	 * @param array<string,mixed> $result   Transformer result array.
+	 * @param string              $key      Report key.
+	 * @param string              $fallback Fallback value.
+	 * @return string
+	 */
+	private function conversion_report_scalar( array $report, array $result, string $key, string $fallback ): string {
+		if ( isset( $report[ $key ] ) && is_scalar( $report[ $key ] ) ) {
+			return (string) $report[ $key ];
+		}
+
+		return isset( $result[ $key ] ) && is_scalar( $result[ $key ] ) ? (string) $result[ $key ] : $fallback;
+	}
+
+	/**
+	 * Read an array value from the native conversion report with an explicit legacy fallback.
+	 *
+	 * @param array<string,mixed> $report Native conversion report payload.
+	 * @param array<string,mixed> $result Transformer result array.
+	 * @param string              $key    Report key.
+	 * @return array<int|string,mixed>
+	 */
+	private function conversion_report_array( array $report, array $result, string $key ): array {
+		if ( isset( $report[ $key ] ) && is_array( $report[ $key ] ) ) {
+			return $report[ $key ];
+		}
+
+		return isset( $result[ $key ] ) && is_array( $result[ $key ] ) ? $result[ $key ] : array();
 	}
 
 	/**
