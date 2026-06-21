@@ -69,7 +69,23 @@ namespace {
 									),
 								),
 								'assets'      => array(
-									array( 'path' => 'assets/site.css', 'role' => 'stylesheet' ),
+									array( 'path' => 'assets/stale-compiled-site.css', 'role' => 'stylesheet' ),
+								),
+								'routes'      => array(
+									array( 'source_path' => 'website/index.html', 'permalink' => '/legacy-home/' ),
+								),
+								'navigation'  => array(
+									'items' => array(
+										array( 'label' => 'Legacy Menu', 'url' => '/legacy-menu/' ),
+									),
+								),
+								'template_parts' => array(
+									array( 'path' => 'parts/legacy-header.html', 'area' => 'header' ),
+								),
+								'visual_repair' => array(
+									'css' => array(
+										array( 'target' => 'front', 'content' => '.legacy-repair{display:block}' ),
+									),
 								),
 								'theme'       => array(
 									'stylesheets' => array( 'assets/site.css' ),
@@ -87,6 +103,8 @@ namespace {
 										'post_type'    => 'page',
 										'slug'         => 'home-canonical',
 										'title'        => 'Home Canonical',
+										'route_key'    => 'front-page',
+										'permalink'    => '/',
 										'block_markup' => '<!-- wp:paragraph --><p>Home</p><!-- /wp:paragraph -->',
 									),
 									array(
@@ -95,6 +113,8 @@ namespace {
 										'post_type'   => 'page',
 										'slug'        => 'menu',
 										'title'       => 'Menu Page',
+										'route_key'   => 'menu',
+										'permalink'   => '/menu/',
 									),
 									array(
 										'source_path' => 'content/about.md',
@@ -102,6 +122,8 @@ namespace {
 										'post_type'   => 'page',
 										'slug'        => 'about-canonical',
 										'title'       => 'About',
+										'route_key'   => 'about',
+										'permalink'   => '/about/',
 									),
 									array(
 										'source_path'    => 'products/rye-loaf.md',
@@ -109,8 +131,22 @@ namespace {
 										'post_type'      => 'product',
 										'slug'           => 'rye-loaf-canonical',
 										'title'          => 'Rye Loaf',
+										'route_key'      => 'product/rye-loaf',
+										'permalink'      => '/products/rye-loaf/',
 										'regular_price'  => '12',
 										'categories'     => array( 'Bread' ),
+									),
+								),
+								'routes'      => array(
+									array( 'source_path' => 'website/index.html', 'route_key' => 'front-page', 'permalink' => '/' ),
+									array( 'source_path' => 'website/menu.html', 'route_key' => 'menu', 'permalink' => '/menu/' ),
+									array( 'source_path' => 'products/rye-loaf.md', 'route_key' => 'product/rye-loaf', 'permalink' => '/products/rye-loaf/' ),
+								),
+								'navigation'  => array(
+									'items' => array(
+										array( 'label' => 'Home', 'url' => '/' ),
+										array( 'label' => 'Menu', 'url' => '/menu/' ),
+										array( 'label' => 'Shop', 'url' => '/products/rye-loaf/' ),
 									),
 								),
 								'assets'      => array(
@@ -119,6 +155,23 @@ namespace {
 										'role'    => 'stylesheet',
 										'kind'    => 'css',
 										'content' => 'body { color: black; }',
+									),
+								),
+								'template_parts' => array(
+									array(
+										'path'         => 'parts/header.html',
+										'area'         => 'header',
+										'block_markup' => '<!-- wp:navigation /-->',
+									),
+									array(
+										'path'         => 'parts/footer.html',
+										'area'         => 'footer',
+										'block_markup' => '<!-- wp:paragraph --><p>Open daily.</p><!-- /wp:paragraph -->',
+									),
+								),
+								'visual_repair' => array(
+									'css' => array(
+										array( 'target' => 'front', 'content' => '.native-repair{display:grid}' ),
 									),
 								),
 								'theme'       => array(
@@ -259,6 +312,10 @@ namespace {
 	$pages     = $site['pages'] ?? array();
 	$documents = $artifacts['documents'] ?? array();
 	$products  = $compiled['products_manifest'] ?? array();
+	$routes    = $site['routes'] ?? array();
+	$navigation_items = $site['navigation']['items'] ?? array();
+	$template_parts   = $artifacts['template_parts'] ?? array();
+	$visual_repair    = $artifacts['visual_repair'] ?? array();
 	$assert( ! is_wp_error( $compiled ), 'native-compile-succeeds' );
 	$assert( 1 === count( $GLOBALS['ssi_transformer_adapter_artifact_compiler_calls'] ), 'plugin-artifact-helper-called' );
 	$assert( true === ( $GLOBALS['ssi_transformer_adapter_artifact_compiler_calls'][0][1]['include_conversion_report'] ?? false ), 'compile-options-forwarded-as-native-report-request' );
@@ -277,12 +334,27 @@ namespace {
 	$assert( 'home-canonical' === ( $pages[0]['slug'] ?? '' ), 'native-entry-slug-from-materialization-plan' );
 	$assert( 'legacy-home' !== ( $pages[0]['slug'] ?? '' ), 'legacy-mapping-does-not-override-native-materialization-plan' );
 	$assert( true === ( $pages[0]['entrypoint'] ?? false ), 'native-entrypoint' );
+	$assert( 'front-page' === ( $pages[0]['route_key'] ?? '' ), 'native-entry-route-key-from-materialization-plan' );
+	$assert( '/' === ( $pages[0]['permalink'] ?? '' ), 'native-entry-permalink-from-materialization-plan' );
 	$assert( 'about-canonical' === ( $pages[2]['slug'] ?? '' ), 'native-route-slug-from-materialization-plan' );
+	$assert( 3 === count( $routes ), 'native-routes-are-exposed-to-importer-report' );
+	$assert( '/menu/' === ( $routes[1]['permalink'] ?? '' ), 'native-route-permalink-is-used' );
+	$assert( '/legacy-home/' !== ( $routes[0]['permalink'] ?? '' ), 'compiled-site-route-does-not-override-materialization-plan-route' );
+	$assert( 3 === count( $navigation_items ), 'native-navigation-items-are-exposed-to-importer-report' );
+	$assert( 'Shop' === ( $navigation_items[2]['label'] ?? '' ), 'native-navigation-product-link-is-preserved' );
+	$assert( 'Legacy Menu' !== ( $navigation_items[0]['label'] ?? '' ), 'compiled-site-navigation-does-not-override-materialization-plan-navigation' );
 	$assert( 1 === count( $documents ), 'native-documents-preserve-transformer-documents-without-compiled-site-synthesis' );
 	$assert( 'content/about.md' === ( $documents[0]['source_path'] ?? '' ), 'native-document-from-transformer-documents' );
 	$assert( 'legacy/about.html' !== ( $documents[0]['source_path'] ?? '' ), 'legacy-mapping-does-not-override-native-documents' );
 	$assert( 'assets/native-site.css' === ( $artifacts['files'][0]['path'] ?? '' ), 'native-materialization-plan-assets-drive-artifact-files' );
+	$assert( 'body { color: black; }' === ( $artifacts['files'][0]['content'] ?? '' ), 'native-materialization-plan-asset-payload-is-preserved' );
 	$assert( 'assets/legacy-site.css' !== ( $artifacts['files'][0]['path'] ?? '' ), 'legacy-assets-do-not-override-native-materialization-plan-assets' );
+	$assert( 'assets/stale-compiled-site.css' !== ( $artifacts['files'][0]['path'] ?? '' ), 'compiled-site-assets-do-not-override-native-materialization-plan-assets' );
+	$assert( 2 === count( $template_parts ), 'native-template-parts-are-exposed-to-importer-report' );
+	$assert( 'parts/header.html' === ( $template_parts[0]['path'] ?? '' ), 'native-template-part-path-is-used' );
+	$assert( 'parts/legacy-header.html' !== ( $template_parts[0]['path'] ?? '' ), 'compiled-site-template-part-does-not-override-materialization-plan-template-part' );
+	$assert( '.native-repair{display:grid}' === ( $visual_repair['css'][0]['content'] ?? '' ), 'native-visual-repair-css-is-exposed-to-importer-report' );
+	$assert( '.legacy-repair{display:block}' !== ( $visual_repair['css'][0]['content'] ?? '' ), 'compiled-site-visual-repair-does-not-override-materialization-plan-visual-repair' );
 	$assert( 'rye-loaf-canonical' === ( $products[0]['slug'] ?? '' ), 'native-product-slug-mapped-from-generic-report' );
 	$assert( '12.00' === ( $products[0]['regular_price'] ?? '' ), 'native-product-price-normalized-from-generic-report' );
 	$assert( array( 'Bread' ) === ( $products[0]['categories'] ?? array() ), 'native-product-categories-mapped-from-generic-report' );
