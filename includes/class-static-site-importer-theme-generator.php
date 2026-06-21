@@ -1040,7 +1040,7 @@ class Static_Site_Importer_Theme_Generator {
 		$site      = isset( $artifacts['site'] ) && is_array( $artifacts['site'] ) ? $artifacts['site'] : array();
 		if ( ! empty( $site['pages'] ) && is_array( $site['pages'] ) ) {
 			if ( 'blocks-engine/php-transformer/materialization-plan/v1' === (string) ( $site['schema'] ?? '' ) ) {
-				return self::source_pages_from_materialization_plan_pages( $site['pages'] );
+				return self::source_pages_from_materialization_plan( $site );
 			}
 
 			if ( ! in_array( (string) ( $site['schema'] ?? '' ), array( 'block-artifact-compiler/compiled-site/v1', 'blocks-engine/php-transformer/compiled-site/v1' ), true ) ) {
@@ -1074,14 +1074,25 @@ class Static_Site_Importer_Theme_Generator {
 	/**
 	 * Build source pages directly from Blocks Engine materialization-plan page rows.
 	 *
-	 * @param array<int,mixed> $site_pages Materialization-plan page rows.
+	 * @param array<string,mixed> $site Materialization-plan site report.
 	 * @return array<string, Static_Site_Importer_Source_Page>|WP_Error
 	 */
-	private static function source_pages_from_materialization_plan_pages( array $site_pages ) {
+	private static function source_pages_from_materialization_plan( array $site ) {
+		$site_pages = isset( $site['pages'] ) && is_array( $site['pages'] ) ? $site['pages'] : array();
+		$routes     = self::materialization_plan_routes_by_source_path( $site );
+		if ( is_wp_error( $routes ) ) {
+			return $routes;
+		}
+
 		$pages = array();
 		foreach ( $site_pages as $page_row ) {
 			if ( ! is_array( $page_row ) ) {
 				continue;
+			}
+
+			$source_path = isset( $page_row['source_path'] ) && is_scalar( $page_row['source_path'] ) ? self::normalize_route_path( (string) $page_row['source_path'] ) : '';
+			if ( '' !== $source_path && isset( $routes[ $source_path ] ) ) {
+				$page_row = array_merge( $page_row, $routes[ $source_path ] );
 			}
 
 			$page = Static_Site_Importer_Source_Page::from_materialization_plan_page( $page_row );
@@ -1093,6 +1104,56 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return $pages;
+	}
+
+	/**
+	 * Normalize native materialization-plan route rows by source path.
+	 *
+	 * @param array<string,mixed> $site Materialization-plan site report.
+	 * @return array<string,array<string,mixed>>|WP_Error Route rows keyed by normalized source path.
+	 */
+	private static function materialization_plan_routes_by_source_path( array $site ) {
+		if ( ! array_key_exists( 'routes', $site ) ) {
+			return array();
+		}
+
+		if ( ! is_array( $site['routes'] ) ) {
+			return new WP_Error( 'static_site_importer_materialization_plan_routes_invalid', 'Blocks Engine materialization_plan.routes must be an array.' );
+		}
+
+		$routes = array();
+		foreach ( $site['routes'] as $route ) {
+			if ( ! is_array( $route ) ) {
+				return new WP_Error( 'static_site_importer_materialization_plan_route_invalid', 'Blocks Engine materialization-plan route entries must be arrays.' );
+			}
+
+			$source_path = isset( $route['source_path'] ) && is_scalar( $route['source_path'] ) ? self::normalize_route_path( (string) $route['source_path'] ) : '';
+			if ( '' === $source_path ) {
+				return new WP_Error( 'static_site_importer_materialization_plan_route_missing_source', 'Blocks Engine materialization-plan route is missing source_path.' );
+			}
+
+			$normalized = array();
+			foreach ( array( 'slug', 'title', 'post_type', 'status', 'entrypoint', 'body_format' ) as $key ) {
+				if ( isset( $route[ $key ] ) && is_scalar( $route[ $key ] ) && '' !== trim( (string) $route[ $key ] ) ) {
+					$normalized[ $key ] = (string) $route[ $key ];
+				}
+			}
+
+			if ( isset( $route['route_key'] ) && is_scalar( $route['route_key'] ) && '' !== trim( (string) $route['route_key'] ) ) {
+				$normalized['route_key'] = (string) $route['route_key'];
+			}
+			if ( isset( $route['path'] ) && is_scalar( $route['path'] ) && '' !== trim( (string) $route['path'] ) ) {
+				$normalized['route_path'] = self::normalize_route_path( (string) $route['path'] );
+			}
+
+			if ( isset( $route['metadata'] ) && is_array( $route['metadata'] ) ) {
+				$normalized['metadata'] = $route['metadata'];
+			}
+
+			$routes[ $source_path ] = $normalized;
+		}
+
+		return $routes;
 	}
 
 	/**
