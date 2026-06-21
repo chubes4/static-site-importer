@@ -125,6 +125,22 @@ namespace {
 							array( 'blockName' => 'core/paragraph', 'innerBlocks' => array() ),
 						),
 						'serialized_blocks' => '<!-- wp:paragraph --><p>Home</p><!-- /wp:paragraph -->',
+						'conversion_report' => array(
+							'status'            => 'success',
+							'serialized_blocks' => '<!-- wp:paragraph --><p>Native report Home</p><!-- /wp:paragraph -->',
+							'diagnostics'       => array(
+								array(
+									'code'    => 'native_report_diagnostic',
+									'message' => 'Native conversion report diagnostic.',
+								),
+							),
+							'fallbacks'         => array(
+								array(
+									'source' => 'native-conversion-report',
+									'count'  => 0,
+								),
+							),
+						),
 						'documents'         => array(
 							array(
 								'source_path'  => 'content/about.md',
@@ -234,8 +250,9 @@ namespace {
 	$assert( ! array_key_exists( 'include_bfb_report', $GLOBALS['ssi_transformer_adapter_artifact_compiler_calls'][0][1] ?? array() ), 'legacy-bfb-option-is-isolated' );
 	$assert( 'block-artifact-compiler/result/v1' === ( $compiled['schema'] ?? '' ), 'native-result-mapped-to-bac-envelope' );
 	$assert( 'success' === ( $compiled['bfb_report']['status'] ?? '' ), 'legacy-bfb-report-shape-preserved' );
-	$assert( '<!-- wp:paragraph --><p>Home</p><!-- /wp:paragraph -->' === ( $compiled['bfb_report']['serialized_blocks'] ?? '' ), 'legacy-bfb-report-uses-native-serialized-blocks' );
-	$assert( array() === ( $compiled['bfb_report']['fallbacks'] ?? null ), 'legacy-bfb-report-uses-native-fallbacks' );
+	$assert( '<!-- wp:paragraph --><p>Native report Home</p><!-- /wp:paragraph -->' === ( $compiled['bfb_report']['serialized_blocks'] ?? '' ), 'legacy-bfb-report-uses-native-report-serialized-blocks' );
+	$assert( 'native_report_diagnostic' === ( $compiled['bfb_report']['diagnostics'][0]['code'] ?? '' ), 'legacy-bfb-report-uses-native-report-diagnostics' );
+	$assert( 'native-conversion-report' === ( $compiled['bfb_report']['fallbacks'][0]['source'] ?? '' ), 'legacy-bfb-report-uses-native-report-fallbacks' );
 	$assert( 'website/index.html' === ( $compiled['input']['entry_path'] ?? '' ), 'native-artifact-report-preserved-as-input' );
 	$assert( 'blocks-engine/php-transformer/materialization-plan/v1' === ( $site['schema'] ?? '' ), 'native-materialization-plan-contract-is-used' );
 	$assert( 4 === count( $pages ), 'native-keeps-compiled-site-pages-without-adapter-filtering' );
