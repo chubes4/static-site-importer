@@ -313,6 +313,13 @@ class Static_Site_Importer_Theme_Materializer {
 		}
 
 		if ( null === $template_parts ) {
+			$template_parts = self::navigation_template_parts_from_materialization_plan( $artifacts );
+			if ( is_wp_error( $template_parts ) ) {
+				return $template_parts;
+			}
+		}
+
+		if ( null === $template_parts ) {
 			$template_parts = isset( $artifacts['template_parts'] ) && is_array( $artifacts['template_parts'] ) ? $artifacts['template_parts'] : array();
 		}
 
@@ -390,6 +397,55 @@ class Static_Site_Importer_Theme_Materializer {
 					'slug'         => isset( $write['slug'] ) && is_scalar( $write['slug'] ) ? (string) $write['slug'] : '',
 					'title'        => isset( $write['title'] ) && is_scalar( $write['title'] ) ? (string) $write['title'] : '',
 					'area'         => isset( $write['area'] ) && is_scalar( $write['area'] ) ? (string) $write['area'] : '',
+					'block_markup' => $content,
+				),
+				static fn ( string $value ): bool => '' !== $value
+			);
+		}
+
+		return $template_parts;
+	}
+
+	/**
+	 * Read native navigation rows from a Blocks Engine materialization plan.
+	 *
+	 * @param array<string,mixed> $artifacts WordPress artifacts from the transformer adapter.
+	 * @return array<int,array<string,mixed>>|null|WP_Error Navigation-backed template parts, null when no rows exist.
+	 */
+	private static function navigation_template_parts_from_materialization_plan( array $artifacts ) {
+		$site = isset( $artifacts['site'] ) && is_array( $artifacts['site'] ) ? $artifacts['site'] : array();
+		if ( 'blocks-engine/php-transformer/materialization-plan/v1' !== (string) ( $site['schema'] ?? '' ) || ! array_key_exists( 'navigation', $site ) ) {
+			return null;
+		}
+
+		if ( ! is_array( $site['navigation'] ) ) {
+			return new WP_Error( 'static_site_importer_materialization_plan_navigation_invalid', 'Blocks Engine materialization_plan.navigation must be an array.' );
+		}
+
+		$template_parts = array();
+		foreach ( $site['navigation'] as $navigation ) {
+			if ( ! is_array( $navigation ) ) {
+				return new WP_Error( 'static_site_importer_materialization_plan_navigation_row_invalid', 'Blocks Engine materialization-plan navigation entries must be arrays.' );
+			}
+
+			$content = '';
+			foreach ( array( 'block_markup', 'content' ) as $key ) {
+				if ( isset( $navigation[ $key ] ) && is_scalar( $navigation[ $key ] ) && '' !== trim( (string) $navigation[ $key ] ) ) {
+					$content = (string) $navigation[ $key ];
+					break;
+				}
+			}
+
+			if ( '' === trim( $content ) ) {
+				return new WP_Error( 'static_site_importer_materialization_plan_navigation_content_missing', 'Blocks Engine navigation rows must include non-empty block_markup or content.' );
+			}
+
+			$template_parts[] = array_filter(
+				array(
+					'source_path'  => isset( $navigation['source_path'] ) && is_scalar( $navigation['source_path'] ) ? (string) $navigation['source_path'] : '',
+					'slug'         => isset( $navigation['slug'] ) && in_array( sanitize_key( (string) $navigation['slug'] ), array( 'header', 'footer' ), true ) ? sanitize_key( (string) $navigation['slug'] ) : 'header',
+					'title'        => isset( $navigation['title'] ) && is_scalar( $navigation['title'] ) ? (string) $navigation['title'] : 'Navigation',
+					'area'         => isset( $navigation['area'] ) && in_array( sanitize_key( (string) $navigation['area'] ), array( 'header', 'footer' ), true ) ? sanitize_key( (string) $navigation['area'] ) : 'header',
 					'block_markup' => $content,
 				),
 				static fn ( string $value ): bool => '' !== $value

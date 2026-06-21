@@ -175,6 +175,43 @@ $assert( str_contains( (string) ( $template_part_writes['/tmp/bac-visual-repair-
 $assert( ! str_contains( (string) ( $template_part_writes['/tmp/bac-visual-repair-smoke/parts/header.html'] ?? '' ), 'Legacy Header' ), 'legacy-template-part-is-ignored-when-plan-writes-exist' );
 $assert( array( 'parts/header.html' ) === ( $template_part_reports[0]['source_paths'] ?? array() ), 'materialization-plan-template-part-source-path-is-reported' );
 
+$navigation_part_result = Static_Site_Importer_Theme_Materializer::template_part_artifact_writes(
+	'/tmp/bac-visual-repair-smoke',
+	array(
+		'site' => array(
+			'schema'     => 'blocks-engine/php-transformer/materialization-plan/v1',
+			'navigation' => array(
+				array(
+					'source_path'  => 'website/index.html#main-nav',
+					'title'        => 'Main Navigation',
+					'block_markup' => '<!-- wp:navigation --><!-- wp:navigation-link {"label":"About","url":"/about/"} /--><!-- /wp:navigation -->',
+				),
+			),
+		),
+	)
+);
+$assert( is_array( $navigation_part_result ), 'materialization-plan-navigation-rows-succeed' );
+$navigation_part_writes = is_array( $navigation_part_result ) ? $navigation_part_result['writes'] : array();
+$navigation_part_reports = is_array( $navigation_part_result ) ? $navigation_part_result['reports'] : array();
+$assert( str_contains( (string) ( $navigation_part_writes['/tmp/bac-visual-repair-smoke/parts/header.html'] ?? '' ), 'wp:navigation-link' ), 'materialization-plan-navigation-row-is-used-for-header' );
+$assert( array( 'website/index.html#main-nav' ) === ( $navigation_part_reports[0]['source_paths'] ?? array() ), 'materialization-plan-navigation-source-path-is-reported' );
+
+$missing_navigation_content = Static_Site_Importer_Theme_Materializer::template_part_artifact_writes(
+	'/tmp/bac-visual-repair-smoke',
+	array(
+		'site' => array(
+			'schema'     => 'blocks-engine/php-transformer/materialization-plan/v1',
+			'navigation' => array(
+				array(
+					'source_path' => 'website/index.html#main-nav',
+				),
+			),
+		),
+	)
+);
+$assert( $missing_navigation_content instanceof WP_Error, 'materialization-plan-navigation-content-is-required' );
+$assert( 'static_site_importer_materialization_plan_navigation_content_missing' === ( $missing_navigation_content instanceof WP_Error ? $missing_navigation_content->get_error_code() : '' ), 'materialization-plan-navigation-content-error-code' );
+
 $missing_content = Static_Site_Importer_Theme_Materializer::template_part_artifact_writes(
 	'/tmp/bac-visual-repair-smoke',
 	array(
@@ -203,10 +240,20 @@ $native_pages = $source_pages->invoke(
 					array(
 						'source_path'  => 'website/index.html',
 						'post_type'    => 'page',
-						'slug'         => 'home-canonical',
-						'title'        => 'Home Canonical',
+						'slug'         => 'legacy-plan-page-slug',
+						'title'        => 'Legacy Plan Page Title',
 						'entrypoint'   => true,
 						'block_markup' => '<!-- wp:paragraph --><p>Native page</p><!-- /wp:paragraph -->',
+					),
+				),
+				'routes' => array(
+					array(
+						'source_path' => 'website/index.html',
+						'path'        => '/',
+						'route_key'   => 'home-route',
+						'post_type'   => 'page',
+						'slug'        => 'home-canonical',
+						'title'       => 'Home Canonical',
 					),
 				),
 			),
@@ -225,8 +272,31 @@ $assert( is_array( $native_pages ), 'materialization-plan-pages-create-source-pa
 $native_page = is_array( $native_pages ) ? ( $native_pages['website/index.html'] ?? null ) : null;
 $assert( $native_page instanceof Static_Site_Importer_Source_Page, 'materialization-plan-page-source-key-is-used' );
 $assert( $native_page instanceof Static_Site_Importer_Source_Page && 'materialization_plan_page' === $native_page->type(), 'materialization-plan-page-type-is-native' );
-$assert( $native_page instanceof Static_Site_Importer_Source_Page && 'home-canonical' === $native_page->metadata_value( 'slug' ), 'materialization-plan-page-slug-wins-over-legacy-document' );
+$assert( $native_page instanceof Static_Site_Importer_Source_Page && 'home-canonical' === $native_page->metadata_value( 'slug' ), 'materialization-plan-route-slug-wins-over-page-and-legacy-document' );
+$assert( $native_page instanceof Static_Site_Importer_Source_Page && 'Home Canonical' === $native_page->metadata_value( 'title' ), 'materialization-plan-route-title-wins-over-page-and-legacy-document' );
+$assert( $native_page instanceof Static_Site_Importer_Source_Page && 'home-route' === $native_page->metadata_value( 'route_key' ), 'materialization-plan-route-key-is-preserved' );
 $assert( $native_page instanceof Static_Site_Importer_Source_Page && str_contains( $native_page->body(), 'Native page' ), 'materialization-plan-page-body-wins-over-legacy-document' );
+
+$malformed_routes = $source_pages->invoke(
+	null,
+	array(
+		'wordpress_artifacts' => array(
+			'site' => array(
+				'schema' => 'blocks-engine/php-transformer/materialization-plan/v1',
+				'pages'  => array(
+					array(
+						'source_path'  => 'website/index.html',
+						'slug'         => 'home',
+						'block_markup' => '<!-- wp:paragraph --><p>Home</p><!-- /wp:paragraph -->',
+					),
+				),
+				'routes' => array( 'not-a-route-row' ),
+			),
+		),
+	)
+);
+$assert( $malformed_routes instanceof WP_Error, 'materialization-plan-route-row-must-be-array' );
+$assert( 'static_site_importer_materialization_plan_route_invalid' === ( $malformed_routes instanceof WP_Error ? $malformed_routes->get_error_code() : '' ), 'materialization-plan-route-row-error-code' );
 
 $missing_page_content = $source_pages->invoke(
 	null,
