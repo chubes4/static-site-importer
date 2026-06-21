@@ -218,8 +218,12 @@ namespace {
 	$products  = $compiled['products_manifest'] ?? array();
 	$assert( ! is_wp_error( $compiled ), 'native-compile-succeeds' );
 	$assert( 1 === count( $GLOBALS['ssi_transformer_adapter_artifact_compiler_calls'] ), 'plugin-artifact-helper-called' );
-	$assert( true === ( $GLOBALS['ssi_transformer_adapter_artifact_compiler_calls'][0][1]['include_bfb_report'] ?? false ), 'compile-options-forwarded' );
+	$assert( true === ( $GLOBALS['ssi_transformer_adapter_artifact_compiler_calls'][0][1]['include_conversion_report'] ?? false ), 'compile-options-forwarded-as-native-report-request' );
+	$assert( ! array_key_exists( 'include_bfb_report', $GLOBALS['ssi_transformer_adapter_artifact_compiler_calls'][0][1] ?? array() ), 'legacy-bfb-option-is-isolated' );
 	$assert( 'block-artifact-compiler/result/v1' === ( $compiled['schema'] ?? '' ), 'native-result-mapped-to-bac-envelope' );
+	$assert( 'success' === ( $compiled['bfb_report']['status'] ?? '' ), 'legacy-bfb-report-shape-preserved' );
+	$assert( '<!-- wp:paragraph --><p>Home</p><!-- /wp:paragraph -->' === ( $compiled['bfb_report']['serialized_blocks'] ?? '' ), 'legacy-bfb-report-uses-native-serialized-blocks' );
+	$assert( array() === ( $compiled['bfb_report']['fallbacks'] ?? null ), 'legacy-bfb-report-uses-native-fallbacks' );
 	$assert( 'website/index.html' === ( $compiled['input']['entry_path'] ?? '' ), 'native-artifact-report-preserved-as-input' );
 	$assert( 'blocks-engine/php-transformer/materialization-plan/v1' === ( $site['schema'] ?? '' ), 'native-materialization-plan-contract-is-used' );
 	$assert( 4 === count( $pages ), 'native-keeps-compiled-site-pages-without-adapter-filtering' );

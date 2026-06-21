@@ -16,6 +16,8 @@ class Static_Site_Importer_Transformer_Adapter {
 
 	public const WEBSITE_ARTIFACT_SCHEMA = 'block-artifact-compiler/website-artifact/v1';
 	public const COMPILED_RESULT_SCHEMA  = 'block-artifact-compiler/result/v1';
+	private const CONVERSION_REPORT_OPTION = 'include_conversion_report';
+	private const LEGACY_BFB_REPORT_OPTION = 'include_bfb_report';
 
 	/**
 	 * Check whether the default Blocks Engine artifact compiler is available.
@@ -47,6 +49,7 @@ class Static_Site_Importer_Transformer_Adapter {
 			return new WP_Error( 'static_site_importer_missing_transformer', 'Blocks Engine php-transformer is required to import a website artifact.' );
 		}
 
+		$options = $this->normalize_compile_options( $options );
 		$result = blocks_engine_php_transformer_compile_artifact( $artifact, $options );
 
 		if ( is_array( $result ) ) {
@@ -124,7 +127,41 @@ class Static_Site_Importer_Transformer_Adapter {
 			'provenance'          => isset( $result['provenance'] ) && is_array( $result['provenance'] ) ? $result['provenance'] : array(),
 		);
 
+		$compiled['bfb_report'] = $this->legacy_bfb_report_from_transformer_result( $result );
+
 		return $compiled;
+	}
+
+	/**
+	 * Normalize SSI compile options before calling the Blocks Engine helper.
+	 *
+	 * @param array<string,mixed> $options Caller-provided compile options.
+	 * @return array<string,mixed>
+	 */
+	private function normalize_compile_options( array $options ): array {
+		$include_report = ! empty( $options[ self::CONVERSION_REPORT_OPTION ] ) || ! empty( $options[ self::LEGACY_BFB_REPORT_OPTION ] );
+		unset( $options[ self::LEGACY_BFB_REPORT_OPTION ] );
+
+		if ( $include_report ) {
+			$options[ self::CONVERSION_REPORT_OPTION ] = true;
+		}
+
+		return $options;
+	}
+
+	/**
+	 * Preserve SSI's legacy BFB report field from the native Blocks Engine result.
+	 *
+	 * @param array<string,mixed> $result TransformerResult::toArray() output.
+	 * @return array<string,mixed>
+	 */
+	private function legacy_bfb_report_from_transformer_result( array $result ): array {
+		return array(
+			'status'            => isset( $result['status'] ) && is_scalar( $result['status'] ) ? (string) $result['status'] : 'failed',
+			'serialized_blocks' => isset( $result['serialized_blocks'] ) && is_scalar( $result['serialized_blocks'] ) ? (string) $result['serialized_blocks'] : '',
+			'diagnostics'       => isset( $result['diagnostics'] ) && is_array( $result['diagnostics'] ) ? $result['diagnostics'] : array(),
+			'fallbacks'         => isset( $result['fallbacks'] ) && is_array( $result['fallbacks'] ) ? $result['fallbacks'] : array(),
+		);
 	}
 
 	/**
