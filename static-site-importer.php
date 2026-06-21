@@ -40,6 +40,8 @@ require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-th
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-theme-generator.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/abilities.php';
 
+Static_Site_Importer_Codebox_Validation::register_default_provider();
+
 if ( defined( 'WP_CLI' ) && WP_CLI && class_exists( 'WP_CLI' ) ) {
 	WP_CLI::add_command(
 		'static-site-importer validate-in-codebox',

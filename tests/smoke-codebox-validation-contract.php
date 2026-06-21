@@ -11,8 +11,13 @@
 namespace {
 	$GLOBALS['static_site_importer_test_filters'] = array();
 
-	function add_filter( string $hook_name, callable $callback ): void {
+	function add_filter( string $hook_name, callable $callback, int $priority = 10, int $accepted_args = 1 ): void {
+		unset( $priority, $accepted_args );
 		$GLOBALS['static_site_importer_test_filters'][ $hook_name ][] = $callback;
+	}
+
+	function has_filter( string $hook_name ): bool {
+		return ! empty( $GLOBALS['static_site_importer_test_filters'][ $hook_name ] );
 	}
 
 	function apply_filters( string $hook_name, $value, ...$args ) {
@@ -73,6 +78,7 @@ namespace {
 	}
 
 	require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-codebox-validation.php';
+	Static_Site_Importer_Codebox_Validation::register_default_provider();
 
 	$failures   = array();
 	$assertions = 0;
@@ -96,6 +102,44 @@ namespace {
 	$assert( 'static-site-importer/codebox-validation-result/v1' === ( $blocked['schema'] ?? '' ), 'result-schema' );
 	$assert( 'static-site-importer/codebox-validation-artifacts/v1' === ( $blocked['artifacts']['schema'] ?? '' ), 'artifact-schema' );
 	$assert( ! empty( $blocked['upstream_gaps'][0]['needed_shape'] ), 'upstream-gap-is-concrete' );
+
+	add_filter(
+		'wp_codebox_host_delegation_request',
+		static function ( $result, array $request ): array {
+			unset( $result );
+
+			return array(
+				'success'    => true,
+				'schema'     => 'wp-codebox/host-delegation-result/v1',
+				'status'     => 'completed',
+				'request_id' => (string) ( $request['request_id'] ?? '' ),
+				'provider'   => 'test-homeboy',
+				'result'     => array(
+					'summary'   => array( 'quality_pass' => true ),
+					'artifacts' => array(
+						'import_report'           => array( 'artifact_ref' => 'hb-run://456/import-report.json' ),
+						'block_validation_result' => array( 'artifact_ref' => 'hb-run://456/block-validation.json' ),
+						'browser_render_evidence' => array( 'artifact_ref' => 'hb-run://456/browser-render.json' ),
+					),
+				),
+			);
+		},
+		10,
+		2
+	);
+
+	$delegated = Static_Site_Importer_Codebox_Validation::validate(
+		array(
+			'artifact' => array( 'schema' => 'blocks-engine/php-transformer/site-artifact/v1' ),
+			'name'     => 'Delegated Fixture Import',
+		)
+	);
+
+	$assert( true === ( $delegated['success'] ?? false ), 'delegated-provider-success' );
+	$assert( 'succeeded' === ( $delegated['status'] ?? '' ), 'delegated-provider-status' );
+	$assert( 'test-homeboy' === ( $delegated['runtime']['provider'] ?? '' ), 'delegated-runtime-provider' );
+	$assert( 'completed' === ( $delegated['runtime']['host_delegation_status'] ?? '' ), 'delegated-host-status' );
+	$assert( 'hb-run://456/import-report.json' === ( $delegated['artifacts']['import_report']['artifact_ref'] ?? '' ), 'delegated-import-report-ref' );
 
 	add_filter(
 		'static_site_importer_codebox_validation_result',
