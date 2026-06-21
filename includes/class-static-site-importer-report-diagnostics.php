@@ -166,7 +166,7 @@ class Static_Site_Importer_Report_Diagnostics {
 			$report['blocks_engine']['compiled_site'] = self::compiled_site_report_payload( $site );
 		}
 		if ( 'blocks-engine/php-transformer/materialization-plan/v1' === (string) ( $site['schema'] ?? '' ) ) {
-			$report['block_artifact_compiler']['materialization_plan'] = self::compiled_site_report_payload( $site );
+			$report['blocks_engine']['materialization_plan'] = self::compiled_site_report_payload( $site );
 		}
 	}
 
@@ -203,7 +203,7 @@ class Static_Site_Importer_Report_Diagnostics {
 		$report['diagnostics'][] = array(
 			'type'        => 'website_artifact_materialization_contract_note',
 			'source'      => '' !== $source ? $source : 'website_artifact',
-			'message'     => 'Direct materialization consumed block_markup, documents, files, and compiled-site artifacts. Static Site Importer owns WordPress writes and product seeding while Blocks Engine owns materializer-neutral site/theme compilation.',
+			'message'     => 'Direct materialization consumed block_markup, documents, files, and materialization-plan artifacts. Static Site Importer owns WordPress writes and product seeding while Blocks Engine owns materializer-neutral site/theme compilation.',
 			'contract'    => 'block-artifact-compiler/result/v1',
 			'constraints' => 'report_only',
 		);
