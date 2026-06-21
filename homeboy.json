@@ -2,7 +2,20 @@
   "auto_cleanup": false,
   "changelog_target": "docs/CHANGELOG.md",
   "extensions": {
-    "wordpress": {}
+    "wordpress": {
+      "settings": {
+        "validation_dependencies": [
+          {
+            "type": "github",
+            "repo": "Automattic/blocks-engine",
+            "ref": "trunk",
+            "plugin_slug": "blocks-engine-php-transformer",
+            "package_path": "php-transformer",
+            "activate": true
+          }
+        ]
+      }
+    }
   },
   "id": "static-site-importer",
   "remote_path": "wp-content/plugins/static-site-importer",
