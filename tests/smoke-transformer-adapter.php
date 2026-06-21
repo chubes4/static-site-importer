@@ -114,7 +114,12 @@ namespace {
 									),
 								),
 								'assets'      => array(
-									array( 'path' => 'assets/site.css', 'role' => 'stylesheet' ),
+									array(
+										'path'    => 'assets/native-site.css',
+										'role'    => 'stylesheet',
+										'kind'    => 'css',
+										'content' => 'body { color: black; }',
+									),
 								),
 								'theme'       => array(
 									'stylesheets' => array( 'assets/site.css' ),
@@ -150,7 +155,7 @@ namespace {
 							),
 						),
 						'assets'            => array(
-							array( 'path' => 'assets/site.css', 'role' => 'stylesheet' ),
+							array( 'path' => 'assets/legacy-site.css', 'role' => 'stylesheet' ),
 						),
 						'diagnostics'       => array(
 							array(
@@ -276,7 +281,8 @@ namespace {
 	$assert( 1 === count( $documents ), 'native-documents-preserve-transformer-documents-without-compiled-site-synthesis' );
 	$assert( 'content/about.md' === ( $documents[0]['source_path'] ?? '' ), 'native-document-from-transformer-documents' );
 	$assert( 'legacy/about.html' !== ( $documents[0]['source_path'] ?? '' ), 'legacy-mapping-does-not-override-native-documents' );
-	$assert( 'assets/site.css' === ( $artifacts['files'][0]['path'] ?? '' ), 'native-assets-report-preserved' );
+	$assert( 'assets/native-site.css' === ( $artifacts['files'][0]['path'] ?? '' ), 'native-materialization-plan-assets-drive-artifact-files' );
+	$assert( 'assets/legacy-site.css' !== ( $artifacts['files'][0]['path'] ?? '' ), 'legacy-assets-do-not-override-native-materialization-plan-assets' );
 	$assert( 'rye-loaf-canonical' === ( $products[0]['slug'] ?? '' ), 'native-product-slug-mapped-from-generic-report' );
 	$assert( '12.00' === ( $products[0]['regular_price'] ?? '' ), 'native-product-price-normalized-from-generic-report' );
 	$assert( array( 'Bread' ) === ( $products[0]['categories'] ?? array() ), 'native-product-categories-mapped-from-generic-report' );

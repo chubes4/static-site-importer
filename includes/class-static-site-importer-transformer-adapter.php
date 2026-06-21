@@ -86,6 +86,7 @@ class Static_Site_Importer_Transformer_Adapter {
 
 		$artifacts['document_metadata'] = $this->document_metadata_from_compiled_site( $site_report );
 		$artifacts['documents']         = isset( $result['documents'] ) && is_array( $result['documents'] ) ? $result['documents'] : array();
+		$artifacts['files']             = $this->artifact_files_from_site_report( $site_report, $result );
 		$artifacts['site']              = $site_report;
 		$artifacts['template_parts']    = isset( $site_report['template_parts'] ) && is_array( $site_report['template_parts'] ) ? $site_report['template_parts'] : array();
 		$artifacts['visual_repair']     = isset( $site_report['visual_repair'] ) && is_array( $site_report['visual_repair'] ) ? $site_report['visual_repair'] : array();
@@ -193,6 +194,38 @@ class Static_Site_Importer_Transformer_Adapter {
 		}
 
 		return $projected;
+	}
+
+	/**
+	 * Prefer native materialization-plan asset payload rows for SSI's artifact file view.
+	 *
+	 * @param array<string,mixed> $site_report Native materialization plan or compiled-site report.
+	 * @param array<string,mixed> $result      Transformer result array.
+	 * @return array<int|string,mixed>
+	 */
+	private function artifact_files_from_site_report( array $site_report, array $result ): array {
+		$assets = isset( $site_report['assets'] ) && is_array( $site_report['assets'] ) ? $site_report['assets'] : array();
+		if ( 'blocks-engine/php-transformer/materialization-plan/v1' === (string) ( $site_report['schema'] ?? '' ) && $this->materialization_plan_assets_include_payloads( $assets ) ) {
+			return $assets;
+		}
+
+		return isset( $result['assets'] ) && is_array( $result['assets'] ) ? $result['assets'] : array();
+	}
+
+	/**
+	 * Check whether native materialization-plan asset rows can drive theme writes.
+	 *
+	 * @param array<int|string,mixed> $assets Blocks Engine materialization-plan asset rows.
+	 * @return bool
+	 */
+	private function materialization_plan_assets_include_payloads( array $assets ): bool {
+		foreach ( $assets as $asset ) {
+			if ( is_array( $asset ) && ( array_key_exists( 'content', $asset ) || array_key_exists( 'content_base64', $asset ) ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
