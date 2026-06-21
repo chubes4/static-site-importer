@@ -92,10 +92,15 @@ class Static_Site_Importer_Theme_Materializer {
 	 *
 	 * @param string              $theme_dir Theme directory.
 	 * @param string              $theme_uri Theme URI.
-	 * @param array<string,mixed> $artifacts WordPress artifacts from BAC.
+	 * @param array<string,mixed> $artifacts WordPress artifacts from Blocks Engine.
 	 * @return array{css:string,js:string,assets:array<string,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>}|WP_Error
 	 */
 	public static function materialize_website_artifact_files( string $theme_dir, string $theme_uri, array $artifacts ) {
+		$native_plan = self::materialize_materialization_plan_assets( $theme_dir, $theme_uri, $artifacts );
+		if ( is_wp_error( $native_plan ) || null !== $native_plan ) {
+			return $native_plan;
+		}
+
 		$files       = isset( $artifacts['files'] ) && is_array( $artifacts['files'] ) ? $artifacts['files'] : array();
 		$css         = array();
 		$js          = array();
@@ -114,7 +119,7 @@ class Static_Site_Importer_Theme_Materializer {
 					'source'  => 'website_artifact:files',
 					'reason'  => 'unsafe_artifact_path',
 					'path'    => isset( $file['path'] ) && is_scalar( $file['path'] ) ? (string) $file['path'] : '',
-					'message' => 'A BAC file artifact was skipped because its path is not safe to materialize inside the generated theme.',
+					'message' => 'A website artifact file was skipped because its path is not safe to materialize inside the generated theme.',
 				);
 				continue;
 			}
@@ -163,16 +168,155 @@ class Static_Site_Importer_Theme_Materializer {
 	}
 
 	/**
-	 * Normalize BAC template part artifacts into generated theme writes.
+	 * Write native Blocks Engine asset materialization rows when the plan carries payloads.
 	 *
 	 * @param string              $theme_dir Theme directory.
-	 * @param array<string,mixed> $artifacts WordPress artifacts from BAC.
+	 * @param string              $theme_uri Theme URI.
+	 * @param array<string,mixed> $artifacts WordPress artifacts from Blocks Engine.
+	 * @return array{css:string,js:string,assets:array<string,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>}|null|WP_Error
+	 */
+	private static function materialize_materialization_plan_assets( string $theme_dir, string $theme_uri, array $artifacts ) {
+		$site = isset( $artifacts['site'] ) && is_array( $artifacts['site'] ) ? $artifacts['site'] : array();
+		if ( 'blocks-engine/php-transformer/materialization-plan/v1' !== (string) ( $site['schema'] ?? '' ) || ! array_key_exists( 'assets', $site ) ) {
+			return null;
+		}
+
+		if ( ! is_array( $site['assets'] ) ) {
+			return new WP_Error( 'static_site_importer_materialization_plan_assets_invalid', 'Blocks Engine materialization_plan.assets must be an array.' );
+		}
+
+		if ( ! self::materialization_plan_assets_include_payloads( $site['assets'] ) ) {
+			return null;
+		}
+
+		$css         = array();
+		$js          = array();
+		$assets      = array();
+		$diagnostics = array();
+
+		foreach ( $site['assets'] as $asset ) {
+			if ( ! is_array( $asset ) ) {
+				return new WP_Error( 'static_site_importer_materialization_plan_asset_invalid', 'Blocks Engine materialization_plan.assets entries must be arrays.' );
+			}
+
+			$relative = self::normalize_artifact_materialization_path( isset( $asset['path'] ) && is_scalar( $asset['path'] ) ? (string) $asset['path'] : '' );
+			if ( '' === $relative ) {
+				return new WP_Error( 'static_site_importer_materialization_plan_asset_path_invalid', 'Blocks Engine materialization_plan.assets entries must include safe relative paths.' );
+			}
+
+			$content = self::materialization_plan_asset_content( $asset, $relative );
+			if ( is_wp_error( $content ) ) {
+				return $content;
+			}
+
+			$kind  = isset( $asset['kind'] ) && is_scalar( $asset['kind'] ) ? (string) $asset['kind'] : '';
+			$role  = isset( $asset['role'] ) && is_scalar( $asset['role'] ) ? (string) $asset['role'] : '';
+			$lower = strtolower( $relative );
+			if ( 'css' === $kind || 'stylesheet' === $role || str_ends_with( $lower, '.css' ) ) {
+				$css[] = trim( $content );
+				continue;
+			}
+			if ( 'js' === $kind || 'script' === $role || str_ends_with( $lower, '.js' ) ) {
+				$js[] = trim( $content );
+				continue;
+			}
+
+			$target_relative = 'assets/materialized/' . $relative;
+			$target          = trailingslashit( $theme_dir ) . $target_relative;
+			$dir             = dirname( $target );
+			if ( ! wp_mkdir_p( $dir ) ) {
+				return new WP_Error( 'static_site_importer_materialization_plan_asset_mkdir_failed', sprintf( 'Failed to create materialization-plan asset directory: %s', $dir ) );
+			}
+
+			$result = self::write_file( $target, $content );
+			if ( is_wp_error( $result ) ) {
+				return $result;
+			}
+
+			$mime_type = isset( $asset['mime_type'] ) && is_scalar( $asset['mime_type'] ) && '' !== (string) $asset['mime_type'] ? (string) $asset['mime_type'] : self::mime_type( $target );
+			$assets[ $relative ] = array(
+				'source'     => $relative,
+				'path'       => $relative,
+				'url'        => trailingslashit( $theme_uri ) . $target_relative,
+				'final_url'  => trailingslashit( $theme_uri ) . $target_relative,
+				'mime_type'  => $mime_type,
+				'theme_path' => $target_relative,
+				'policy'     => 'theme',
+				'origin'     => 'materialization_plan.assets',
+			);
+		}
+
+		return array(
+			'css'         => trim( implode( "\n\n", array_filter( $css ) ) ),
+			'js'          => trim( implode( "\n", array_filter( $js ) ) ),
+			'assets'      => $assets,
+			'diagnostics' => $diagnostics,
+		);
+	}
+
+	/**
+	 * Check whether native asset rows include write payloads.
+	 *
+	 * @param array<int,mixed> $assets Blocks Engine materialization-plan asset rows.
+	 * @return bool
+	 */
+	private static function materialization_plan_assets_include_payloads( array $assets ): bool {
+		foreach ( $assets as $asset ) {
+			if ( is_array( $asset ) && ( array_key_exists( 'content', $asset ) || array_key_exists( 'content_base64', $asset ) ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Decode a native materialization-plan asset payload.
+	 *
+	 * @param array<string,mixed> $asset    Blocks Engine asset row.
+	 * @param string              $relative Safe relative asset path.
+	 * @return string|WP_Error
+	 */
+	private static function materialization_plan_asset_content( array $asset, string $relative ) {
+		if ( isset( $asset['content_base64'] ) ) {
+			if ( ! is_scalar( $asset['content_base64'] ) ) {
+				return new WP_Error( 'static_site_importer_materialization_plan_asset_content_invalid', sprintf( 'Blocks Engine materialization_plan.assets content_base64 must be scalar: %s', $relative ) );
+			}
+
+			$base64  = preg_replace( '/\s+/', '', (string) $asset['content_base64'] ) ?? '';
+			$decoded = base64_decode( $base64, true );
+			if ( false === $decoded ) {
+				return new WP_Error( 'static_site_importer_materialization_plan_asset_base64_invalid', sprintf( 'Blocks Engine materialization_plan.assets content_base64 is not valid base64: %s', $relative ) );
+			}
+
+			return $decoded;
+		}
+
+		if ( isset( $asset['content'] ) && is_scalar( $asset['content'] ) ) {
+			return (string) $asset['content'];
+		}
+
+		return new WP_Error( 'static_site_importer_materialization_plan_asset_content_missing', sprintf( 'Blocks Engine materialization_plan.assets entries must include content or content_base64: %s', $relative ) );
+	}
+
+	/**
+	 * Normalize template part artifacts into generated theme writes.
+	 *
+	 * @param string              $theme_dir Theme directory.
+	 * @param array<string,mixed> $artifacts WordPress artifacts from Blocks Engine.
 	 * @return array{writes:array<string,string>,reports:array<int,array<string,mixed>>}|WP_Error Absolute write paths and report rows.
 	 */
 	public static function template_part_artifact_writes( string $theme_dir, array $artifacts ) {
 		$template_parts = self::template_part_artifacts_from_materialization_plan( $artifacts );
 		if ( is_wp_error( $template_parts ) ) {
 			return $template_parts;
+		}
+
+		if ( null === $template_parts ) {
+			$template_parts = self::navigation_template_parts_from_materialization_plan( $artifacts );
+			if ( is_wp_error( $template_parts ) ) {
+				return $template_parts;
+			}
 		}
 
 		if ( null === $template_parts ) {
@@ -183,21 +327,21 @@ class Static_Site_Importer_Theme_Materializer {
 		$reports = array();
 		foreach ( $template_parts as $template_part ) {
 			if ( ! is_array( $template_part ) ) {
-				return new WP_Error( 'static_site_importer_bac_template_part_invalid', 'BAC template part artifacts must be arrays.' );
+				return new WP_Error( 'static_site_importer_template_part_invalid', 'Template part artifacts must be arrays.' );
 			}
 
 			$relative = self::template_part_artifact_relative_path( $template_part );
 			if ( '' === $relative ) {
-				return new WP_Error( 'static_site_importer_bac_template_part_unsupported', 'BAC template part artifacts must resolve to a supported header or footer theme part.' );
+				return new WP_Error( 'static_site_importer_template_part_unsupported', 'Template part artifacts must resolve to a supported header or footer theme part.' );
 			}
 
 			if ( ! isset( $template_part['block_markup'] ) || ! is_scalar( $template_part['block_markup'] ) ) {
-				return new WP_Error( 'static_site_importer_bac_template_part_markup_missing', 'BAC template part artifacts must include serialized block_markup.' );
+				return new WP_Error( 'static_site_importer_template_part_markup_missing', 'Template part artifacts must include serialized block_markup.' );
 			}
 
 			$markup = (string) $template_part['block_markup'];
 			if ( '' === trim( $markup ) ) {
-				return new WP_Error( 'static_site_importer_bac_template_part_markup_empty', 'BAC template part block_markup must not be empty.' );
+				return new WP_Error( 'static_site_importer_template_part_markup_empty', 'Template part artifact block_markup must not be empty.' );
 			}
 
 			$writes[ trailingslashit( $theme_dir ) . $relative ] = $markup;
@@ -263,6 +407,55 @@ class Static_Site_Importer_Theme_Materializer {
 	}
 
 	/**
+	 * Read native navigation rows from a Blocks Engine materialization plan.
+	 *
+	 * @param array<string,mixed> $artifacts WordPress artifacts from the transformer adapter.
+	 * @return array<int,array<string,mixed>>|null|WP_Error Navigation-backed template parts, null when no rows exist.
+	 */
+	private static function navigation_template_parts_from_materialization_plan( array $artifacts ) {
+		$site = isset( $artifacts['site'] ) && is_array( $artifacts['site'] ) ? $artifacts['site'] : array();
+		if ( 'blocks-engine/php-transformer/materialization-plan/v1' !== (string) ( $site['schema'] ?? '' ) || ! array_key_exists( 'navigation', $site ) ) {
+			return null;
+		}
+
+		if ( ! is_array( $site['navigation'] ) ) {
+			return new WP_Error( 'static_site_importer_materialization_plan_navigation_invalid', 'Blocks Engine materialization_plan.navigation must be an array.' );
+		}
+
+		$template_parts = array();
+		foreach ( $site['navigation'] as $navigation ) {
+			if ( ! is_array( $navigation ) ) {
+				return new WP_Error( 'static_site_importer_materialization_plan_navigation_row_invalid', 'Blocks Engine materialization-plan navigation entries must be arrays.' );
+			}
+
+			$content = '';
+			foreach ( array( 'block_markup', 'content' ) as $key ) {
+				if ( isset( $navigation[ $key ] ) && is_scalar( $navigation[ $key ] ) && '' !== trim( (string) $navigation[ $key ] ) ) {
+					$content = (string) $navigation[ $key ];
+					break;
+				}
+			}
+
+			if ( '' === trim( $content ) ) {
+				return new WP_Error( 'static_site_importer_materialization_plan_navigation_content_missing', 'Blocks Engine navigation rows must include non-empty block_markup or content.' );
+			}
+
+			$template_parts[] = array_filter(
+				array(
+					'source_path'  => isset( $navigation['source_path'] ) && is_scalar( $navigation['source_path'] ) ? (string) $navigation['source_path'] : '',
+					'slug'         => isset( $navigation['slug'] ) && in_array( sanitize_key( (string) $navigation['slug'] ), array( 'header', 'footer' ), true ) ? sanitize_key( (string) $navigation['slug'] ) : 'header',
+					'title'        => isset( $navigation['title'] ) && is_scalar( $navigation['title'] ) ? (string) $navigation['title'] : 'Navigation',
+					'area'         => isset( $navigation['area'] ) && in_array( sanitize_key( (string) $navigation['area'] ), array( 'header', 'footer' ), true ) ? sanitize_key( (string) $navigation['area'] ) : 'header',
+					'block_markup' => $content,
+				),
+				static fn ( string $value ): bool => '' !== $value
+			);
+		}
+
+		return $template_parts;
+	}
+
+	/**
 	 * Normalize compiler file paths before writing them to a generated theme.
 	 *
 	 * @param string $path Artifact file path.
@@ -290,9 +483,9 @@ class Static_Site_Importer_Theme_Materializer {
 	}
 
 	/**
-	 * Resolve a BAC template part artifact to an SSI-supported theme part path.
+	 * Resolve a template part artifact to an SSI-supported theme part path.
 	 *
-	 * @param array<string,mixed> $template_part BAC template part artifact.
+	 * @param array<string,mixed> $template_part Template part artifact.
 	 * @return string Relative theme path, or empty string when unsupported.
 	 */
 	private static function template_part_artifact_relative_path( array $template_part ): string {
@@ -312,7 +505,7 @@ class Static_Site_Importer_Theme_Materializer {
 	/**
 	 * Build the minimal generated header required by SSI's page templates.
 	 *
-	 * @return array<string,mixed> BAC-like template part artifact.
+	 * @return array<string,mixed> Template part artifact.
 	 */
 	private static function default_header_template_part(): array {
 		return array(
@@ -326,10 +519,10 @@ class Static_Site_Importer_Theme_Materializer {
 	}
 
 	/**
-	 * Build a compact report row for a materialized BAC template part artifact.
+	 * Build a compact report row for a materialized template part artifact.
 	 *
 	 * @param string              $path          Relative generated theme path.
-	 * @param array<string,mixed> $template_part BAC template part artifact.
+	 * @param array<string,mixed> $template_part Template part artifact.
 	 * @param string              $markup        Serialized block markup.
 	 * @return array<string,mixed>
 	 */

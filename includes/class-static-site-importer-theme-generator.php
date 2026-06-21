@@ -58,13 +58,13 @@ class Static_Site_Importer_Theme_Generator {
 		if ( is_wp_error( $compiled ) ) {
 			return $compiled;
 		}
-		$document_pages   = self::bac_document_pages( $compiled );
+		$document_pages   = self::website_artifact_source_pages( $compiled );
 		if ( is_wp_error( $document_pages ) ) {
 			return $document_pages;
 		}
 
 		if ( 'failed' === (string) ( $compiled['status'] ?? '' ) || empty( $document_pages ) ) {
-			return new WP_Error( 'static_site_importer_artifact_compile_failed', 'Website artifact compilation did not produce BAC compiled-site document pages.', $compiled );
+			return new WP_Error( 'static_site_importer_artifact_compile_failed', 'Website artifact compilation did not produce materializable document pages.', $compiled );
 		}
 
 		return self::import_compiled_website_artifact( $compiled, $args );
@@ -78,7 +78,7 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return array<string,mixed>|WP_Error
 	 */
 	private static function import_compiled_website_artifact( array $compiled, array $args = array() ) {
-		$artifacts    = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
+		$artifacts    = isset( $compiled['artifacts'] ) && is_array( $compiled['artifacts'] ) ? $compiled['artifacts'] : array();
 		$theme_name   = isset( $args['name'] ) && '' !== trim( (string) $args['name'] ) ? sanitize_text_field( (string) $args['name'] ) : 'Imported Website Artifact';
 		$theme_slug   = isset( $args['slug'] ) && '' !== trim( (string) $args['slug'] ) ? sanitize_title( (string) $args['slug'] ) : sanitize_title( $theme_name );
 		if ( '' === $theme_slug ) {
@@ -100,7 +100,7 @@ class Static_Site_Importer_Theme_Generator {
 		$source_metadata['source'] = 'website_artifact';
 		$html_path                 = (string) ( $compiled['provenance']['source'] ?? ( $compiled['input']['entry_path'] ?? 'website_artifact' ) );
 		self::$conversion_report   = Static_Site_Importer_Report_Diagnostics::new_conversion_report( $html_path, $source_metadata );
-		Static_Site_Importer_Report_Diagnostics::record_website_artifact_compiler_result( self::$conversion_report, $compiled );
+		Static_Site_Importer_Report_Diagnostics::record_blocks_engine_result( self::$conversion_report, $compiled );
 		Static_Site_Importer_Report_Diagnostics::record_direct_website_artifact_source_summary( self::$conversion_report, $compiled );
 		self::record_products_manifest_from_import_args( $args, $compiled );
 		self::record_commerce_context_summary( $args );
@@ -112,7 +112,7 @@ class Static_Site_Importer_Theme_Generator {
 			return $asset_policy;
 		}
 
-		$document_pages = self::bac_document_pages( $compiled );
+		$document_pages = self::website_artifact_source_pages( $compiled );
 		if ( is_wp_error( $document_pages ) ) {
 			return $document_pages;
 		}
@@ -161,7 +161,7 @@ class Static_Site_Importer_Theme_Generator {
 		}
 		self::analyze_imported_page_content_documents( $document_pages, $page_artifacts['contents'] );
 
-		self::record_bac_source_documents_summary( $artifacts['documents'] ?? array(), $document_pages, $page_ids, $permalinks );
+		self::record_source_documents_summary( $artifacts['documents'] ?? array(), $document_pages, $page_ids, $permalinks );
 		foreach ( array_keys( $page_artifacts['patterns'] ) as $filename ) {
 			$page = $document_pages[ $filename ] ?? null;
 			$slug = $page instanceof Static_Site_Importer_Source_Page ? Static_Site_Importer_Page_Materializer::page_slug( $filename, $page ) : Static_Site_Importer_Page_Materializer::page_slug( $filename );
@@ -1025,22 +1025,22 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Normalize BAC WordPress document artifacts into source pages.
+	 * Normalize website artifact document rows into source pages.
 	 *
-	 * SSI consumes BAC's compiled-site page contract when available, then attaches
-	 * the referenced `wordpress_artifacts.documents[]` block markup for WordPress
+	 * SSI consumes the compiled-site page contract when available, then attaches
+	 * the referenced `artifacts.documents[]` block markup for WordPress
 	 * materialization.
 	 *
 	 * @param array<string,mixed> $compiled Compiler result envelope.
 	 * @return array<string, Static_Site_Importer_Source_Page>|WP_Error
 	 */
-	private static function bac_document_pages( array $compiled ) {
-		$artifacts = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
+	private static function website_artifact_source_pages( array $compiled ) {
+		$artifacts = isset( $compiled['artifacts'] ) && is_array( $compiled['artifacts'] ) ? $compiled['artifacts'] : array();
 		$documents = isset( $artifacts['documents'] ) && is_array( $artifacts['documents'] ) ? $artifacts['documents'] : array();
 		$site      = isset( $artifacts['site'] ) && is_array( $artifacts['site'] ) ? $artifacts['site'] : array();
 		if ( ! empty( $site['pages'] ) && is_array( $site['pages'] ) ) {
 			if ( 'blocks-engine/php-transformer/materialization-plan/v1' === (string) ( $site['schema'] ?? '' ) ) {
-				return self::source_pages_from_materialization_plan_pages( $site['pages'] );
+				return self::source_pages_from_materialization_plan( $site );
 			}
 
 			if ( ! in_array( (string) ( $site['schema'] ?? '' ), array( 'block-artifact-compiler/compiled-site/v1', 'blocks-engine/php-transformer/compiled-site/v1' ), true ) ) {
@@ -1074,14 +1074,25 @@ class Static_Site_Importer_Theme_Generator {
 	/**
 	 * Build source pages directly from Blocks Engine materialization-plan page rows.
 	 *
-	 * @param array<int,mixed> $site_pages Materialization-plan page rows.
+	 * @param array<string,mixed> $site Materialization-plan site report.
 	 * @return array<string, Static_Site_Importer_Source_Page>|WP_Error
 	 */
-	private static function source_pages_from_materialization_plan_pages( array $site_pages ) {
+	private static function source_pages_from_materialization_plan( array $site ) {
+		$site_pages = isset( $site['pages'] ) && is_array( $site['pages'] ) ? $site['pages'] : array();
+		$routes     = self::materialization_plan_routes_by_source_path( $site );
+		if ( is_wp_error( $routes ) ) {
+			return $routes;
+		}
+
 		$pages = array();
 		foreach ( $site_pages as $page_row ) {
 			if ( ! is_array( $page_row ) ) {
 				continue;
+			}
+
+			$source_path = isset( $page_row['source_path'] ) && is_scalar( $page_row['source_path'] ) ? self::normalize_route_path( (string) $page_row['source_path'] ) : '';
+			if ( '' !== $source_path && isset( $routes[ $source_path ] ) ) {
+				$page_row = array_merge( $page_row, $routes[ $source_path ] );
 			}
 
 			$page = Static_Site_Importer_Source_Page::from_materialization_plan_page( $page_row );
@@ -1096,10 +1107,60 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Normalize native materialization-plan route rows by source path.
+	 *
+	 * @param array<string,mixed> $site Materialization-plan site report.
+	 * @return array<string,array<string,mixed>>|WP_Error Route rows keyed by normalized source path.
+	 */
+	private static function materialization_plan_routes_by_source_path( array $site ) {
+		if ( ! array_key_exists( 'routes', $site ) ) {
+			return array();
+		}
+
+		if ( ! is_array( $site['routes'] ) ) {
+			return new WP_Error( 'static_site_importer_materialization_plan_routes_invalid', 'Blocks Engine materialization_plan.routes must be an array.' );
+		}
+
+		$routes = array();
+		foreach ( $site['routes'] as $route ) {
+			if ( ! is_array( $route ) ) {
+				return new WP_Error( 'static_site_importer_materialization_plan_route_invalid', 'Blocks Engine materialization-plan route entries must be arrays.' );
+			}
+
+			$source_path = isset( $route['source_path'] ) && is_scalar( $route['source_path'] ) ? self::normalize_route_path( (string) $route['source_path'] ) : '';
+			if ( '' === $source_path ) {
+				return new WP_Error( 'static_site_importer_materialization_plan_route_missing_source', 'Blocks Engine materialization-plan route is missing source_path.' );
+			}
+
+			$normalized = array();
+			foreach ( array( 'slug', 'title', 'post_type', 'status', 'entrypoint', 'body_format' ) as $key ) {
+				if ( isset( $route[ $key ] ) && is_scalar( $route[ $key ] ) && '' !== trim( (string) $route[ $key ] ) ) {
+					$normalized[ $key ] = (string) $route[ $key ];
+				}
+			}
+
+			if ( isset( $route['route_key'] ) && is_scalar( $route['route_key'] ) && '' !== trim( (string) $route['route_key'] ) ) {
+				$normalized['route_key'] = (string) $route['route_key'];
+			}
+			if ( isset( $route['path'] ) && is_scalar( $route['path'] ) && '' !== trim( (string) $route['path'] ) ) {
+				$normalized['route_path'] = self::normalize_route_path( (string) $route['path'] );
+			}
+
+			if ( isset( $route['metadata'] ) && is_array( $route['metadata'] ) ) {
+				$normalized['metadata'] = $route['metadata'];
+			}
+
+			$routes[ $source_path ] = $normalized;
+		}
+
+		return $routes;
+	}
+
+	/**
 	 * Attach document markup to compiled-site page contracts.
 	 *
 	 * @param array<int,array<string,mixed>> $site_pages Compiled-site page rows.
-	 * @param array<int,mixed>               $documents  BAC document artifacts.
+	 * @param array<int,mixed>               $documents  Document artifacts.
 	 * @return array<int,array<string,mixed>>|WP_Error Document artifacts ordered by compiled-site pages.
 	 */
 	private static function documents_from_compiled_site_pages( array $site_pages, array $documents ) {
@@ -1123,7 +1184,7 @@ class Static_Site_Importer_Theme_Generator {
 
 			$source_path = isset( $page['source_path'] ) && is_scalar( $page['source_path'] ) ? (string) $page['source_path'] : '';
 			if ( '' === $source_path ) {
-				return new WP_Error( 'static_site_importer_compiled_site_page_missing_source', 'BAC compiled-site page is missing source_path.' );
+				return new WP_Error( 'static_site_importer_compiled_site_page_missing_source', 'Compiled-site page is missing source_path.' );
 			}
 			$metadata  = isset( $page['metadata'] ) && is_array( $page['metadata'] ) ? $page['metadata'] : array();
 			$slug      = isset( $page['slug'] ) && is_scalar( $page['slug'] ) ? sanitize_title( (string) $page['slug'] ) : '';
@@ -1142,10 +1203,10 @@ class Static_Site_Importer_Theme_Generator {
 				$post_type = 'page';
 			}
 			if ( '' === $route_key || '' === $slug || '' === $post_type ) {
-				return new WP_Error( 'static_site_importer_compiled_site_page_identity_incomplete', sprintf( 'BAC compiled-site page is missing route_key, slug, or post_type: %s', $source_path ) );
+				return new WP_Error( 'static_site_importer_compiled_site_page_identity_incomplete', sprintf( 'Compiled-site page is missing route_key, slug, or post_type: %s', $source_path ) );
 			}
 			if ( ! isset( $documents_by_source[ $source_path ] ) && ( ! isset( $page['block_markup'] ) || ! is_scalar( $page['block_markup'] ) || '' === trim( (string) $page['block_markup'] ) ) ) {
-				return new WP_Error( 'static_site_importer_compiled_site_page_missing_document', sprintf( 'BAC compiled-site page does not reference a document artifact: %s', $source_path ) );
+				return new WP_Error( 'static_site_importer_compiled_site_page_missing_document', sprintf( 'Compiled-site page does not reference a document artifact: %s', $source_path ) );
 			}
 
 			$document = array_merge( $documents_by_source[ $source_path ] ?? array(), array_filter(
@@ -1171,10 +1232,10 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Normalize BAC template part artifacts into generated theme writes.
+	 * Normalize template part artifacts into generated theme writes.
 	 *
 	 * @param string              $theme_dir Theme directory.
-	 * @param array<string,mixed> $artifacts WordPress artifacts from BAC.
+	 * @param array<string,mixed> $artifacts WordPress artifacts from Blocks Engine.
 	 * @return array<string,string>|WP_Error Absolute write paths keyed to serialized block markup.
 	 */
 	private static function template_part_artifact_writes( string $theme_dir, array $artifacts ) {
@@ -1287,7 +1348,7 @@ class Static_Site_Importer_Theme_Generator {
 	 * Write compiler-emitted files that can be consumed without re-importing HTML.
 	 *
 	 * @param string              $theme_dir Theme directory.
-	 * @param array<string,mixed> $artifacts WordPress artifacts from BAC.
+	 * @param array<string,mixed> $artifacts WordPress artifacts from Blocks Engine.
 	 * @return array{css:string,js:string,assets:array<string,array<string,mixed>>}|WP_Error
 	 */
 	private static function materialize_website_artifact_files_to_theme( string $theme_dir, array $artifacts ) {
@@ -1307,9 +1368,9 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Collect BAC visual repair stylesheet artifacts by target.
+	 * Collect visual repair stylesheet artifacts by target.
 	 *
-	 * @param array<string,mixed> $artifacts BAC WordPress artifacts.
+	 * @param array<string,mixed> $artifacts WordPress artifacts from Blocks Engine.
 	 * @return array{frontend:array<int,string>,editor:array<int,string>} Repair CSS content by stylesheet target.
 	 */
 	private static function visual_repair_styles_from_artifacts( array $artifacts ): array {
@@ -1772,15 +1833,15 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Record BAC-owned source document materialization details.
+	 * Record source document materialization details.
 	 *
-	 * @param array<int,mixed>                                   $documents  BAC document artifacts.
+	 * @param array<int,mixed>                                   $documents  Document artifacts.
 	 * @param array<string, Static_Site_Importer_Source_Page> $pages      Imported pages/posts.
 	 * @param array<string,int>                                $page_ids   Imported post IDs keyed by source path.
 	 * @param array<string,string>                             $permalinks Imported permalinks keyed by source path.
 	 * @return void
 	 */
-	private static function record_bac_source_documents_summary( array $documents, array $pages, array $page_ids, array $permalinks ): void {
+	private static function record_source_documents_summary( array $documents, array $pages, array $page_ids, array $permalinks ): void {
 		$records = array();
 		foreach ( $documents as $document ) {
 			if ( ! is_array( $document ) ) {

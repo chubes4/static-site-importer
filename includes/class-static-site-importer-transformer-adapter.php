@@ -15,9 +15,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Static_Site_Importer_Transformer_Adapter {
 
 	public const WEBSITE_ARTIFACT_SCHEMA = 'block-artifact-compiler/website-artifact/v1';
-	public const COMPILED_RESULT_SCHEMA  = 'block-artifact-compiler/result/v1';
+	public const TRANSFORMER_RESULT_SCHEMA = 'blocks-engine/php-transformer/result/v1';
 	private const CONVERSION_REPORT_OPTION = 'include_conversion_report';
-	private const LEGACY_BFB_REPORT_OPTION = 'include_bfb_report';
 
 	/**
 	 * Check whether the default Blocks Engine artifact compiler is available.
@@ -63,33 +62,32 @@ class Static_Site_Importer_Transformer_Adapter {
 	 * Project the stable transformer contracts into SSI's compiled artifact envelope.
 	 *
 	 * @param array<string,mixed> $result TransformerResult::toArray() output.
-	 * @return array<string,mixed>
+	 * @return array<string,mixed>|WP_Error
 	 */
-	private function compiled_result_from_transformer_contract( array $result ): array {
+	private function compiled_result_from_transformer_contract( array $result ) {
 		$compiled = $this->compiled_result_from_native_transformer_contract( $result );
-		if ( empty( $compiled['wordpress_artifacts'] ) ) {
-			$compiled = $this->project_transformer_result( $result, self::COMPILED_RESULT_SCHEMA );
+		if ( is_wp_error( $compiled ) ) {
+			return $compiled;
 		}
 
 		$source_reports       = isset( $result['source_reports'] ) && is_array( $result['source_reports'] ) ? $result['source_reports'] : array();
-		$compiled_site        = isset( $source_reports['compiled_site'] ) && is_array( $source_reports['compiled_site'] ) ? $source_reports['compiled_site'] : array();
 		$materialization_plan = isset( $source_reports['materialization_plan'] ) && is_array( $source_reports['materialization_plan'] ) ? $source_reports['materialization_plan'] : array();
-		$site_report          = ! empty( $materialization_plan ) ? $materialization_plan : $compiled_site;
-		$products             = $this->products_manifest_from_transformer_reports( $result, $site_report );
-		$artifacts            = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
+		$products             = $this->products_manifest_from_transformer_reports( $result, $materialization_plan );
+		$artifacts            = isset( $compiled['artifacts'] ) && is_array( $compiled['artifacts'] ) ? $compiled['artifacts'] : array();
 		$blocks               = isset( $artifacts['blocks'] ) && is_array( $artifacts['blocks'] ) ? $artifacts['blocks'] : array();
 
 		if ( ! isset( $artifacts['block_tree'] ) ) {
 			$artifacts['block_tree'] = $this->block_tree_report( $blocks );
 		}
 
-		$artifacts['document_metadata'] = $this->document_metadata_from_compiled_site( $site_report );
+		$artifacts['document_metadata'] = $this->document_metadata_from_compiled_site( $materialization_plan );
 		$artifacts['documents']         = isset( $result['documents'] ) && is_array( $result['documents'] ) ? $result['documents'] : array();
-		$artifacts['site']              = $site_report;
-		$artifacts['template_parts']    = isset( $site_report['template_parts'] ) && is_array( $site_report['template_parts'] ) ? $site_report['template_parts'] : array();
-		$artifacts['visual_repair']     = isset( $site_report['visual_repair'] ) && is_array( $site_report['visual_repair'] ) ? $site_report['visual_repair'] : array();
+		$artifacts['files']             = $this->artifact_files_from_site_report( $materialization_plan, $result );
+		$artifacts['site']              = $materialization_plan;
+		$artifacts['template_parts']    = isset( $materialization_plan['template_parts'] ) && is_array( $materialization_plan['template_parts'] ) ? $materialization_plan['template_parts'] : array();
+		$artifacts['visual_repair']     = isset( $materialization_plan['visual_repair'] ) && is_array( $materialization_plan['visual_repair'] ) ? $materialization_plan['visual_repair'] : array();
 
-		$compiled['wordpress_artifacts'] = $artifacts;
+		$compiled['artifacts'] = $artifacts;
 
 		if ( ! empty( $products ) ) {
 			$compiled['products_manifest'] = $products;
@@ -102,21 +100,26 @@ class Static_Site_Importer_Transformer_Adapter {
 	 * Build SSI's consumed compiler envelope from the native Blocks Engine result.
 	 *
 	 * @param array<string,mixed> $result TransformerResult::toArray() output.
-	 * @return array<string,mixed>
+	 * @return array<string,mixed>|WP_Error
 	 */
-	private function compiled_result_from_native_transformer_contract( array $result ): array {
+	private function compiled_result_from_native_transformer_contract( array $result ) {
 		$source_reports = isset( $result['source_reports'] ) && is_array( $result['source_reports'] ) ? $result['source_reports'] : array();
 		if ( empty( $source_reports ) ) {
-			return array();
+			return new WP_Error( 'static_site_importer_transformer_missing_source_reports', 'Blocks Engine php-transformer compile results must include source_reports.' );
+		}
+
+		$materialization_plan = isset( $source_reports['materialization_plan'] ) && is_array( $source_reports['materialization_plan'] ) ? $source_reports['materialization_plan'] : array();
+		if ( 'blocks-engine/php-transformer/materialization-plan/v1' !== (string) ( $materialization_plan['schema'] ?? '' ) ) {
+			return new WP_Error( 'static_site_importer_transformer_missing_materialization_plan', 'Blocks Engine php-transformer compile results must include source_reports.materialization_plan.' );
 		}
 
 		$artifact = isset( $source_reports['artifact'] ) && is_array( $source_reports['artifact'] ) ? $source_reports['artifact'] : array();
 
 		$compiled = array(
-			'schema'              => self::COMPILED_RESULT_SCHEMA,
+			'schema'              => isset( $result['schema'] ) && is_scalar( $result['schema'] ) ? (string) $result['schema'] : self::TRANSFORMER_RESULT_SCHEMA,
 			'status'              => isset( $result['status'] ) && is_scalar( $result['status'] ) ? (string) $result['status'] : '',
 			'input'               => $artifact,
-			'wordpress_artifacts' => array(
+			'artifacts'           => array(
 				'block_markup' => isset( $result['serialized_blocks'] ) && is_scalar( $result['serialized_blocks'] ) ? (string) $result['serialized_blocks'] : '',
 				'blocks'       => isset( $result['blocks'] ) && is_array( $result['blocks'] ) ? $result['blocks'] : array(),
 				'block_types'  => isset( $result['block_types'] ) && is_array( $result['block_types'] ) ? $result['block_types'] : array(),
@@ -126,8 +129,9 @@ class Static_Site_Importer_Transformer_Adapter {
 			'diagnostics'         => isset( $result['diagnostics'] ) && is_array( $result['diagnostics'] ) ? $result['diagnostics'] : array(),
 			'provenance'          => isset( $result['provenance'] ) && is_array( $result['provenance'] ) ? $result['provenance'] : array(),
 		);
-
-		$compiled['bfb_report'] = $this->legacy_bfb_report_from_transformer_result( $result );
+		if ( isset( $result['conversion_report'] ) && is_array( $result['conversion_report'] ) ) {
+			$compiled['conversion_report'] = $result['conversion_report'];
+		}
 
 		return $compiled;
 	}
@@ -139,10 +143,7 @@ class Static_Site_Importer_Transformer_Adapter {
 	 * @return array<string,mixed>
 	 */
 	private function normalize_compile_options( array $options ): array {
-		$include_report = ! empty( $options[ self::CONVERSION_REPORT_OPTION ] ) || ! empty( $options[ self::LEGACY_BFB_REPORT_OPTION ] );
-		unset( $options[ self::LEGACY_BFB_REPORT_OPTION ] );
-
-		if ( $include_report ) {
+		if ( ! empty( $options[ self::CONVERSION_REPORT_OPTION ] ) ) {
 			$options[ self::CONVERSION_REPORT_OPTION ] = true;
 		}
 
@@ -150,93 +151,35 @@ class Static_Site_Importer_Transformer_Adapter {
 	}
 
 	/**
-	 * Preserve SSI's legacy BFB report field from the native Blocks Engine result.
+	 * Prefer native materialization-plan asset payload rows for SSI's artifact file view.
 	 *
-	 * @param array<string,mixed> $result TransformerResult::toArray() output.
-	 * @return array<string,mixed>
+	 * @param array<string,mixed> $site_report Native materialization plan or compiled-site report.
+	 * @param array<string,mixed> $result      Transformer result array.
+	 * @return array<int|string,mixed>
 	 */
-	private function legacy_bfb_report_from_transformer_result( array $result ): array {
-		return array(
-			'status'            => isset( $result['status'] ) && is_scalar( $result['status'] ) ? (string) $result['status'] : 'failed',
-			'serialized_blocks' => isset( $result['serialized_blocks'] ) && is_scalar( $result['serialized_blocks'] ) ? (string) $result['serialized_blocks'] : '',
-			'diagnostics'       => isset( $result['diagnostics'] ) && is_array( $result['diagnostics'] ) ? $result['diagnostics'] : array(),
-			'fallbacks'         => isset( $result['fallbacks'] ) && is_array( $result['fallbacks'] ) ? $result['fallbacks'] : array(),
-		);
+	private function artifact_files_from_site_report( array $site_report, array $result ): array {
+		$assets = isset( $site_report['assets'] ) && is_array( $site_report['assets'] ) ? $site_report['assets'] : array();
+		if ( 'blocks-engine/php-transformer/materialization-plan/v1' === (string) ( $site_report['schema'] ?? '' ) && $this->materialization_plan_assets_include_payloads( $assets ) ) {
+			return $assets;
+		}
+
+		return isset( $result['assets'] ) && is_array( $result['assets'] ) ? $result['assets'] : array();
 	}
 
 	/**
-	 * Apply a Blocks Engine transformer legacy projection by schema.
+	 * Check whether native materialization-plan asset rows can drive theme writes.
 	 *
-	 * @param array<string,mixed> $result TransformerResult::toArray() output.
-	 * @param string              $schema Projection schema.
-	 * @return array<string,mixed>
+	 * @param array<int|string,mixed> $assets Blocks Engine materialization-plan asset rows.
+	 * @return bool
 	 */
-	private function project_transformer_result( array $result, string $schema ): array {
-		$mapping   = isset( $result['legacy_mapping'][ $schema ] ) && is_array( $result['legacy_mapping'][ $schema ] ) ? $result['legacy_mapping'][ $schema ] : array();
-		$projected = array( 'schema' => $schema );
-
-		foreach ( $mapping as $target_path => $source_path ) {
-			if ( ! is_string( $target_path ) || ! is_string( $source_path ) ) {
-				continue;
-			}
-
-			$found = false;
-			$value = $this->array_path_get( $result, $source_path, $found );
-			if ( $found ) {
-				$this->array_path_set( $projected, $target_path, $value );
+	private function materialization_plan_assets_include_payloads( array $assets ): bool {
+		foreach ( $assets as $asset ) {
+			if ( is_array( $asset ) && ( array_key_exists( 'content', $asset ) || array_key_exists( 'content_base64', $asset ) ) ) {
+				return true;
 			}
 		}
 
-		return $projected;
-	}
-
-	/**
-	 * Read a dot-notated array path.
-	 *
-	 * @param array<string,mixed> $data  Source data.
-	 * @param string              $path  Dot-notated path.
-	 * @param bool                $found Whether the path exists.
-	 * @return mixed
-	 */
-	private function array_path_get( array $data, string $path, bool &$found ) {
-		$value = $data;
-		foreach ( explode( '.', $path ) as $part ) {
-			if ( ! is_array( $value ) || ! array_key_exists( $part, $value ) ) {
-				$found = false;
-				return null;
-			}
-
-			$value = $value[ $part ];
-		}
-
-		$found = true;
-		return $value;
-	}
-
-	/**
-	 * Write a dot-notated array path.
-	 *
-	 * @param array<string,mixed> $data  Target data.
-	 * @param string              $path  Dot-notated path.
-	 * @param mixed               $value Value to set.
-	 * @return void
-	 */
-	private function array_path_set( array &$data, string $path, $value ): void {
-		$cursor = &$data;
-		$parts  = explode( '.', $path );
-		$last   = array_pop( $parts );
-
-		foreach ( $parts as $part ) {
-			if ( ! isset( $cursor[ $part ] ) || ! is_array( $cursor[ $part ] ) ) {
-				$cursor[ $part ] = array();
-			}
-
-			$cursor = &$cursor[ $part ];
-		}
-
-		if ( null !== $last ) {
-			$cursor[ $last ] = $value;
-		}
+		return false;
 	}
 
 	/**
@@ -518,7 +461,7 @@ class Static_Site_Importer_Transformer_Adapter {
 	}
 
 	/**
-	 * Build a compact block tree report without depending on BAC helpers.
+	 * Build a compact block tree report from parsed blocks.
 	 *
 	 * @param array<int|string,mixed> $blocks Parsed blocks.
 	 * @return array<string,int>
@@ -567,7 +510,7 @@ class Static_Site_Importer_Transformer_Adapter {
 	 * @return array<string,mixed>
 	 */
 	public function summarize_result( array $compiled ): array {
-		$artifacts   = isset( $compiled['wordpress_artifacts'] ) && is_array( $compiled['wordpress_artifacts'] ) ? $compiled['wordpress_artifacts'] : array();
+		$artifacts   = isset( $compiled['artifacts'] ) && is_array( $compiled['artifacts'] ) ? $compiled['artifacts'] : array();
 		$block_tree  = isset( $artifacts['block_tree'] ) && is_array( $artifacts['block_tree'] ) ? $artifacts['block_tree'] : array();
 		$block_types = isset( $artifacts['block_types'] ) && is_array( $artifacts['block_types'] ) ? $artifacts['block_types'] : array();
 		$components  = isset( $artifacts['components'] ) && is_array( $artifacts['components'] ) ? $artifacts['components'] : array();
