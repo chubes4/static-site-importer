@@ -8,6 +8,8 @@
 
 const path = require( 'node:path' );
 const process = require( 'node:process' );
+const fs = require( 'node:fs' );
+const os = require( 'node:os' );
 const { spawnSync } = require( 'node:child_process' );
 
 const repoRoot = path.resolve( __dirname, '..' );
@@ -24,6 +26,7 @@ const themeDir = path.resolve(
     '/Users/chubes/Studio/intelligence-chubes4/wp-content/themes/wordpress-is-dead'
 );
 const fixture = path.join( repoRoot, 'tests/fixtures/wordpress-is-dead/index.html' );
+const importFixture = skipImport ? fixture : prepareImportFixture( fixture );
 
 const steps = [
   {
@@ -68,7 +71,7 @@ const steps = [
       ...wpCli.slice( 1 ),
       'static-site-importer',
       'import-theme',
-      fixture,
+      importFixture,
       '--slug=wordpress-is-dead',
       '--name=WordPress Is Dead',
       '--activate',
@@ -139,4 +142,14 @@ function finish( ok, stepResults ) {
 
 function splitCommand( command ) {
   return command.trim().split( /\s+/ ).filter( Boolean );
+}
+
+function prepareImportFixture( entryFile ) {
+  const sourceDir = path.dirname( entryFile );
+  const tempDir = fs.mkdtempSync( path.join( os.tmpdir(), 'static-site-importer-validation-' ) );
+  const fixtureDir = path.join( tempDir, path.basename( sourceDir ) );
+
+  fs.cpSync( sourceDir, fixtureDir, { recursive: true } );
+
+  return path.join( fixtureDir, path.basename( entryFile ) );
 }

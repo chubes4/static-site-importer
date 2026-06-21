@@ -203,7 +203,7 @@ class Static_Site_Importer_Report_Diagnostics {
 		$report['diagnostics'][] = array(
 			'type'        => 'website_artifact_materialization_contract_note',
 			'source'      => '' !== $source ? $source : 'website_artifact',
-			'message'     => 'Direct materialization consumed block_markup, documents, files, and compiled-site artifacts. Static Site Importer owns WordPress writes and product seeding while Blocks Engine owns materializer-neutral site/theme compilation.',
+			'message'     => 'Direct materialization consumed block_markup, documents, files, and materialization-plan artifacts. Static Site Importer owns WordPress writes and product seeding while Blocks Engine owns materializer-neutral site/theme compilation.',
 			'contract'    => isset( $compiled['schema'] ) && is_scalar( $compiled['schema'] ) ? (string) $compiled['schema'] : 'blocks-engine/php-transformer/result/v1',
 			'constraints' => 'report_only',
 		);
