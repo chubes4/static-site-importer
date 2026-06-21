@@ -128,7 +128,7 @@ class Static_Site_Importer_Transformer_Adapter {
 			'provenance'          => isset( $result['provenance'] ) && is_array( $result['provenance'] ) ? $result['provenance'] : array(),
 		);
 
-		$compiled[ self::LEGACY_BFB_REPORT_FIELD ] = $this->legacy_conversion_report_from_transformer_result( $result );
+		$compiled[ self::LEGACY_BFB_REPORT_FIELD ] = $this->legacy_conversion_report_from_native_report( $result );
 
 		return $compiled;
 	}
@@ -156,48 +156,15 @@ class Static_Site_Importer_Transformer_Adapter {
 	 * @param array<string,mixed> $result TransformerResult::toArray() output.
 	 * @return array<string,mixed>
 	 */
-	private function legacy_conversion_report_from_transformer_result( array $result ): array {
+	private function legacy_conversion_report_from_native_report( array $result ): array {
 		$report = isset( $result['conversion_report'] ) && is_array( $result['conversion_report'] ) ? $result['conversion_report'] : array();
 
 		return array(
-			'status'            => $this->conversion_report_scalar( $report, $result, 'status', 'failed' ),
-			'serialized_blocks' => $this->conversion_report_scalar( $report, $result, 'serialized_blocks', '' ),
-			'diagnostics'       => $this->conversion_report_array( $report, $result, 'diagnostics' ),
-			'fallbacks'         => $this->conversion_report_array( $report, $result, 'fallbacks' ),
+			'status'            => isset( $report['status'] ) && is_scalar( $report['status'] ) ? (string) $report['status'] : 'failed',
+			'serialized_blocks' => isset( $report['serialized_blocks'] ) && is_scalar( $report['serialized_blocks'] ) ? (string) $report['serialized_blocks'] : '',
+			'diagnostics'       => isset( $report['diagnostics'] ) && is_array( $report['diagnostics'] ) ? $report['diagnostics'] : array(),
+			'fallbacks'         => isset( $report['fallbacks'] ) && is_array( $report['fallbacks'] ) ? $report['fallbacks'] : array(),
 		);
-	}
-
-	/**
-	 * Read a scalar value from the native conversion report with an explicit legacy fallback.
-	 *
-	 * @param array<string,mixed> $report   Native conversion report payload.
-	 * @param array<string,mixed> $result   Transformer result array.
-	 * @param string              $key      Report key.
-	 * @param string              $fallback Fallback value.
-	 * @return string
-	 */
-	private function conversion_report_scalar( array $report, array $result, string $key, string $fallback ): string {
-		if ( isset( $report[ $key ] ) && is_scalar( $report[ $key ] ) ) {
-			return (string) $report[ $key ];
-		}
-
-		return isset( $result[ $key ] ) && is_scalar( $result[ $key ] ) ? (string) $result[ $key ] : $fallback;
-	}
-
-	/**
-	 * Read an array value from the native conversion report with an explicit legacy fallback.
-	 *
-	 * @param array<string,mixed> $report Native conversion report payload.
-	 * @param array<string,mixed> $result Transformer result array.
-	 * @param string              $key    Report key.
-	 * @return array<int|string,mixed>
-	 */
-	private function conversion_report_array( array $report, array $result, string $key ): array {
-		if ( isset( $report[ $key ] ) && is_array( $report[ $key ] ) ) {
-			return $report[ $key ];
-		}
-
-		return isset( $result[ $key ] ) && is_array( $result[ $key ] ) ? $result[ $key ] : array();
 	}
 
 	/**
