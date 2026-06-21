@@ -68,7 +68,7 @@ class Static_Site_Importer_Transformer_Adapter {
 	private function compiled_result_from_transformer_contract( array $result ): array {
 		$compiled = $this->compiled_result_from_native_transformer_contract( $result );
 		if ( empty( $compiled['wordpress_artifacts'] ) ) {
-			$compiled = $this->project_transformer_result( $result, self::COMPILED_RESULT_SCHEMA );
+			$compiled = $this->compiled_result_from_legacy_mapping_compatibility( $result );
 		}
 
 		$source_reports       = isset( $result['source_reports'] ) && is_array( $result['source_reports'] ) ? $result['source_reports'] : array();
@@ -165,15 +165,17 @@ class Static_Site_Importer_Transformer_Adapter {
 	}
 
 	/**
-	 * Apply a Blocks Engine transformer legacy projection by schema.
+	 * Project pre-source_reports transformer output through the legacy BAC-shaped map.
+	 *
+	 * Native Blocks Engine source_reports are the importer contract. This compatibility
+	 * path exists only for older transformer results that did not expose that contract.
 	 *
 	 * @param array<string,mixed> $result TransformerResult::toArray() output.
-	 * @param string              $schema Projection schema.
 	 * @return array<string,mixed>
 	 */
-	private function project_transformer_result( array $result, string $schema ): array {
-		$mapping   = isset( $result['legacy_mapping'][ $schema ] ) && is_array( $result['legacy_mapping'][ $schema ] ) ? $result['legacy_mapping'][ $schema ] : array();
-		$projected = array( 'schema' => $schema );
+	private function compiled_result_from_legacy_mapping_compatibility( array $result ): array {
+		$mapping   = isset( $result['legacy_mapping'][ self::COMPILED_RESULT_SCHEMA ] ) && is_array( $result['legacy_mapping'][ self::COMPILED_RESULT_SCHEMA ] ) ? $result['legacy_mapping'][ self::COMPILED_RESULT_SCHEMA ] : array();
+		$projected = array( 'schema' => self::COMPILED_RESULT_SCHEMA );
 
 		foreach ( $mapping as $target_path => $source_path ) {
 			if ( ! is_string( $target_path ) || ! is_string( $source_path ) ) {

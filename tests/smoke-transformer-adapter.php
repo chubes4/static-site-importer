@@ -138,6 +138,18 @@ namespace {
 						),
 						'diagnostics'       => array(),
 						'fallbacks'         => array(),
+						'legacy_mapping'    => array(
+							'block-artifact-compiler/result/v1' => array(
+								'wordpress_artifacts.site.pages.0.slug' => 'legacy.slug',
+								'wordpress_artifacts.documents.0.source_path' => 'legacy.documents.0.source_path',
+							),
+						),
+						'legacy'            => array(
+							'slug'      => 'legacy-home',
+							'documents' => array(
+								array( 'source_path' => 'legacy/about.html' ),
+							),
+						),
 						'provenance'        => array(
 							array( 'source_hash' => 'abc123' ),
 						),
@@ -229,10 +241,12 @@ namespace {
 	$assert( 4 === count( $pages ), 'native-keeps-compiled-site-pages-without-adapter-filtering' );
 	$assert( 'website/index.html' === ( $pages[0]['source_path'] ?? '' ), 'native-entry-source-path' );
 	$assert( 'home-canonical' === ( $pages[0]['slug'] ?? '' ), 'native-entry-slug-from-materialization-plan' );
+	$assert( 'legacy-home' !== ( $pages[0]['slug'] ?? '' ), 'legacy-mapping-does-not-override-native-materialization-plan' );
 	$assert( true === ( $pages[0]['entrypoint'] ?? false ), 'native-entrypoint' );
 	$assert( 'about-canonical' === ( $pages[2]['slug'] ?? '' ), 'native-route-slug-from-materialization-plan' );
 	$assert( 1 === count( $documents ), 'native-documents-preserve-transformer-documents-without-compiled-site-synthesis' );
 	$assert( 'content/about.md' === ( $documents[0]['source_path'] ?? '' ), 'native-document-from-transformer-documents' );
+	$assert( 'legacy/about.html' !== ( $documents[0]['source_path'] ?? '' ), 'legacy-mapping-does-not-override-native-documents' );
 	$assert( 'assets/site.css' === ( $artifacts['files'][0]['path'] ?? '' ), 'native-assets-report-preserved' );
 	$assert( 'rye-loaf-canonical' === ( $products[0]['slug'] ?? '' ), 'native-product-slug-mapped-from-generic-report' );
 	$assert( '12.00' === ( $products[0]['regular_price'] ?? '' ), 'native-product-price-normalized-from-generic-report' );
