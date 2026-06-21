@@ -241,6 +241,17 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( 'blocks-engine/import-validation-result/v1' === ( $validation_result['schema'] ?? '' ), 'validation-result-schema' );
 	$assert( 'ImportValidationResult' === ( $validation_result['artifact_type'] ?? '' ), 'validation-result-artifact-type' );
 	$assert( 'passed' === ( $validation_result['status'] ?? '' ), 'validation-result-status-passed' );
+	$visual_parity = $report['visual_parity_artifacts'] ?? array();
+	$visual_parity_validation = $validation_result['visual_parity_artifacts'] ?? array();
+	$assert( 'static-site-importer/visual-parity-artifacts/v1' === ( $visual_parity['schema'] ?? '' ), 'visual-parity-artifact-schema' );
+	$assert( 'pending' === ( $visual_parity['status'] ?? '' ), 'visual-parity-artifacts-pending-until-runtime-capture' );
+	$assert( 'codebox_runtime' === ( $visual_parity['owner'] ?? '' ), 'visual-parity-artifacts-owned-by-codebox-runtime' );
+	$assert( 'captured' === ( $visual_parity['artifacts']['import_report']['status'] ?? '' ), 'visual-parity-import-report-ref-captured' );
+	$assert( 'import-report.json' === ( $visual_parity['artifacts']['import_report']['ref']['artifact_name'] ?? '' ), 'visual-parity-import-report-ref-name' );
+	$assert( 'pending' === ( $visual_parity['artifacts']['source_screenshot']['status'] ?? '' ), 'visual-parity-source-screenshot-pending' );
+	$assert( 'not_captured' === ( $visual_parity['artifacts']['visual_diff']['capture_state'] ?? '' ), 'visual-parity-diff-not-captured' );
+	$assert( $visual_parity === $visual_parity_validation, 'validation-result-embeds-visual-parity-artifacts' );
+	$assert( ! static_site_importer_smoke_contains_local_path( $visual_parity ), 'visual-parity-artifacts-contain-no-local-paths' );
 	$assert( 'blocks-engine/finding-packets/v1' === ( $finding_packets['schema'] ?? '' ), 'finding-packets-schema' );
 	$assert( 'FindingPacketSet' === ( $finding_packets['artifact_type'] ?? '' ), 'finding-packets-artifact-type' );
 	$assert( 'static-site-importer/document-metadata/v1' === ( $metadata['schema'] ?? '' ), 'metadata-contract-is-recorded' );
@@ -352,6 +363,24 @@ if ( ! is_wp_error( $multi_page_result ) ) {
 	$assert( ! isset( $template_parts_by_path['parts/footer.html'] ), 'multi-page-does-not-synthesize-footer-template-part' );
 	$assert( ! str_contains( $read( $multi_page_result['theme_dir'] . '/templates/front-page.html' ), '"slug":"footer"' ), 'multi-page-template-does-not-reference-synthesized-footer-part' );
 	$assert( array() === $pattern_documents, 'blocks-engine-document-import-does-not-generate-page-pattern-copies' );
+}
+
+function static_site_importer_smoke_contains_local_path( $value ): bool {
+	if ( is_array( $value ) ) {
+		foreach ( $value as $item ) {
+			if ( static_site_importer_smoke_contains_local_path( $item ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	if ( ! is_string( $value ) ) {
+		return false;
+	}
+
+	return (bool) preg_match( '#^(?:/|[A-Za-z]:\\\\|file://|~[/\\\\]|(?:\.\.?[/\\\\]))#', $value );
 }
 
 if ( ! empty( $failures ) ) {

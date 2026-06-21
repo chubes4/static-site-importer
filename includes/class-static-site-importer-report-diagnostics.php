@@ -122,13 +122,14 @@ class Static_Site_Importer_Report_Diagnostics {
 				'freeform_blocks'   => array(),
 			),
 			'visual_fidelity'         => array(
-				'status'             => 'requires_external_render_check',
-				'gate_owner'         => 'benchmark_harness',
+				'status'             => 'requires_runtime_visual_parity_check',
+				'gate_owner'         => 'codebox_runtime',
 				'comparison_targets' => array(),
 				'notes'              => array(
-					'Static Site Importer records source and generated DOM probes, render URLs, and theme artifacts for visual comparison; screenshot capture and computed-style/layout thresholds belong to the benchmark harness.',
+					'Static Site Importer records stable artifact slots for Codebox/runtime visual parity validation; browser rendering, screenshots, and diffs are captured by the runtime when available.',
 				),
 			),
+			'visual_parity_artifacts' => self::visual_parity_artifact_contract(),
 			'semantic_fidelity'       => array(
 				'status'             => 'requires_external_render_check',
 				'gate_owner'         => 'benchmark_harness',
@@ -142,7 +143,7 @@ class Static_Site_Importer_Report_Diagnostics {
 				'Blocks Engine owns the website-artifact to WordPress-artifact envelope and transform diagnostics; Static Site Importer materializes the result into WordPress.',
 				'Static Site Importer still owns WordPress writes, dependency materialization, and WooCommerce product seeding, which keeps this report helper from moving wholesale into Blocks Engine.',
 				'Generated-theme block validation uses WordPress server-side block parsing and serialization checks; editor-runtime validation remains the exact Gutenberg authority.',
-				'Visual fidelity requires browser rendering; use visual_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',
+				'Visual fidelity requires browser rendering; use visual_parity_artifacts for durable Codebox/runtime evidence and explicit pending/not-captured slots.',
 				'Semantic fidelity requires browser DOM extraction; use semantic_fidelity.comparison_targets to compare source static HTML against the generated WordPress URL.',
 			),
 		);
@@ -274,6 +275,7 @@ class Static_Site_Importer_Report_Diagnostics {
 	 */
 	public static function finalize_report( array &$report, array $args ): array {
 		$quality                            = self::finalize_quality_report( $report, $args );
+		$report['visual_parity_artifacts']  = self::visual_parity_artifact_contract( isset( $args['validation_artifacts'] ) && is_array( $args['validation_artifacts'] ) ? $args['validation_artifacts'] : array() );
 		$report['compact_summary']          = self::import_report_summary( $report, $quality );
 		$report['finding_packets']          = self::finding_packets( $report );
 		$report['import_validation_result'] = self::import_validation_result( $report, $quality );
@@ -331,11 +333,12 @@ class Static_Site_Importer_Report_Diagnostics {
 					'owner'  => (string) ( $report['semantic_fidelity']['gate_owner'] ?? 'benchmark_harness' ),
 				),
 			),
-			'diagnostic_summary'  => $summary['diagnostic_summary'] ?? array(),
-			'diagnostic_refs'     => isset( $quality['diagnostic_refs'] ) && is_array( $quality['diagnostic_refs'] ) ? $quality['diagnostic_refs'] : array(),
-			'artifacts'           => self::validation_artifact_refs(),
-			'provenance'          => self::validation_provenance( $report ),
-			'reproduction_context' => self::validation_reproduction_context( $report ),
+			'diagnostic_summary'       => $summary['diagnostic_summary'] ?? array(),
+			'diagnostic_refs'          => isset( $quality['diagnostic_refs'] ) && is_array( $quality['diagnostic_refs'] ) ? $quality['diagnostic_refs'] : array(),
+			'artifacts'                => self::validation_artifact_refs(),
+			'visual_parity_artifacts' => isset( $report['visual_parity_artifacts'] ) && is_array( $report['visual_parity_artifacts'] ) ? $report['visual_parity_artifacts'] : self::visual_parity_artifact_contract(),
+			'provenance'               => self::validation_provenance( $report ),
+			'reproduction_context'      => self::validation_reproduction_context( $report ),
 		);
 	}
 
@@ -470,6 +473,7 @@ class Static_Site_Importer_Report_Diagnostics {
 			'commerce_context'             => $commerce_context,
 			'plugin_materialization'       => $plugin_materialization,
 			'product_seeding'              => $product_seeding,
+			'visual_parity_artifacts'      => isset( $report['visual_parity_artifacts'] ) && is_array( $report['visual_parity_artifacts'] ) ? $report['visual_parity_artifacts'] : self::visual_parity_artifact_contract(),
 			'diagnostic_count'             => count( $diagnostics ),
 			'diagnostic_summary'           => self::compact_import_report_diagnostic_summary( $diagnostics ),
 			'warning_summaries'            => self::compact_import_report_diagnostic_summaries_by_severity( $diagnostics, 'warning' ),
@@ -524,6 +528,158 @@ class Static_Site_Importer_Report_Diagnostics {
 				'kind' => 'blocks-engine/finding-packets',
 			),
 		);
+	}
+
+	/**
+	 * Build the stable Codebox/runtime visual parity artifact contract.
+	 *
+	 * @param array<string,mixed> $provided Runtime-provided durable artifact refs.
+	 * @return array<string,mixed>
+	 */
+	private static function visual_parity_artifact_contract( array $provided = array() ): array {
+		$slots = array(
+			'browser_render'           => array( 'kind' => 'browser_render_evidence', 'aliases' => array( 'browser-html', 'browser-artifact', 'artifact-bundle' ), 'reason' => 'Codebox/runtime browser render evidence was not provided.' ),
+			'source_screenshot'        => array( 'kind' => 'source_screenshot', 'reason' => 'Source screenshot was not captured by the runtime.' ),
+			'imported_screenshot'      => array( 'kind' => 'imported_screenshot', 'reason' => 'Imported WordPress screenshot was not captured by the runtime.' ),
+			'visual_diff'              => array( 'kind' => 'visual_diff', 'aliases' => array( 'visual_parity_artifact' ), 'reason' => 'Visual diff output was not captured by the runtime.' ),
+			'import_report'            => array( 'kind' => 'static-site-importer/import-report', 'artifact_name' => 'import-report.json' ),
+			'import_validation_result' => array( 'kind' => 'static-site-importer/import-validation-result', 'artifact_name' => 'import-validation-result.json' ),
+			'finding_packets'          => array( 'kind' => 'static-site-importer/finding-packets', 'artifact_name' => 'finding-packets.json' ),
+			'block_validation'         => array( 'kind' => 'gutenberg_block_validation', 'reason' => 'Block validation artifact was not provided by the runtime.' ),
+		);
+
+		$artifacts = array();
+		foreach ( $slots as $name => $slot ) {
+			$aliases = isset( $slot['aliases'] ) && is_array( $slot['aliases'] ) ? array_values( $slot['aliases'] ) : array();
+			$ref     = self::durable_artifact_ref( self::provided_visual_parity_artifact_ref( $provided, $name, (string) $slot['kind'], $aliases ) );
+			if ( empty( $ref ) && isset( $slot['artifact_name'] ) ) {
+				$ref = array(
+					'kind'          => (string) $slot['kind'],
+					'artifact_name' => (string) $slot['artifact_name'],
+				);
+			}
+
+			$artifacts[ $name ] = array_merge(
+				array(
+					'status' => empty( $ref ) ? 'pending' : 'captured',
+					'kind'   => (string) $slot['kind'],
+				),
+				empty( $ref )
+					? array(
+						'capture_state' => 'not_captured',
+						'reason'        => (string) ( $slot['reason'] ?? 'Artifact was not provided by the runtime.' ),
+					)
+					: array( 'ref' => $ref )
+			);
+		}
+
+		$missing = array_values(
+			array_keys(
+				array_filter(
+					$artifacts,
+					static fn ( array $artifact ): bool => 'captured' !== ( $artifact['status'] ?? '' )
+				)
+			)
+		);
+
+		return array(
+			'schema'       => 'static-site-importer/visual-parity-artifacts/v1',
+			'status'       => empty( $missing ) ? 'complete' : 'pending',
+			'owner'        => 'codebox_runtime',
+			'contract'     => 'durable_artifact_refs_only',
+			'missing'      => $missing,
+			'artifacts'    => $artifacts,
+			'local_paths'  => 'omitted',
+			'notes'        => array(
+				'Screenshot and diff slots stay pending until Codebox/runtime validation supplies durable artifact refs.',
+				'Reviewer-facing refs use artifact IDs, URLs, or artifact names; local filesystem paths are intentionally omitted.',
+			),
+		);
+	}
+
+	/**
+	 * Read a named runtime artifact ref from direct keys or artifact_refs arrays.
+	 *
+	 * @param array<string,mixed> $provided Runtime-provided artifacts.
+	 * @param string              $name     Artifact slot name.
+	 * @param string              $kind     Expected artifact kind.
+	 * @param array<int,string>   $aliases  Accepted artifact kind aliases.
+	 * @return mixed
+	 */
+	private static function provided_visual_parity_artifact_ref( array $provided, string $name, string $kind, array $aliases = array() ): mixed {
+		if ( isset( $provided[ $name ] ) ) {
+			return $provided[ $name ];
+		}
+
+		$refs = array();
+		foreach ( array( 'artifact_refs', 'artifacts' ) as $key ) {
+			if ( isset( $provided[ $key ] ) && is_array( $provided[ $key ] ) ) {
+				$refs = array_merge( $refs, array_values( $provided[ $key ] ) );
+			}
+		}
+
+		foreach ( $refs as $ref ) {
+			if ( ! is_array( $ref ) ) {
+				continue;
+			}
+
+			$ref_kind = isset( $ref['kind'] ) && is_scalar( $ref['kind'] ) ? (string) $ref['kind'] : '';
+			$ref_role = isset( $ref['role'] ) && is_scalar( $ref['role'] ) ? (string) $ref['role'] : '';
+			if ( $name === $ref_role || $kind === $ref_kind || in_array( $ref_kind, $aliases, true ) ) {
+				return $ref;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Normalize a runtime artifact reference to durable fields only.
+	 *
+	 * @param mixed $ref Runtime-provided artifact reference.
+	 * @return array<string,string>
+	 */
+	private static function durable_artifact_ref( mixed $ref ): array {
+		if ( is_string( $ref ) && '' !== trim( $ref ) ) {
+			$ref = array( filter_var( $ref, FILTER_VALIDATE_URL ) ? 'url' : 'artifact_id' => $ref );
+		}
+		if ( ! is_array( $ref ) ) {
+			return array();
+		}
+
+		$durable = array();
+		foreach ( array( 'artifact_id', 'id', 'url', 'artifact_name', 'name', 'kind', 'role', 'sha256' ) as $key ) {
+			if ( ! isset( $ref[ $key ] ) || ! is_scalar( $ref[ $key ] ) ) {
+				continue;
+			}
+
+			$value = trim( (string) $ref[ $key ] );
+			if ( '' === $value || self::is_local_path_ref( $value ) ) {
+				continue;
+			}
+
+			$normalized_key             = 'id' === $key ? 'artifact_id' : ( 'name' === $key ? 'artifact_name' : $key );
+			$durable[ $normalized_key ] = $value;
+		}
+
+		if ( empty( $durable ) && isset( $ref['path'] ) && is_scalar( $ref['path'] ) ) {
+			$path = trim( (string) $ref['path'] );
+			if ( '' !== $path && ! self::is_local_path_ref( $path ) ) {
+				$durable['artifact_name'] = basename( $path );
+			}
+		}
+
+		return $durable;
+	}
+
+	/**
+	 * Determine whether a value is a local filesystem path that should not be shared.
+	 *
+	 * @param string $value Candidate artifact field value.
+	 * @return bool
+	 */
+	private static function is_local_path_ref( string $value ): bool {
+		return (bool) preg_match( '#^(?:/|[A-Za-z]:\\\\|file://|~[/\\\\]|(?:\.\.?[/\\\\]))#', $value );
 	}
 
 	/**
