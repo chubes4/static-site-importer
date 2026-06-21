@@ -19,8 +19,8 @@ namespace {
 					'entry_path'  => 'website/index.html',
 					'source_hash' => 'products-smoke',
 				),
-				'compiled_site' => array(
-					'schema'   => 'blocks-engine/php-transformer/compiled-site/v1',
+				'materialization_plan' => array(
+					'schema'   => 'blocks-engine/php-transformer/materialization-plan/v1',
 					'products' => array(
 						array(
 							'post_type'      => 'product',
@@ -115,7 +115,7 @@ namespace {
 	$assert( ! is_wp_error( $compiled ), 'compile-succeeds', is_wp_error( $compiled ) ? $compiled->get_error_message() : '' );
 	$assert( 'website/index.html' === ( $compiled['input']['entry_path'] ?? '' ), 'preserves-native-artifact-input' );
 	$assert( 3 === count( $products ), 'maps-unique-product-reports' );
-	$assert( 'rye-loaf' === ( $products[0]['slug'] ?? '' ), 'maps-compiled-site-product-slug' );
+	$assert( 'rye-loaf' === ( $products[0]['slug'] ?? '' ), 'maps-materialization-plan-product-slug' );
 	$assert( 'Rye Loaf' === ( $products[0]['name'] ?? '' ), 'maps-title-to-name' );
 	$assert( '12.00' === ( $products[0]['regular_price'] ?? '' ), 'normalizes-price' );
 	$assert( array( 'Bread' ) === ( $products[0]['categories'] ?? array() ), 'filters-categories-to-strings' );

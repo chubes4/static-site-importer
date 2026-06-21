@@ -256,7 +256,7 @@ function reportResult( result ) {
 }
 
 function printSummary( label, summary ) {
-  const entries = Object.entries( summary );
+  const entries = Object.entries( summary || {} );
   if ( ! entries.length ) {
     return;
   }
