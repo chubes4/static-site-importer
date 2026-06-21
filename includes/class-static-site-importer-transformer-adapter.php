@@ -17,8 +17,6 @@ class Static_Site_Importer_Transformer_Adapter {
 	public const WEBSITE_ARTIFACT_SCHEMA = 'block-artifact-compiler/website-artifact/v1';
 	public const COMPILED_RESULT_SCHEMA  = 'block-artifact-compiler/result/v1';
 	private const CONVERSION_REPORT_OPTION = 'include_conversion_report';
-	private const LEGACY_BFB_REPORT_OPTION = 'include_bfb_report';
-	private const LEGACY_BFB_REPORT_FIELD  = 'bfb_report';
 
 	/**
 	 * Check whether the default Blocks Engine artifact compiler is available.
@@ -50,12 +48,11 @@ class Static_Site_Importer_Transformer_Adapter {
 			return new WP_Error( 'static_site_importer_missing_transformer', 'Blocks Engine php-transformer is required to import a website artifact.' );
 		}
 
-		$include_legacy_bfb_report = ! empty( $options[ self::LEGACY_BFB_REPORT_OPTION ] );
-		$options                   = $this->normalize_compile_options( $options );
+		$options = $this->normalize_compile_options( $options );
 		$result = blocks_engine_php_transformer_compile_artifact( $artifact, $options );
 
 		if ( is_array( $result ) ) {
-			return $this->compiled_result_from_transformer_contract( $result, $include_legacy_bfb_report );
+			return $this->compiled_result_from_transformer_contract( $result );
 		}
 
 		return new WP_Error( 'static_site_importer_transformer_compile_failed', 'Blocks Engine php-transformer did not return a compiler result.' );
@@ -64,12 +61,11 @@ class Static_Site_Importer_Transformer_Adapter {
 	/**
 	 * Project the stable transformer contracts into SSI's compiled artifact envelope.
 	 *
-	 * @param array<string,mixed> $result                    TransformerResult::toArray() output.
-	 * @param bool                $include_legacy_bfb_report Whether to expose SSI's legacy bfb_report field.
+	 * @param array<string,mixed> $result TransformerResult::toArray() output.
 	 * @return array<string,mixed>
 	 */
-	private function compiled_result_from_transformer_contract( array $result, bool $include_legacy_bfb_report ): array {
-		$compiled = $this->compiled_result_from_native_transformer_contract( $result, $include_legacy_bfb_report );
+	private function compiled_result_from_transformer_contract( array $result ): array {
+		$compiled = $this->compiled_result_from_native_transformer_contract( $result );
 		if ( empty( $compiled['wordpress_artifacts'] ) ) {
 			$compiled = $this->compiled_result_from_legacy_mapping_compatibility( $result );
 		}
@@ -105,11 +101,10 @@ class Static_Site_Importer_Transformer_Adapter {
 	/**
 	 * Build SSI's consumed compiler envelope from the native Blocks Engine result.
 	 *
-	 * @param array<string,mixed> $result                    TransformerResult::toArray() output.
-	 * @param bool                $include_legacy_bfb_report Whether to expose SSI's legacy bfb_report field.
+	 * @param array<string,mixed> $result TransformerResult::toArray() output.
 	 * @return array<string,mixed>
 	 */
-	private function compiled_result_from_native_transformer_contract( array $result, bool $include_legacy_bfb_report ): array {
+	private function compiled_result_from_native_transformer_contract( array $result ): array {
 		$source_reports = isset( $result['source_reports'] ) && is_array( $result['source_reports'] ) ? $result['source_reports'] : array();
 		if ( empty( $source_reports ) ) {
 			return array();
@@ -132,8 +127,8 @@ class Static_Site_Importer_Transformer_Adapter {
 			'provenance'          => isset( $result['provenance'] ) && is_array( $result['provenance'] ) ? $result['provenance'] : array(),
 		);
 
-		if ( $include_legacy_bfb_report ) {
-			$compiled[ self::LEGACY_BFB_REPORT_FIELD ] = $this->legacy_conversion_report_from_native_report( $result );
+		if ( isset( $result['conversion_report'] ) && is_array( $result['conversion_report'] ) ) {
+			$compiled['conversion_report'] = $result['conversion_report'];
 		}
 
 		return $compiled;
@@ -146,10 +141,7 @@ class Static_Site_Importer_Transformer_Adapter {
 	 * @return array<string,mixed>
 	 */
 	private function normalize_compile_options( array $options ): array {
-		$include_report = ! empty( $options[ self::CONVERSION_REPORT_OPTION ] ) || ! empty( $options[ self::LEGACY_BFB_REPORT_OPTION ] );
-		unset( $options[ self::LEGACY_BFB_REPORT_OPTION ] );
-
-		if ( $include_report ) {
+		if ( ! empty( $options[ self::CONVERSION_REPORT_OPTION ] ) ) {
 			$options[ self::CONVERSION_REPORT_OPTION ] = true;
 		}
 
@@ -157,24 +149,7 @@ class Static_Site_Importer_Transformer_Adapter {
 	}
 
 	/**
-	 * Preserve SSI's legacy report field from the native Blocks Engine conversion report.
-	 *
-	 * @param array<string,mixed> $result TransformerResult::toArray() output.
-	 * @return array<string,mixed>
-	 */
-	private function legacy_conversion_report_from_native_report( array $result ): array {
-		$report = isset( $result['conversion_report'] ) && is_array( $result['conversion_report'] ) ? $result['conversion_report'] : array();
-
-		return array(
-			'status'            => isset( $report['status'] ) && is_scalar( $report['status'] ) ? (string) $report['status'] : 'failed',
-			'serialized_blocks' => isset( $report['serialized_blocks'] ) && is_scalar( $report['serialized_blocks'] ) ? (string) $report['serialized_blocks'] : '',
-			'diagnostics'       => isset( $report['diagnostics'] ) && is_array( $report['diagnostics'] ) ? $report['diagnostics'] : array(),
-			'fallbacks'         => isset( $report['fallbacks'] ) && is_array( $report['fallbacks'] ) ? $report['fallbacks'] : array(),
-		);
-	}
-
-	/**
-	 * Project pre-source_reports transformer output through the legacy BAC-shaped map.
+	 * Project pre-source_reports transformer output through the legacy compiled-result map.
 	 *
 	 * Native Blocks Engine source_reports are the importer contract. This compatibility
 	 * path exists only for older transformer results that did not expose that contract.
@@ -561,7 +536,7 @@ class Static_Site_Importer_Transformer_Adapter {
 	}
 
 	/**
-	 * Build a compact block tree report without depending on BAC helpers.
+	 * Build a compact block tree report from parsed blocks.
 	 *
 	 * @param array<int|string,mixed> $blocks Parsed blocks.
 	 * @return array<string,int>
