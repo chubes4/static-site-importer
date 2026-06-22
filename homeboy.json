@@ -19,16 +19,7 @@
             ]
           }
         ],
-        "validation_dependencies": [
-          {
-            "type": "github",
-            "repo": "Automattic/blocks-engine",
-            "ref": "trunk",
-            "plugin_slug": "blocks-engine-php-transformer",
-            "package_path": "php-transformer",
-            "activate": true
-          }
-        ]
+        "validation_dependencies": []
       }
     }
   },

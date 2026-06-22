@@ -2,7 +2,7 @@
 
 Import a static site or generated website artifact into WordPress pages and a companion block theme.
 
-Static Site Importer is a WordPress plugin. It requires the [Blocks Engine PHP transformer](https://github.com/Automattic/blocks-engine/tree/trunk/php-transformer) plugin and calls that plugin's canonical helper functions for generic artifact compilation and format conversion.
+Static Site Importer is a WordPress plugin. It requires the [Blocks Engine PHP transformer](https://github.com/Automattic/blocks-engine/tree/trunk/php-transformer) Composer package and calls that package's canonical helper functions for generic artifact compilation and format conversion.
 
 ## Architecture Stack
 
@@ -25,7 +25,7 @@ When a generated artifact contains full-document HTML, Static Site Importer rout
 - Allows ZIP/CLI source-site imports to include nested `.md` / `.markdown` content documents; `.mdx` is skipped with explicit diagnostics because MDX runtime components are not supported.
 - Provides a WP-CLI importer for a local HTML entry file or one public HTML URL; the local source file does not need to be named `index.html` unless you want automatic front-page assignment.
 - Discovers readable sibling `*.html` files beside the selected entry file and recursive Markdown content documents under the source tree, then imports them as WordPress pages.
-- Compiles static HTML fragments and Markdown content through the Blocks Engine PHP transformer plugin helpers.
+- Compiles static HTML fragments and Markdown content through the Blocks Engine PHP transformer package helpers.
 - Stores converted page bodies on the imported WordPress pages as `post_content`.
 - Generates a block theme with shared header/footer template parts, `core/post-content` templates, page patterns for reusable/reference artifacts, `theme.json`, `style.css`, and optional `assets/site.js`.
 - Rewrites local `.html` links to the imported WordPress page permalinks.
@@ -37,12 +37,12 @@ When a generated artifact contains full-document HTML, Static Site Importer rout
 
 - WordPress 6.6 or later.
 - PHP 8.1 or later.
-- Blocks Engine PHP transformer plugin installed and active.
+- Composer dependencies installed with `composer install`.
 - Node dependencies installed only when running the JavaScript block-validation smoke tests.
 
 SSI requires `automattic/blocks-engine-php-transformer:^0.1.0` in Composer to align installed dependencies with the tagged Blocks Engine PHP transformer release. Until the package is published on Packagist, `composer.json` includes an explicit package repository for the `php-transformer-v0.1.0` tag at `ac92ddb` with autoloading rooted at the Blocks Engine monorepo archive's `php-transformer/src/` directory. Remove that repository override once Packagist serves the package metadata.
 
-At runtime, WordPress still loads the transformer plugin, and SSI calls `blocks_engine_php_transformer_compile_artifact()` and `blocks_engine_php_transformer_convert_format()`.
+At runtime, SSI loads the transformer package from `vendor/` and calls `blocks_engine_php_transformer_compile_artifact()` and `blocks_engine_php_transformer_convert_format()` directly.
 
 ## Admin Usage
 
@@ -284,7 +284,7 @@ npm run test:validation -- --json
 
 ### PHP Smokes
 
-PHP smokes run inside WordPress with the Blocks Engine PHP transformer plugin loaded through the plugin runtime:
+PHP smokes run inside WordPress with SSI's Composer dependencies installed:
 
 ```bash
 wp eval-file tests/smoke-admin-import-html-entry.php
