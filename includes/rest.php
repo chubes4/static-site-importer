@@ -27,6 +27,15 @@ function static_site_importer_register_rest_routes(): void {
 }
 
 /**
+ * Register default preview providers.
+ *
+ * @return void
+ */
+function static_site_importer_register_preview_providers(): void {
+	add_filter( 'static_site_importer_preview_result', 'static_site_importer_rest_codebox_preview_result', 10, 3 );
+}
+
+/**
  * Require a site operator for import mutations.
  *
  * @return true|WP_Error
@@ -229,6 +238,283 @@ function static_site_importer_rest_normalize_preview_result( array $result ): ar
 }
 
 /**
+ * Create a preview through WP Codebox's disposable browser Playground session API.
+ *
+ * @param array<string,mixed>|WP_Error|null $result  Existing provider result.
+ * @param array<string,mixed>               $request Preview request.
+ * @param array<string,mixed>               $params  Raw REST params.
+ * @return array<string,mixed>|WP_Error|null
+ */
+function static_site_importer_rest_codebox_preview_result( $result, array $request, array $params ) {
+	if ( null !== $result ) {
+		return $result;
+	}
+
+	if ( ! class_exists( 'WP_Codebox_Abilities' ) || ! method_exists( 'WP_Codebox_Abilities', 'create_browser_playground_session' ) ) {
+		return null;
+	}
+
+	$codebox_input = static_site_importer_rest_codebox_preview_input( $request, $params );
+	if ( is_wp_error( $codebox_input ) ) {
+		return $codebox_input;
+	}
+
+	$session = WP_Codebox_Abilities::create_browser_playground_session( $codebox_input );
+	if ( is_wp_error( $session ) ) {
+		return $session;
+	}
+
+	if ( ! is_array( $session ) ) {
+		return new WP_Error( 'static_site_importer_codebox_preview_result_invalid', __( 'WP Codebox preview returned an invalid session response.', 'static-site-importer' ), array( 'status' => 500 ) );
+	}
+
+	return static_site_importer_rest_codebox_preview_from_session( $session, $request );
+}
+
+/**
+ * Build WP Codebox browser Playground input from an SSI preview request.
+ *
+ * @param array<string,mixed> $request Preview request.
+ * @param array<string,mixed> $params  Raw REST params.
+ * @return array<string,mixed>|WP_Error
+ */
+function static_site_importer_rest_codebox_preview_input( array $request, array $params ) {
+	$source      = isset( $request['source'] ) && is_array( $request['source'] ) ? $request['source'] : array();
+	$artifact    = isset( $source['artifact'] ) && is_array( $source['artifact'] ) ? $source['artifact'] : array();
+	$import_args = isset( $request['import_args'] ) && is_array( $request['import_args'] ) ? $request['import_args'] : array();
+
+	$input = array(
+		'goal'               => __( 'Create a disposable WordPress preview for a Static Site Importer request.', 'static-site-importer' ),
+		'target'             => array(
+			'kind' => 'static-site-importer-preview',
+			'ref'  => 'static-site-importer/importer',
+		),
+		'expected_artifacts' => array( 'preview', 'static-site-importer-report' ),
+		'context'            => array(
+			'product'        => 'static-site-importer',
+			'request_schema' => (string) ( $request['schema'] ?? 'static-site-importer/preview-request/v1' ),
+			'source_url'     => isset( $source['url'] ) ? (string) $source['url'] : '',
+		),
+		'artifact_files'     => static_site_importer_rest_codebox_artifact_files( $artifact ),
+		'browser_runner'     => array(
+			'task_path'   => '/tmp/static-site-importer-preview-request.json',
+			'result_path' => '/tmp/static-site-importer-preview-result.json',
+			'invocation'  => array(
+				'type'  => 'ability',
+				'name'  => ! empty( $artifact ) ? 'static-site-importer/import-website-artifact' : 'static-site-importer/import-url',
+				'input' => array_filter(
+					array(
+						'artifact' => $artifact,
+						'url'      => isset( $source['url'] ) ? (string) $source['url'] : '',
+					) + $import_args
+				),
+			),
+			'capture_paths' => array(
+				array(
+					'path'      => '/tmp/static-site-importer-preview-result.json',
+					'name'      => 'static-site-importer-preview-result',
+					'kind'      => 'json',
+					'mime_type' => 'application/json',
+				),
+			),
+		),
+		'orchestrator'       => array(
+			'type' => 'static-site-importer-preview',
+			'id'   => 'static-site-importer/importer',
+		),
+	);
+
+	/**
+	 * Filters the WP Codebox browser Playground input for SSI previews.
+	 *
+	 * Deployments may add generic WP Codebox runtime packages, browser plugins, or
+	 * Playground options here. SSI intentionally does not hardcode environment paths.
+	 *
+	 * @param array<string,mixed> $input   WP Codebox browser session input.
+	 * @param array<string,mixed> $request SSI preview request.
+	 * @param array<string,mixed> $params  Raw REST params.
+	 */
+	$input = apply_filters( 'static_site_importer_codebox_preview_input', $input, $request, $params );
+	if ( ! is_array( $input ) ) {
+		return new WP_Error( 'static_site_importer_codebox_preview_input_invalid', __( 'WP Codebox preview input filters must return an array.', 'static-site-importer' ), array( 'status' => 500 ) );
+	}
+
+	return $input;
+}
+
+/**
+ * Convert SSI website artifact files to WP Codebox browser artifact files.
+ *
+ * @param array<string,mixed> $artifact Website artifact.
+ * @return array<int,array<string,mixed>>
+ */
+function static_site_importer_rest_codebox_artifact_files( array $artifact ): array {
+	$artifact_files = array();
+	$files          = isset( $artifact['files'] ) && is_array( $artifact['files'] ) ? $artifact['files'] : array();
+
+	foreach ( $files as $file ) {
+		if ( ! is_array( $file ) ) {
+			continue;
+		}
+
+		$path = isset( $file['path'] ) ? (string) $file['path'] : '';
+		$path = preg_replace( '#^website/#', '', $path );
+		$path = static_site_importer_rest_codebox_artifact_path( (string) $path );
+		if ( '' === $path ) {
+			continue;
+		}
+
+		$artifact_file = array(
+			'path' => $path,
+			'kind' => preg_match( '/\.html?$/i', $path ) ? 'html' : 'asset',
+		);
+
+		if ( isset( $file['content_base64'] ) ) {
+			$artifact_file['encoding']       = 'base64';
+			$artifact_file['content_base64'] = (string) $file['content_base64'];
+		} else {
+			$artifact_file['encoding'] = 'utf-8';
+			$artifact_file['content']  = isset( $file['content'] ) ? (string) $file['content'] : '';
+		}
+
+		$artifact_files[] = $artifact_file;
+	}
+
+	return $artifact_files;
+}
+
+/**
+ * Normalize a path for WP Codebox browser artifact files.
+ *
+ * @param string $path Artifact path.
+ * @return string
+ */
+function static_site_importer_rest_codebox_artifact_path( string $path ): string {
+	$path = str_replace( '\\', '/', $path );
+	$path = preg_replace( '#(^|/)\.(?=/|$)#', '', $path );
+	$path = preg_replace( '#(^|/)\.\.(?=/|$)#', '', $path );
+	$path = preg_replace( '#[^A-Za-z0-9_./-]#', '-', $path );
+	$path = preg_replace( '#/+#', '/', (string) $path );
+	$path = trim( (string) $path, '/' );
+
+	return '' !== $path ? $path : '';
+}
+
+/**
+ * Normalize a WP Codebox browser session into SSI's preview response shape.
+ *
+ * @param array<string,mixed> $session WP Codebox browser session.
+ * @param array<string,mixed> $request SSI preview request.
+ * @return array<string,mixed>
+ */
+function static_site_importer_rest_codebox_preview_from_session( array $session, array $request ): array {
+	$playground    = isset( $session['playground'] ) && is_array( $session['playground'] ) ? $session['playground'] : array();
+	$artifacts     = isset( $session['artifacts'] ) && is_array( $session['artifacts'] ) ? $session['artifacts'] : array();
+	$preview_url   = static_site_importer_rest_codebox_preview_url( $playground, $artifacts );
+	$blueprint_url = static_site_importer_rest_codebox_blueprint_url( $session );
+
+	if ( '' === $preview_url && '' === $blueprint_url ) {
+		return array(
+			'success' => false,
+			'preview' => array(
+				'status'  => 'unavailable',
+				'message' => __( 'Preview unavailable: WP Codebox did not return a preview URL or Playground blueprint URL.', 'static-site-importer' ),
+			),
+			'provider' => 'wp-codebox/create-browser-playground-session',
+			'codebox'  => array(
+				'session' => static_site_importer_rest_codebox_session_summary( $session ),
+			),
+			'request'  => $request,
+		);
+	}
+
+	return array(
+		'success' => true,
+		'preview' => array_filter(
+			array(
+				'status'     => 'ready',
+				'url'        => $preview_url,
+				'playground' => array_filter(
+					array(
+						'blueprint_url' => $blueprint_url,
+						'preview_url'   => isset( $playground['preview_url'] ) ? (string) $playground['preview_url'] : '',
+						'scope'         => isset( $playground['scope'] ) ? (string) $playground['scope'] : '',
+					)
+				),
+			)
+		),
+		'provider' => 'wp-codebox/create-browser-playground-session',
+		'codebox'  => array(
+			'session' => static_site_importer_rest_codebox_session_summary( $session ),
+		),
+	);
+}
+
+/**
+ * Extract the best reviewer-facing preview URL from a WP Codebox session.
+ *
+ * @param array<string,mixed> $playground Playground contract.
+ * @param array<string,mixed> $artifacts  Artifact contract.
+ * @return string
+ */
+function static_site_importer_rest_codebox_preview_url( array $playground, array $artifacts ): string {
+	foreach ( array( $playground['preview_public_url'] ?? '', $playground['site_url'] ?? '', $playground['preview_url'] ?? '', $artifacts['preview_url'] ?? '' ) as $candidate ) {
+		$candidate = esc_url_raw( (string) $candidate );
+		if ( preg_match( '#^https?://#i', $candidate ) ) {
+			return $candidate;
+		}
+	}
+
+	return '';
+}
+
+/**
+ * Build a Playground blueprint URL from a WP Codebox executable blueprint ref.
+ *
+ * @param array<string,mixed> $session WP Codebox browser session.
+ * @return string
+ */
+function static_site_importer_rest_codebox_blueprint_url( array $session ): string {
+	if ( ! class_exists( 'WP_Codebox_Browser_Task_Builder' ) || ! method_exists( 'WP_Codebox_Browser_Task_Builder', 'executable_blueprint_ref' ) ) {
+		return '';
+	}
+
+	$blueprint_ref = WP_Codebox_Browser_Task_Builder::executable_blueprint_ref( $session );
+	if ( ! is_array( $blueprint_ref ) ) {
+		return '';
+	}
+
+	$endpoint = isset( $blueprint_ref['hydration_endpoint'] ) ? (string) $blueprint_ref['hydration_endpoint'] : ( isset( $blueprint_ref['endpoint'] ) ? (string) $blueprint_ref['endpoint'] : '' );
+	if ( '' === $endpoint ) {
+		return '';
+	}
+
+	$blueprint_endpoint = str_starts_with( $endpoint, 'http://' ) || str_starts_with( $endpoint, 'https://' ) ? $endpoint : rest_url( ltrim( $endpoint, '/' ) );
+
+	return esc_url_raw( 'https://playground.wordpress.net/?blueprint-url=' . rawurlencode( $blueprint_endpoint ) );
+}
+
+/**
+ * Create a compact Codebox session summary for diagnostics.
+ *
+ * @param array<string,mixed> $session WP Codebox browser session.
+ * @return array<string,mixed>
+ */
+function static_site_importer_rest_codebox_session_summary( array $session ): array {
+	$session_envelope = isset( $session['session'] ) && is_array( $session['session'] ) ? $session['session'] : array();
+
+	return array_filter(
+		array(
+			'schema'          => isset( $session['schema'] ) ? (string) $session['schema'] : '',
+			'execution'       => isset( $session['execution'] ) ? (string) $session['execution'] : '',
+			'execution_scope' => isset( $session['execution_scope'] ) ? (string) $session['execution_scope'] : '',
+			'session_id'      => isset( $session_envelope['id'] ) ? (string) $session_envelope['id'] : '',
+			'status'          => isset( $session_envelope['status'] ) ? (string) $session_envelope['status'] : '',
+		)
+	);
+}
+
+/**
  * Build import args from REST input.
  *
  * @param array<string,mixed> $params Request params.
@@ -422,4 +708,8 @@ function static_site_importer_rest_entrypoint( array $files ): string {
 	}
 
 	return 'website/index.html';
+}
+
+if ( function_exists( 'add_filter' ) ) {
+	static_site_importer_register_preview_providers();
 }

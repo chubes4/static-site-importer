@@ -175,6 +175,37 @@ if ( ! class_exists( 'Static_Site_Importer_Theme_Generator' ) ) {
 	}
 }
 
+if ( ! class_exists( 'WP_Codebox_Abilities' ) ) {
+	class WP_Codebox_Abilities {
+		public static array $last_input = array();
+		public static array $next_session = array();
+
+		public static function create_browser_playground_session( array $input ): array {
+			self::$last_input = $input;
+
+			return self::$next_session;
+		}
+	}
+}
+
+if ( ! class_exists( 'WP_Codebox_Browser_Task_Builder' ) ) {
+	class WP_Codebox_Browser_Task_Builder {
+		public static function executable_blueprint_ref( array $session ): array {
+			$playground = isset( $session['playground'] ) && is_array( $session['playground'] ) ? $session['playground'] : array();
+			$prepared   = isset( $playground['prepared_runtime'] ) && is_array( $playground['prepared_runtime'] ) ? $playground['prepared_runtime'] : array();
+			if ( empty( $prepared['cache_key'] ) || empty( $prepared['input_hash'] ) ) {
+				return array();
+			}
+
+			return array(
+				'schema'             => 'wp-codebox/browser-blueprint-ref/v1',
+				'ref'                => 'prepared:' . $prepared['cache_key'] . ':' . $prepared['input_hash'],
+				'hydration_endpoint' => '/wp-codebox/v1/browser-blueprint-ref?ref=prepared%3A' . rawurlencode( $prepared['cache_key'] ) . '%3A' . rawurlencode( $prepared['input_hash'] ),
+			);
+		}
+	}
+}
+
 if ( ! function_exists( 'rest_url' ) ) {
 	function rest_url( string $path = '' ): string {
 		return 'https://example.test/wp-json/' . ltrim( $path, '/' );
@@ -302,6 +333,55 @@ $apply_response = static_site_importer_rest_create_import(
 );
 $assert( true === ( $apply_response['success'] ?? null ), 'rest-current-site-apply-is-explicitly-available' );
 $assert( true === ( Static_Site_Importer_Theme_Generator::$last_args['activate'] ?? null ), 'rest-current-site-apply-preserves-activate' );
+
+WP_Codebox_Abilities::$next_session = array(
+	'success'         => true,
+	'schema'          => 'wp-codebox/browser-playground-session/v1',
+	'execution'       => 'browser-playground',
+	'execution_scope' => 'disposable-playground',
+	'session'         => array(
+		'id'     => 'ssi-preview-session',
+		'status' => 'ready',
+	),
+	'playground'      => array(
+		'preview_public_url' => 'https://preview.example.test/ssi',
+		'preview_url'        => '/?preview=1',
+		'scope'              => 'ssi-preview-session',
+		'prepared_runtime'   => array(
+			'cache_key'  => 'ssi-preview-cache',
+			'input_hash' => str_repeat( 'a', 64 ),
+		),
+	),
+	'artifacts'       => array(
+		'preview_url' => '/?preview=1',
+	),
+);
+$codebox_preview = static_site_importer_rest_codebox_preview_result(
+	null,
+	$GLOBALS['ssi_preview_request'],
+	array()
+);
+$assert( true === ( $codebox_preview['success'] ?? null ), 'rest-codebox-preview-provider-succeeds' );
+$assert( 'https://preview.example.test/ssi' === ( $codebox_preview['preview']['url'] ?? '' ), 'rest-codebox-preview-provider-exposes-preview-url' );
+$assert( isset( $codebox_preview['preview']['playground']['blueprint_url'] ), 'rest-codebox-preview-provider-exposes-blueprint-url' );
+$assert( 'wp-codebox/create-browser-playground-session' === ( $codebox_preview['provider'] ?? '' ), 'rest-codebox-preview-provider-identified' );
+$assert( 'static-site-importer/import-website-artifact' === ( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['name'] ?? '' ), 'rest-codebox-preview-invokes-ssi-import-ability' );
+$assert( 'uploaded/site/index.html' === ( WP_Codebox_Abilities::$last_input['artifact_files'][0]['path'] ?? '' ), 'rest-codebox-preview-strips-website-prefix-for-browser-artifacts' );
+
+WP_Codebox_Abilities::$next_session = array(
+	'success'    => true,
+	'schema'     => 'wp-codebox/browser-playground-session/v1',
+	'session'    => array( 'id' => 'ssi-preview-session-no-url' ),
+	'playground' => array(),
+	'artifacts'  => array(),
+);
+$codebox_unavailable = static_site_importer_rest_codebox_preview_result(
+	null,
+	$GLOBALS['ssi_preview_request'],
+	array()
+);
+$assert( false === ( $codebox_unavailable['success'] ?? null ), 'rest-codebox-preview-without-url-does-not-pretend-success' );
+$assert( 'unavailable' === ( $codebox_unavailable['preview']['status'] ?? '' ), 'rest-codebox-preview-without-url-reports-unavailable' );
 
 if ( class_exists( 'ZipArchive' ) ) {
 	$zip_path = tempnam( sys_get_temp_dir(), 'ssi-test-' );
