@@ -250,7 +250,7 @@ class Static_Site_Importer_Report_Diagnostics {
 			'tag_name'              => isset( $context['tag_name'] ) ? (string) $context['tag_name'] : self::diagnostic_tag_name_from_html( $element_html ),
 			'block_name'            => isset( $block['blockName'] ) ? (string) $block['blockName'] : null,
 			'engine'                => 'blocks-engine/php-transformer',
-			'stage'                 => isset( $context['stage'] ) ? (string) $context['stage'] : 'html_to_blocks',
+			'stage'                 => isset( $context['stage'] ) ? (string) $context['stage'] : 'block_conversion',
 			'html_length'           => strlen( $element_html ),
 			'html_excerpt'          => self::diagnostic_excerpt( $element_html ),
 		);
