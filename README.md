@@ -239,6 +239,8 @@ Required artifact metadata lives under `artifacts` using `static-site-importer/c
 
 Reviewer-facing artifact fields should use durable refs or URLs. Host-local paths and `localhost` URLs are stripped from artifact refs; local paths may appear only under `operator_notes` for the machine operator.
 
+SSI-owned import reports use `static-site-importer/artifact-diagnostics/v1` for fallback artifact diagnostics. WP Codebox providers that expose a public Codebox diagnostics contract should map SSI diagnostics at the Codebox boundary instead of requiring SSI output to emit `wp-codebox/*` schemas.
+
 CLI entrypoint:
 
 ```bash
