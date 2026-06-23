@@ -15,12 +15,12 @@
         "source": {
           "type": "git",
           "url": "https://github.com/Automattic/blocks-engine.git",
-          "reference": "08aa7a4e4069b9836396f7a04f1f500ae01a3c8a"
+          "reference": "2d33407b1c9924bf07d1135208672aafd5b140ea"
         },
         "dist": {
           "type": "zip",
-          "url": "https://github.com/Automattic/blocks-engine/archive/08aa7a4e4069b9836396f7a04f1f500ae01a3c8a.zip",
-          "reference": "08aa7a4e4069b9836396f7a04f1f500ae01a3c8a"
+          "url": "https://github.com/Automattic/blocks-engine/archive/2d33407b1c9924bf07d1135208672aafd5b140ea.zip",
+          "reference": "2d33407b1c9924bf07d1135208672aafd5b140ea"
         },
         "autoload": {
           "psr-4": {
@@ -45,12 +45,12 @@
         "source": {
           "type": "git",
           "url": "https://github.com/Automattic/blocks-engine.git",
-          "reference": "08aa7a4e4069b9836396f7a04f1f500ae01a3c8a"
+          "reference": "2d33407b1c9924bf07d1135208672aafd5b140ea"
         },
         "dist": {
           "type": "zip",
-          "url": "https://github.com/Automattic/blocks-engine/archive/08aa7a4e4069b9836396f7a04f1f500ae01a3c8a.zip",
-          "reference": "08aa7a4e4069b9836396f7a04f1f500ae01a3c8a"
+          "url": "https://github.com/Automattic/blocks-engine/archive/2d33407b1c9924bf07d1135208672aafd5b140ea.zip",
+          "reference": "2d33407b1c9924bf07d1135208672aafd5b140ea"
         },
         "autoload": {
           "psr-4": {
