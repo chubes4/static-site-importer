@@ -501,6 +501,15 @@ function static_site_importer_rest_codebox_preview_input( array $request, array 
 		),
 		'artifact_files'              => static_site_importer_rest_codebox_artifact_files( $artifact ),
 		'runtime'                     => array(
+			'plugins'          => array(
+				array_filter(
+					array(
+						'slug'     => 'static-site-importer',
+						'path'     => defined( 'STATIC_SITE_IMPORTER_PATH' ) ? STATIC_SITE_IMPORTER_PATH : '',
+						'activate' => true,
+					)
+				),
+			),
 			'prepared_runtime' => array(
 				'enabled'   => true,
 				'cache_key' => 'static-site-importer-preview',
