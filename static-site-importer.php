@@ -45,6 +45,7 @@ require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-ar
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-codebox-validation.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-report-diagnostics.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-transformer-adapter.php';
+require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-figma-import.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-theme-exporter.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-theme-generator.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/abilities.php';

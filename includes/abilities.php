@@ -150,6 +150,38 @@ if ( ! function_exists( 'static_site_importer_register_abilities' ) ) {
 		);
 
 		wp_register_ability(
+			'static-site-importer/import-figma',
+			array(
+				'label'               => __( 'Import Figma Design', 'static-site-importer' ),
+				'description'         => __( 'Convert a Figma runner request or scenegraph into a website artifact and import it as a WordPress block theme.', 'static-site-importer' ),
+				'category'            => STATIC_SITE_IMPORTER_ABILITY_CATEGORY,
+				'input_schema'        => array(
+					'type'       => 'object',
+					'properties' => array(
+						'artifact_bundle'              => array( 'type' => 'object' ),
+						'figma'                        => array( 'type' => 'object' ),
+						'scenegraph'                   => array( 'type' => 'object' ),
+						'source'                       => array( 'type' => 'object' ),
+						'goal'                         => array( 'type' => 'string' ),
+						'slug'                         => array( 'type' => 'string' ),
+						'name'                         => array( 'type' => 'string' ),
+						'activate'                     => array( 'type' => 'boolean' ),
+						'overwrite'                    => array( 'type' => 'boolean' ),
+						'fail_on_quality'              => array( 'type' => 'boolean' ),
+						'allow_missing_woocommerce'    => array( 'type' => 'boolean' ),
+						'compiler_options'             => array( 'type' => 'object' ),
+						'transform_options'            => array( 'type' => 'object' ),
+						'frame_id'                     => array( 'type' => 'string' ),
+					),
+				),
+				'output_schema'       => array( 'type' => 'object' ),
+				'execute_callback'    => 'static_site_importer_ability_import_figma',
+				'permission_callback' => 'static_site_importer_ability_permission_callback',
+				'meta'                => array( 'show_in_rest' => true ),
+			)
+		);
+
+		wp_register_ability(
 			'static-site-importer/validate-in-codebox',
 			array(
 				'label'               => __( 'Validate Import in Codebox', 'static-site-importer' ),
@@ -217,6 +249,18 @@ if ( ! function_exists( 'static_site_importer_ability_validate_in_codebox' ) ) {
 			array( 'success' => ! empty( $result['success'] ) ),
 			$result
 		);
+	}
+}
+
+if ( ! function_exists( 'static_site_importer_ability_import_figma' ) ) {
+	/**
+	 * Ability callback for Figma imports.
+	 *
+	 * @param array<string, mixed> $input Ability input.
+	 * @return array<string, mixed>
+	 */
+	function static_site_importer_ability_import_figma( array $input ): array {
+		return Static_Site_Importer_Figma_Import::import( $input );
 	}
 }
 

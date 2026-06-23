@@ -24,6 +24,36 @@ function static_site_importer_register_rest_routes(): void {
 			'permission_callback' => 'static_site_importer_rest_manage_permission',
 		)
 	);
+
+	register_rest_route(
+		'static-site-importer/v1',
+		'/import-figma',
+		array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => 'static_site_importer_rest_import_figma',
+			'permission_callback' => 'static_site_importer_rest_manage_permission',
+		)
+	);
+}
+
+/**
+ * Import a Figma runner request and return the Figma plugin runner response shape.
+ *
+ * @param WP_REST_Request $request REST request.
+ * @return WP_REST_Response|WP_Error
+ */
+function static_site_importer_rest_import_figma( WP_REST_Request $request ) {
+	$input = $request->get_json_params();
+	if ( ! is_array( $input ) ) {
+		$input = $request->get_params();
+	}
+
+	$result = static_site_importer_rest_execute_import_ability( 'static-site-importer/import-figma', $input, 'static_site_importer_ability_import_figma' );
+	if ( is_wp_error( $result ) ) {
+		return $result;
+	}
+
+	return rest_ensure_response( Static_Site_Importer_Figma_Import::runner_response( $result ) );
 }
 
 /**

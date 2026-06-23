@@ -277,6 +277,12 @@ if ( ! function_exists( 'rest_url' ) ) {
 	}
 }
 
+if ( ! function_exists( 'home_url' ) ) {
+	function home_url( string $path = '' ): string {
+		return 'https://example.test/' . ltrim( $path, '/' );
+	}
+}
+
 if ( ! function_exists( 'wp_create_nonce' ) ) {
 	function wp_create_nonce( string $action ): string {
 		return 'test-nonce';
@@ -296,6 +302,7 @@ if ( ! function_exists( 'get_page_uri' ) ) {
 }
 
 require_once dirname( __DIR__ ) . '/includes/block.php';
+require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-figma-import.php';
 require_once dirname( __DIR__ ) . '/includes/abilities.php';
 require_once dirname( __DIR__ ) . '/includes/rest.php';
 require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-page-materializer.php';
@@ -499,6 +506,51 @@ $assert( Static_Site_Importer_Page_Materializer::is_protected_page( new WP_Post(
 $assert( Static_Site_Importer_Page_Materializer::is_protected_page( new WP_Post( 8, 'settings' ) ), 'protected-page-matches-path' );
 $assert( Static_Site_Importer_Page_Materializer::is_protected_page( new WP_Post( 42, 'other' ) ), 'protected-page-matches-id' );
 $assert( ! Static_Site_Importer_Page_Materializer::is_protected_page( new WP_Post( 9, 'ordinary' ) ), 'ordinary-page-is-not-protected' );
+
+Static_Site_Importer_Theme_Generator::$last_artifact = array();
+Static_Site_Importer_Theme_Generator::$last_args     = array();
+$figma_response = static_site_importer_rest_import_figma(
+	new WP_REST_Request(
+		array(
+			'schema'          => 'figma-to-wordpress/runner-request/v1',
+			'source'          => array(
+				'tool'       => 'figma',
+				'nodeIds'    => array( '1:2' ),
+				'exportedAt' => '2026-06-23T00:00:00.000Z',
+			),
+			'goal'            => 'Import Figma into WordPress.',
+			'artifact_bundle' => array(
+				'schema'        => 'figma-to-wordpress/website-artifact-bundle/v1',
+				'root'          => 'website/',
+				'entrypoint'    => 'website/index.html',
+				'import_source' => 'figma-to-wordpress',
+				'files'         => array(
+					array(
+						'path'      => 'website/index.html',
+						'content'   => '<main><h1>Figma</h1></main>',
+						'role'      => 'html',
+						'mime_type' => 'text/html',
+					),
+					array(
+						'path'      => 'website/assets/styles.css',
+						'content'   => 'body{color:#111}',
+						'role'      => 'css',
+						'mime_type' => 'text/css',
+					),
+				),
+			),
+		)
+	)
+);
+$assert( true === ( $figma_response['success'] ?? null ), 'figma-rest-response-succeeds' );
+$assert( 'figma-to-wordpress/runner-response/v1' === ( $figma_response['schema'] ?? '' ), 'figma-rest-response-uses-runner-schema' );
+$assert( 'created' === ( $figma_response['status'] ?? '' ), 'figma-rest-response-created-status' );
+$assert( 'https://example.test/' === ( $figma_response['open_url'] ?? '' ), 'figma-rest-response-open-url' );
+$assert( 'website/index.html' === ( Static_Site_Importer_Theme_Generator::$last_artifact['entrypoint'] ?? '' ), 'figma-artifact-entrypoint-normalized' );
+$assert( 'website/assets/styles.css' === ( Static_Site_Importer_Theme_Generator::$last_artifact['files'][1]['path'] ?? '' ), 'figma-artifact-file-path-normalized' );
+$assert( true === ( Static_Site_Importer_Theme_Generator::$last_args['activate'] ?? null ), 'figma-import-defaults-to-activate' );
+$assert( true === ( Static_Site_Importer_Theme_Generator::$last_args['overwrite'] ?? null ), 'figma-import-defaults-to-overwrite' );
+$assert( 'figma-to-wordpress' === ( Static_Site_Importer_Theme_Generator::$last_artifact['provenance']['source'] ?? '' ), 'figma-artifact-provenance-source' );
 
 if ( class_exists( 'ZipArchive' ) ) {
 	$zip_path = tempnam( sys_get_temp_dir(), 'ssi-test-' );
