@@ -326,7 +326,7 @@ class Static_Site_Importer_Theme_Materializer {
 			}
 
 			++$order;
-			$asset = array_merge(
+			$asset               = array_merge(
 				$row,
 				array(
 					'path'   => $relative,
@@ -745,7 +745,7 @@ class Static_Site_Importer_Theme_Materializer {
 		$stylesheet_deps  = array();
 
 		foreach ( $stylesheets as $stylesheet ) {
-			if ( ! is_array( $stylesheet ) || ! isset( $stylesheet['theme_path'] ) || ! is_scalar( $stylesheet['theme_path'] ) ) {
+			if ( ! isset( $stylesheet['theme_path'] ) || ! is_scalar( $stylesheet['theme_path'] ) ) {
 				continue;
 			}
 
@@ -754,12 +754,15 @@ class Static_Site_Importer_Theme_Materializer {
 				continue;
 			}
 
-			$handle             = sanitize_key( $theme_slug . '-asset-' . preg_replace( '/\.[^.]+$/', '', str_replace( '/', '-', $theme_path ) ) );
-			$stylesheet_deps[]  = $handle;
-			$stylesheet_lines  .= "\twp_enqueue_style( " . var_export( $handle, true ) . ", get_template_directory_uri() . " . var_export( '/' . $theme_path, true ) . ", array(), wp_get_theme()->get( 'Version' )";
-			$media              = isset( $stylesheet['media'] ) && is_scalar( $stylesheet['media'] ) && '' !== (string) $stylesheet['media'] ? (string) $stylesheet['media'] : '';
-			$stylesheet_lines  .= '' !== $media ? ', ' . var_export( $media, true ) . " );\n" : " );\n";
+			$handle            = sanitize_key( $theme_slug . '-asset-' . preg_replace( '/\.[^.]+$/', '', str_replace( '/', '-', $theme_path ) ) );
+			$stylesheet_deps[] = $handle;
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export -- Generates quoted PHP string literals for functions.php.
+			$stylesheet_lines .= "\twp_enqueue_style( " . var_export( $handle, true ) . ', get_template_directory_uri() . ' . var_export( '/' . $theme_path, true ) . ", array(), wp_get_theme()->get( 'Version' )";
+			$media             = isset( $stylesheet['media'] ) && is_scalar( $stylesheet['media'] ) && '' !== (string) $stylesheet['media'] ? (string) $stylesheet['media'] : '';
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export -- Generates quoted PHP string literals for functions.php.
+			$stylesheet_lines .= '' !== $media ? ', ' . var_export( $media, true ) . " );\n" : " );\n";
 		}
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export -- Generates quoted PHP array literals for functions.php.
 		$stylesheet_dependencies = empty( $stylesheet_deps ) ? 'array()' : var_export( $stylesheet_deps, true );
 
 		foreach ( $scripts as $script ) {

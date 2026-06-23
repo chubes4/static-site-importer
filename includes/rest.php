@@ -1196,7 +1196,14 @@ function static_site_importer_rest_should_include_artifact_file( string $path ):
 	$path  = str_replace( '\\', '/', $path );
 	$path  = preg_replace( '#/+#', '/', $path );
 	$path  = preg_replace( '#^website/#', '', ltrim( (string) $path, '/' ) );
-	$parts = array_values( array_filter( explode( '/', (string) $path ), 'strlen' ) );
+	$parts = array_values(
+		array_filter(
+			explode( '/', (string) $path ),
+			static function ( string $part ): bool {
+				return '' !== $part;
+			}
+		)
+	);
 	$name  = end( $parts );
 
 	if ( false === $name ) {
