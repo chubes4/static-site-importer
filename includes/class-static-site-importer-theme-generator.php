@@ -1424,8 +1424,8 @@ class Static_Site_Importer_Theme_Generator {
 			'css'         => $result['css'],
 			'js'          => $result['js'],
 			'assets'      => $result['assets'],
-			'scripts'     => isset( $result['scripts'] ) && is_array( $result['scripts'] ) ? $result['scripts'] : array(),
-			'stylesheets' => isset( $result['stylesheets'] ) && is_array( $result['stylesheets'] ) ? $result['stylesheets'] : array(),
+			'scripts'     => $result['scripts'],
+			'stylesheets' => $result['stylesheets'],
 		);
 	}
 
