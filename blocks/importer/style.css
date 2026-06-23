@@ -48,6 +48,17 @@
 	gap: 6px;
 }
 
+.ssi-importer__upload-group {
+	border: 0;
+	margin: 0;
+	padding: 0;
+}
+
+.ssi-importer__upload-option {
+	display: grid;
+	gap: 6px;
+}
+
 .ssi-importer__field summary {
 	cursor: pointer;
 }
