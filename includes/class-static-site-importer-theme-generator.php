@@ -52,6 +52,12 @@ class Static_Site_Importer_Theme_Generator {
 		if ( ! class_exists( 'Static_Site_Importer_Transformer_Adapter' ) ) {
 			return new WP_Error( 'static_site_importer_missing_transformer_adapter', 'Static Site Importer transformer adapter is required to import a website artifact.' );
 		}
+		if ( empty( $args['site_title'] ) ) {
+			$site_title = self::site_title_from_website_artifact( $artifact );
+			if ( '' !== $site_title ) {
+				$args['site_title'] = $site_title;
+			}
+		}
 
 		$compiler_options = isset( $args['compiler_options'] ) && is_array( $args['compiler_options'] ) ? $args['compiler_options'] : array();
 		$compiled         = ( new Static_Site_Importer_Transformer_Adapter() )->compile_website_artifact( $artifact, array_merge( array( 'include_conversion_report' => true ), $compiler_options ) );
@@ -236,6 +242,9 @@ class Static_Site_Importer_Theme_Generator {
 			}
 
 			switch_theme( $theme_slug );
+			if ( isset( $args['site_title'] ) && '' !== trim( (string) $args['site_title'] ) ) {
+				update_option( 'blogname', sanitize_text_field( (string) $args['site_title'] ) );
+			}
 			if ( 0 !== $front_page_id ) {
 				update_option( 'show_on_front', 'page' );
 				update_option( 'page_on_front', $front_page_id );
@@ -941,6 +950,37 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return $refs;
+	}
+
+	/**
+	 * Infer a WordPress site title from the source artifact entrypoint.
+	 *
+	 * @param array<string,mixed> $artifact Website artifact bundle.
+	 * @return string
+	 */
+	private static function site_title_from_website_artifact( array $artifact ): string {
+		$entrypoint = isset( $artifact['entrypoint'] ) && is_scalar( $artifact['entrypoint'] ) ? self::normalize_route_path( (string) $artifact['entrypoint'] ) : '';
+		$files      = isset( $artifact['files'] ) && is_array( $artifact['files'] ) ? $artifact['files'] : array();
+		foreach ( $files as $file ) {
+			if ( ! is_array( $file ) ) {
+				continue;
+			}
+			$path = isset( $file['path'] ) && is_scalar( $file['path'] ) ? self::normalize_route_path( (string) $file['path'] ) : '';
+			if ( '' === $path || ( '' !== $entrypoint && $path !== $entrypoint ) ) {
+				continue;
+			}
+			$content = isset( $file['content'] ) && is_scalar( $file['content'] ) ? (string) $file['content'] : '';
+			if ( '' === trim( $content ) || ! preg_match( '/<title[^>]*>(.*?)<\/title>/is', $content, $matches ) ) {
+				continue;
+			}
+
+			$title = function_exists( 'wp_strip_all_tags' ) ? wp_strip_all_tags( (string) $matches[1] ) : strip_tags( (string) $matches[1] );
+			$title = html_entity_decode( trim( $title ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+			$title = preg_split( '/\s+(?:\||\x{2014}|\x{2013}|-)\s+/u', $title )[0] ?? $title;
+			return function_exists( 'sanitize_text_field' ) ? sanitize_text_field( trim( $title ) ) : trim( strip_tags( $title ) );
+		}
+
+		return '';
 	}
 
 	/**
