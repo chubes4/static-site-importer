@@ -500,6 +500,12 @@ function static_site_importer_rest_codebox_preview_input( array $request, array 
 			'source_url'     => isset( $source['url'] ) ? (string) $source['url'] : '',
 		),
 		'artifact_files'              => static_site_importer_rest_codebox_artifact_files( $artifact ),
+		'runtime'                     => array(
+			'prepared_runtime' => array(
+				'enabled'   => true,
+				'cache_key' => 'static-site-importer-preview',
+			),
+		),
 		'browser_runner'              => array(
 			'task_path'     => '/tmp/static-site-importer-preview-request.json',
 			'result_path'   => '/tmp/static-site-importer-preview-result.json',
