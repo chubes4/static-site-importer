@@ -297,6 +297,9 @@ $target_route_pages = $source_pages->invoke(
 						'title'        => 'Nested Home',
 						'entrypoint'   => true,
 						'block_markup' => '<!-- wp:paragraph --><p>Nested home</p><!-- /wp:paragraph -->',
+						'metadata'     => array(
+							'slug' => 'index',
+						),
 					),
 				),
 				'routes' => array(
@@ -318,6 +321,21 @@ $assert( $target_route_page instanceof Static_Site_Importer_Source_Page, 'materi
 $assert( $target_route_page instanceof Static_Site_Importer_Source_Page && 'home' === $target_route_page->metadata_value( 'slug' ), 'materialization-plan-target-root-route-normalizes-home-slug' );
 $assert( $target_route_page instanceof Static_Site_Importer_Source_Page && '1' === $target_route_page->metadata_value( 'entrypoint' ), 'materialization-plan-target-root-route-preserves-entrypoint' );
 $assert( $target_route_page instanceof Static_Site_Importer_Source_Page && str_contains( $target_route_page->body(), 'Nested home' ), 'materialization-plan-target-route-page-body-is-preserved' );
+
+$site_title_from_artifact = new ReflectionMethod( Static_Site_Importer_Theme_Generator::class, 'site_title_from_website_artifact' );
+$site_title               = $site_title_from_artifact->invoke(
+	null,
+	array(
+		'entrypoint' => 'website/nested/index.html',
+		'files'      => array(
+			array(
+				'path'    => 'website/nested/index.html',
+				'content' => '<!doctype html><html><head><title>Northline Plumbing &amp; Heating | Grand Rapids, MI</title></head><body></body></html>',
+			),
+		),
+	)
+);
+$assert( 'Northline Plumbing & Heating' === $site_title, 'website-artifact-entrypoint-title-infers-site-title' );
 
 $malformed_routes = $source_pages->invoke(
 	null,
