@@ -466,6 +466,8 @@ $assert( 'static-site-importer/import-website-artifact' === ( WP_Codebox_Abiliti
 $assert( true === ( WP_Codebox_Abilities::$last_input['include_raw_browser_session'] ?? null ), 'rest-preview-codebox-requests-raw-session-for-blueprint-extraction' );
 $assert( true === ( WP_Codebox_Abilities::$last_input['runtime']['prepared_runtime']['enabled'] ?? null ), 'rest-preview-codebox-enables-prepared-runtime-for-blueprint-ref' );
 $assert( 'static-site-importer-preview' === ( WP_Codebox_Abilities::$last_input['runtime']['prepared_runtime']['cache_key'] ?? '' ), 'rest-preview-codebox-uses-stable-prepared-runtime-cache-key' );
+$assert( 'static-site-importer' === ( WP_Codebox_Abilities::$last_input['runtime']['plugins'][0]['slug'] ?? '' ), 'rest-preview-codebox-installs-ssi-runtime-plugin' );
+$assert( true === ( WP_Codebox_Abilities::$last_input['runtime']['plugins'][0]['activate'] ?? null ), 'rest-preview-codebox-activates-ssi-runtime-plugin' );
 $assert( isset( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['input']['artifact'] ), 'rest-preview-codebox-request-includes-artifact' );
 $assert( 'website/uploaded/site/index.html' === ( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['input']['artifact']['files'][0]['path'] ?? '' ), 'rest-directory-path-is-normalized' );
 $assert( 'uploaded/site/index.html' === ( WP_Codebox_Abilities::$last_input['artifact_files'][0]['path'] ?? '' ), 'rest-preview-codebox-strips-website-prefix-for-browser-artifacts' );
