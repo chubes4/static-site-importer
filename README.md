@@ -53,6 +53,14 @@ At runtime, SSI loads the transformer package from `vendor/` and calls `blocks_e
 
 The admin path always overwrites an existing generated theme with the same slug. Pasted HTML, fetched URL HTML, and direct HTML uploads are copied into a generated upload work directory as `index.html` and imported as a single-page site. ZIP uploads are for multi-page static sites or bundled source-site exports; they are extracted to an upload work directory, the selected `index.html` is used as the entry file, sibling HTML files from that extracted site directory are imported, and nested `.md` / `.markdown` files are imported as content pages. The importer does not require the original source model to be a single `index.html`; it needs one selected HTML entry file for shared shell/chrome and imports the source content documents it can read.
 
+## Browser Playground Demo
+
+Open Static Site Importer in a disposable WordPress Playground site:
+
+https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/Automattic/static-site-importer/main/docs/playground/blueprint.json
+
+The blueprint installs and activates the packaged Static Site Importer release, logs the visitor in, and opens `/import/` with the `static-site-importer/importer` block configured for `applyToCurrentSite`. Testers can upload a ZIP, choose a local site directory, paste HTML, or enter one public URL. The import runs inside the browser Playground site and activates the generated WordPress block theme there, so the imported result can be inspected without installing anything locally.
+
 URL intake rules:
 
 - Fetches one URL only; this is not a crawler and does not execute JavaScript.
