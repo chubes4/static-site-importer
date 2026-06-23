@@ -27,6 +27,9 @@ $assert = static function ( bool $condition, string $label, string $detail = '' 
 };
 
 $GLOBALS['ssi_registered_block'] = null;
+$GLOBALS['ssi_options']          = array();
+$GLOBALS['ssi_test_options']     = array();
+$GLOBALS['ssi_uuid_count']       = 0;
 
 if ( ! function_exists( 'register_block_type' ) ) {
 	function register_block_type( string $path, array $args = array() ): bool {
@@ -129,6 +132,38 @@ if ( ! function_exists( 'add_action' ) ) {
 	}
 }
 
+if ( ! function_exists( 'get_option' ) ) {
+	function get_option( string $name, $default = false ) {
+		if ( array_key_exists( $name, $GLOBALS['ssi_options'] ) ) {
+			return $GLOBALS['ssi_options'][ $name ];
+		}
+
+		return array_key_exists( $name, $GLOBALS['ssi_test_options'] ) ? $GLOBALS['ssi_test_options'][ $name ] : $default;
+	}
+}
+
+if ( ! function_exists( 'update_option' ) ) {
+	function update_option( string $name, $value, $autoload = null ): bool {
+		$GLOBALS['ssi_options'][ $name ] = $value;
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'wp_generate_uuid4' ) ) {
+	function wp_generate_uuid4(): string {
+		++$GLOBALS['ssi_uuid_count'];
+
+		return '00000000-0000-4000-8000-' . str_pad( (string) $GLOBALS['ssi_uuid_count'], 12, '0', STR_PAD_LEFT );
+	}
+}
+
+if ( ! function_exists( 'wp_json_encode' ) ) {
+	function wp_json_encode( $value, int $flags = 0, int $depth = 512 ) {
+		return json_encode( $value, $flags, $depth );
+	}
+}
+
 if ( ! class_exists( 'WP_Error' ) ) {
 	class WP_Error {
 		private string $code;
@@ -217,6 +252,10 @@ if ( ! class_exists( 'WP_Codebox_Abilities' ) ) {
 if ( ! class_exists( 'WP_Codebox_Browser_Task_Builder' ) ) {
 	class WP_Codebox_Browser_Task_Builder {
 		public static function executable_blueprint_ref( array $session ): array {
+			if ( isset( $session['blueprint_ref'] ) && is_array( $session['blueprint_ref'] ) ) {
+				return $session['blueprint_ref'];
+			}
+
 			$playground = isset( $session['playground'] ) && is_array( $session['playground'] ) ? $session['playground'] : array();
 			$prepared   = isset( $playground['prepared_runtime'] ) && is_array( $playground['prepared_runtime'] ) ? $playground['prepared_runtime'] : array();
 			if ( empty( $prepared['cache_key'] ) || empty( $prepared['input_hash'] ) ) {
@@ -362,6 +401,45 @@ $assert( 'static-site-importer/import-website-artifact' === ( WP_Codebox_Abiliti
 $assert( isset( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['input']['artifact'] ), 'rest-preview-codebox-request-includes-artifact' );
 $assert( 'website/uploaded/site/index.html' === ( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['input']['artifact']['files'][0]['path'] ?? '' ), 'rest-directory-path-is-normalized' );
 $assert( 'uploaded/site/index.html' === ( WP_Codebox_Abilities::$last_input['artifact_files'][0]['path'] ?? '' ), 'rest-preview-codebox-strips-website-prefix-for-browser-artifacts' );
+$assert( isset( $preview_response['preview_attempt']['request_id'] ), 'rest-preview-response-exposes-attempt-id' );
+$attempts = get_option( 'static_site_importer_preview_attempts', array() );
+$assert( 1 === count( $attempts ), 'rest-preview-persists-attempt' );
+$ready_attempt = $attempts[0] ?? array();
+$assert( 'static-site-importer/preview-attempt/v1' === ( $ready_attempt['schema'] ?? '' ), 'rest-preview-attempt-schema' );
+$assert( 'files' === ( $ready_attempt['source']['type'] ?? '' ), 'rest-preview-attempt-source-type' );
+$assert( 1 === ( $ready_attempt['source']['file_count'] ?? 0 ), 'rest-preview-attempt-file-count' );
+$assert( 'website/uploaded/site/index.html' === ( $ready_attempt['artifact']['entrypoint'] ?? '' ), 'rest-preview-attempt-entrypoint' );
+$assert( 'absolute_preview_url_found' === ( $ready_attempt['preview_url_extraction']['status'] ?? '' ), 'rest-preview-attempt-records-preview-extraction-success' );
+$assert( 'https://preview.example.test/ssi' === ( $ready_attempt['preview_url_extraction']['selected_url'] ?? '' ), 'rest-preview-attempt-records-selected-url' );
+$assert( false === str_contains( wp_json_encode( $ready_attempt ), '<main>Hello</main>' ), 'rest-preview-attempt-omits-raw-file-content' );
+
+WP_Codebox_Abilities::$next_session = array(
+	'success'       => true,
+	'schema'        => 'wp-codebox/browser-session-product-dto/v1',
+	'session_id'    => 'ssi-product-session',
+	'execution'     => 'browser-playground',
+	'blueprint_ref' => array(
+		'schema'             => 'wp-codebox/browser-blueprint-ref/v1',
+		'ref'                => 'prepared:ssi-product:' . str_repeat( 'b', 64 ),
+		'hydration_endpoint' => '/wp-json/wp-codebox/v1/browser-blueprint-ref?ref=prepared%3Assi-product%3A' . str_repeat( 'b', 64 ),
+	),
+);
+$product_response = static_site_importer_rest_create_import(
+	new WP_REST_Request(
+		array(
+			'source' => array(
+				'files' => array(
+					array(
+						'path'    => 'uploaded/product/index.html',
+						'content' => '<main>Product DTO</main>',
+					),
+				),
+			),
+		)
+	)
+);
+$assert( true === ( $product_response['success'] ?? null ), 'rest-preview-product-dto-succeeds-with-blueprint-ref' );
+$assert( isset( $product_response['preview']['playground']['blueprint_url'] ), 'rest-preview-product-dto-exposes-playground-blueprint-url' );
 
 Static_Site_Importer_Theme_Generator::$last_artifact = array();
 WP_Codebox_Abilities::$next_session = array(
@@ -384,6 +462,15 @@ $assert( false === ( $unavailable_response['success'] ?? null ), 'rest-preview-d
 $assert( 'unavailable' === ( $unavailable_response['preview']['status'] ?? '' ), 'rest-preview-default-reports-unavailable' );
 $assert( str_contains( $unavailable_response['preview']['message'] ?? '', 'WP Codebox did not return a preview URL or Playground blueprint URL' ), 'rest-preview-default-codebox-no-url-diagnostic' );
 $assert( array() === Static_Site_Importer_Theme_Generator::$last_artifact, 'rest-preview-default-does-not-apply-to-current-site' );
+$attempts = get_option( 'static_site_importer_preview_attempts', array() );
+$assert( 3 === count( $attempts ), 'rest-preview-persists-unavailable-attempt' );
+$failed_attempt = $attempts[2] ?? array();
+$assert( 'html' === ( $failed_attempt['source']['type'] ?? '' ), 'rest-preview-unavailable-attempt-source-type' );
+$assert( 1 === ( $failed_attempt['source']['file_count'] ?? 0 ), 'rest-preview-unavailable-attempt-file-count' );
+$assert( 'ssi-preview-session-no-url' === ( $failed_attempt['codebox']['session']['session_id'] ?? '' ), 'rest-preview-unavailable-attempt-session-id' );
+$assert( 'missing_absolute_preview_url' === ( $failed_attempt['preview_url_extraction']['status'] ?? '' ), 'rest-preview-unavailable-attempt-extraction-status' );
+$assert( 'unavailable' === ( $failed_attempt['final']['status'] ?? '' ), 'rest-preview-unavailable-attempt-final-status' );
+$assert( false === str_contains( wp_json_encode( $failed_attempt ), '<main>No provider</main>' ), 'rest-preview-unavailable-attempt-omits-raw-html' );
 
 $codebox_missing = static_site_importer_rest_preview_unavailable_result( array( 'schema' => 'static-site-importer/preview-request/v1' ) );
 $assert( false === ( $codebox_missing['success'] ?? null ), 'rest-codebox-unavailable-does-not-pretend-success' );
