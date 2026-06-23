@@ -283,6 +283,42 @@ $assert( $native_page instanceof Static_Site_Importer_Source_Page && 'Home Canon
 $assert( $native_page instanceof Static_Site_Importer_Source_Page && 'home-route' === $native_page->metadata_value( 'route_key' ), 'materialization-plan-route-key-is-preserved' );
 $assert( $native_page instanceof Static_Site_Importer_Source_Page && str_contains( $native_page->body(), 'Native page' ), 'materialization-plan-page-body-wins-over-compiled-site-document' );
 
+$target_route_pages = $source_pages->invoke(
+	null,
+	array(
+		'artifacts' => array(
+			'site' => array(
+				'schema' => 'blocks-engine/php-transformer/materialization-plan/v1',
+				'pages'  => array(
+					array(
+						'source_path'  => 'website/nested/index.html',
+						'post_type'    => 'page',
+						'slug'         => 'index',
+						'title'        => 'Nested Home',
+						'entrypoint'   => true,
+						'block_markup' => '<!-- wp:paragraph --><p>Nested home</p><!-- /wp:paragraph -->',
+					),
+				),
+				'routes' => array(
+					array(
+						'kind'            => 'route',
+						'source_path'     => 'website/nested/index.html',
+						'target_path'     => '/',
+						'target_slug'     => 'index',
+						'title'           => 'Nested Home Route',
+						'source_relation' => 'entrypoint',
+					),
+				),
+			),
+		),
+	)
+);
+$target_route_page = is_array( $target_route_pages ) ? ( $target_route_pages['website/nested/index.html'] ?? null ) : null;
+$assert( $target_route_page instanceof Static_Site_Importer_Source_Page, 'materialization-plan-target-route-page-source-key-is-used' );
+$assert( $target_route_page instanceof Static_Site_Importer_Source_Page && 'home' === $target_route_page->metadata_value( 'slug' ), 'materialization-plan-target-root-route-normalizes-home-slug' );
+$assert( $target_route_page instanceof Static_Site_Importer_Source_Page && '1' === $target_route_page->metadata_value( 'entrypoint' ), 'materialization-plan-target-root-route-preserves-entrypoint' );
+$assert( $target_route_page instanceof Static_Site_Importer_Source_Page && str_contains( $target_route_page->body(), 'Nested home' ), 'materialization-plan-target-route-page-body-is-preserved' );
+
 $malformed_routes = $source_pages->invoke(
 	null,
 	array(

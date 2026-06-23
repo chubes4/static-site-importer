@@ -1137,12 +1137,30 @@ class Static_Site_Importer_Theme_Generator {
 					$normalized[ $key ] = (string) $route[ $key ];
 				}
 			}
+			if ( ! isset( $normalized['slug'] ) && isset( $route['target_slug'] ) && is_scalar( $route['target_slug'] ) && '' !== trim( (string) $route['target_slug'] ) ) {
+				$normalized['slug'] = (string) $route['target_slug'];
+			}
+			if ( ! isset( $normalized['title'] ) && isset( $route['target_title'] ) && is_scalar( $route['target_title'] ) && '' !== trim( (string) $route['target_title'] ) ) {
+				$normalized['title'] = (string) $route['target_title'];
+			}
 
 			if ( isset( $route['route_key'] ) && is_scalar( $route['route_key'] ) && '' !== trim( (string) $route['route_key'] ) ) {
 				$normalized['route_key'] = (string) $route['route_key'];
 			}
+			$route_path = '';
 			if ( isset( $route['path'] ) && is_scalar( $route['path'] ) && '' !== trim( (string) $route['path'] ) ) {
-				$normalized['route_path'] = self::normalize_route_path( (string) $route['path'] );
+				$route_path = (string) $route['path'];
+			} elseif ( isset( $route['target_path'] ) && is_scalar( $route['target_path'] ) && '' !== trim( (string) $route['target_path'] ) ) {
+				$route_path = (string) $route['target_path'];
+			}
+			if ( '' !== $route_path ) {
+				$normalized['route_path'] = self::normalize_route_path( $route_path );
+				if ( '' === $normalized['route_path'] && ! empty( $route['source_relation'] ) && 'entrypoint' === (string) $route['source_relation'] ) {
+					$normalized['entrypoint'] = '1';
+				}
+				if ( '' === $normalized['route_path'] && isset( $normalized['slug'] ) && in_array( sanitize_title( $normalized['slug'] ), array( 'index', 'home' ), true ) ) {
+					$normalized['slug'] = 'home';
+				}
 			}
 
 			if ( isset( $route['metadata'] ) && is_array( $route['metadata'] ) ) {
