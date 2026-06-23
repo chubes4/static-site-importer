@@ -29,6 +29,7 @@ $assert = static function ( bool $condition, string $label, string $detail = '' 
 $GLOBALS['ssi_registered_block'] = null;
 $GLOBALS['ssi_options']          = array();
 $GLOBALS['ssi_test_options']     = array();
+$GLOBALS['ssi_home_url']         = 'https://example.test/';
 $GLOBALS['ssi_uuid_count']       = 0;
 
 if ( ! function_exists( 'register_block_type' ) ) {
@@ -184,6 +185,12 @@ if ( ! function_exists( 'wp_json_encode' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_parse_url' ) ) {
+	function wp_parse_url( string $url, int $component = -1 ) {
+		return parse_url( $url, $component );
+	}
+}
+
 if ( ! class_exists( 'WP_Error' ) ) {
 	class WP_Error {
 		private string $code;
@@ -220,6 +227,12 @@ if ( ! class_exists( 'WP_REST_Request' ) ) {
 
 		public function get_json_params(): array {
 			return $this->params;
+		}
+
+		public function get_header( string $name ): string {
+			unset( $name );
+
+			return 'null';
 		}
 	}
 }
@@ -299,7 +312,7 @@ if ( ! function_exists( 'rest_url' ) ) {
 
 if ( ! function_exists( 'home_url' ) ) {
 	function home_url( string $path = '' ): string {
-		return 'https://example.test/' . ltrim( $path, '/' );
+		return rtrim( $GLOBALS['ssi_home_url'], '/' ) . '/' . ltrim( $path, '/' );
 	}
 }
 
@@ -501,6 +514,17 @@ $assert( 'ssi-preview-session-no-url' === ( $failed_attempt['codebox']['session'
 $assert( 'missing_absolute_preview_url' === ( $failed_attempt['preview_url_extraction']['status'] ?? '' ), 'rest-preview-unavailable-attempt-extraction-status' );
 $assert( 'unavailable' === ( $failed_attempt['final']['status'] ?? '' ), 'rest-preview-unavailable-attempt-final-status' );
 $assert( false === str_contains( wp_json_encode( $failed_attempt ), '<main>No provider</main>' ), 'rest-preview-unavailable-attempt-omits-raw-html' );
+
+$GLOBALS['ssi_test_options']['static_site_importer_figma_allow_local_runner'] = true;
+$GLOBALS['ssi_home_url'] = 'http://localhost:8882/';
+$local_figma_request = new WP_REST_Request( array() );
+$assert( static_site_importer_rest_import_figma_allows_local_runner( $local_figma_request ), 'figma-runner-allows-localhost-site-by-default' );
+$GLOBALS['ssi_home_url'] = 'https://remote.example.test/';
+$assert( ! static_site_importer_rest_import_figma_allows_local_runner( $local_figma_request ), 'figma-runner-blocks-remote-site-without-allowed-host-setting' );
+$GLOBALS['ssi_test_options']['static_site_importer_figma_allowed_site_hosts'] = array( 'remote.example.test' );
+$assert( static_site_importer_rest_import_figma_allows_local_runner( $local_figma_request ), 'figma-runner-allows-configured-remote-site-host' );
+$GLOBALS['ssi_home_url'] = 'https://example.test/';
+unset( $GLOBALS['ssi_test_options']['static_site_importer_figma_allow_local_runner'], $GLOBALS['ssi_test_options']['static_site_importer_figma_allowed_site_hosts'] );
 
 $codebox_missing = static_site_importer_rest_preview_unavailable_result( array( 'schema' => 'static-site-importer/preview-request/v1' ) );
 $assert( false === ( $codebox_missing['success'] ?? null ), 'rest-codebox-unavailable-does-not-pretend-success' );

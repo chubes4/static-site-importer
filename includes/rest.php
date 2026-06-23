@@ -147,7 +147,7 @@ function static_site_importer_rest_import_figma_allows_local_runner( WP_REST_Req
 	}
 
 	$site_host = strtolower( (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST ) );
-	if ( ! in_array( $site_host, array( 'localhost', '127.0.0.1', '::1' ), true ) ) {
+	if ( ! in_array( $site_host, static_site_importer_rest_figma_allowed_site_hosts(), true ) ) {
 		return false;
 	}
 
@@ -159,6 +159,50 @@ function static_site_importer_rest_import_figma_allows_local_runner( WP_REST_Req
 	$origin_host = strtolower( (string) wp_parse_url( $origin, PHP_URL_HOST ) );
 
 	return in_array( $origin_host, array( 'localhost', '127.0.0.1', '::1' ), true );
+}
+
+/**
+ * Return site hosts that may expose the unauthenticated local Figma runner route.
+ *
+ * Local development hosts are allowed by default. Public/proxied runtimes must be
+ * explicitly opted in with the static_site_importer_figma_allowed_site_hosts option.
+ *
+ * @return array<int,string>
+ */
+function static_site_importer_rest_figma_allowed_site_hosts(): array {
+	$hosts = array( 'localhost', '127.0.0.1', '::1' );
+	$configured = get_option( 'static_site_importer_figma_allowed_site_hosts', array() );
+	if ( is_string( $configured ) ) {
+		$configured = preg_split( '/[\s,]+/', $configured ) ?: array();
+	}
+	if ( is_array( $configured ) ) {
+		foreach ( $configured as $host ) {
+			if ( is_scalar( $host ) ) {
+				$hosts[] = (string) $host;
+			}
+		}
+	}
+
+	$hosts = array_values(
+		array_unique(
+			array_filter(
+				array_map(
+					static fn( string $host ): string => strtolower( trim( $host ) ),
+					$hosts
+				),
+				static fn( string $host ): bool => '' !== $host
+			)
+		)
+	);
+
+	/**
+	 * Filters hosts allowed to expose the unauthenticated local Figma runner route.
+	 *
+	 * @param array<int,string> $hosts Allowed lowercase hostnames.
+	 */
+	$hosts = apply_filters( 'static_site_importer_figma_allowed_site_hosts', $hosts );
+
+	return is_array( $hosts ) ? array_values( array_filter( array_map( 'strval', $hosts ) ) ) : array( 'localhost', '127.0.0.1', '::1' );
 }
 
 /**
