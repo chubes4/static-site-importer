@@ -150,19 +150,25 @@ function static_site_importer_rest_execute_import_ability( string $ability_name,
  * @return array<string,mixed>|WP_Error
  */
 function static_site_importer_rest_create_preview( array $source, array $input, array $params ) {
+	$request_id = static_site_importer_rest_preview_request_id( $params );
 	$source_url = isset( $source['url'] ) ? esc_url_raw( (string) $source['url'] ) : '';
 	$artifact   = array();
+	$attempt    = static_site_importer_rest_preview_attempt_base( $request_id, $source, $artifact, $params );
 
 	if ( '' === trim( $source_url ) || isset( $source['html'] ) || isset( $source['files'] ) || isset( $source['archive'] ) ) {
 		$artifact = static_site_importer_rest_source_artifact( $source );
 		if ( is_wp_error( $artifact ) ) {
+			static_site_importer_rest_persist_preview_attempt( static_site_importer_rest_preview_attempt_with_error( $attempt, $artifact ) );
 			return $artifact;
 		}
+
+		$attempt = static_site_importer_rest_preview_attempt_base( $request_id, $source, $artifact, $params );
 	}
 
 	$request = array(
-		'schema'      => 'static-site-importer/preview-request/v1',
-		'source'      => array_filter(
+		'schema'     => 'static-site-importer/preview-request/v1',
+		'request_id' => $request_id,
+		'source'     => array_filter(
 			array(
 				'url'      => $source_url,
 				'artifact' => $artifact,
@@ -174,14 +180,22 @@ function static_site_importer_rest_create_preview( array $source, array $input, 
 
 	$result = static_site_importer_rest_codebox_preview_result( $request, $params );
 	if ( is_wp_error( $result ) ) {
+		static_site_importer_rest_persist_preview_attempt( static_site_importer_rest_preview_attempt_with_error( $attempt, $result ) );
 		return $result;
 	}
 
 	if ( ! is_array( $result ) ) {
-		return new WP_Error( 'static_site_importer_codebox_preview_result_invalid', __( 'WP Codebox preview must return an array result or WP_Error.', 'static-site-importer' ), array( 'status' => 500 ) );
+		$error = new WP_Error( 'static_site_importer_codebox_preview_result_invalid', __( 'WP Codebox preview must return an array result or WP_Error.', 'static-site-importer' ), array( 'status' => 500 ) );
+		static_site_importer_rest_persist_preview_attempt( static_site_importer_rest_preview_attempt_with_error( $attempt, $error ) );
+		return $error;
 	}
 
-	return static_site_importer_rest_normalize_preview_result( $result );
+	$normalized = static_site_importer_rest_normalize_preview_result( $result );
+	$attempt    = static_site_importer_rest_preview_attempt_with_result( $attempt, $normalized );
+	static_site_importer_rest_persist_preview_attempt( $attempt );
+	$normalized['preview_attempt'] = static_site_importer_rest_preview_attempt_public_summary( $attempt );
+
+	return $normalized;
 }
 
 /**
@@ -288,6 +302,7 @@ function static_site_importer_rest_codebox_preview_input( array $request, array 
 		'context'            => array(
 			'product'        => 'static-site-importer',
 			'request_schema' => (string) ( $request['schema'] ?? 'static-site-importer/preview-request/v1' ),
+			'request_id'     => (string) ( $request['request_id'] ?? '' ),
 			'source_url'     => isset( $source['url'] ) ? (string) $source['url'] : '',
 		),
 		'artifact_files'     => static_site_importer_rest_codebox_artifact_files( $artifact ),
@@ -405,8 +420,9 @@ function static_site_importer_rest_codebox_artifact_path( string $path ): string
 function static_site_importer_rest_codebox_preview_from_session( array $session, array $request ): array {
 	$playground    = isset( $session['playground'] ) && is_array( $session['playground'] ) ? $session['playground'] : array();
 	$artifacts     = isset( $session['artifacts'] ) && is_array( $session['artifacts'] ) ? $session['artifacts'] : array();
-	$preview_url   = static_site_importer_rest_codebox_preview_url( $playground, $artifacts );
 	$blueprint_url = static_site_importer_rest_codebox_blueprint_url( $session );
+	$extraction    = static_site_importer_rest_codebox_preview_url_extraction( $playground, $artifacts, $blueprint_url );
+	$preview_url   = (string) ( $extraction['selected_url'] ?? '' );
 
 	if ( '' === $preview_url && '' === $blueprint_url ) {
 		return array(
@@ -417,7 +433,8 @@ function static_site_importer_rest_codebox_preview_from_session( array $session,
 			),
 			'provider' => 'wp-codebox/create-browser-playground-session',
 			'codebox'  => array(
-				'session' => static_site_importer_rest_codebox_session_summary( $session ),
+				'session'                => static_site_importer_rest_codebox_session_summary( $session ),
+				'preview_url_extraction' => $extraction,
 			),
 			'request'  => $request,
 		);
@@ -440,7 +457,8 @@ function static_site_importer_rest_codebox_preview_from_session( array $session,
 		),
 		'provider' => 'wp-codebox/create-browser-playground-session',
 		'codebox'  => array(
-			'session' => static_site_importer_rest_codebox_session_summary( $session ),
+			'session'                => static_site_importer_rest_codebox_session_summary( $session ),
+			'preview_url_extraction' => $extraction,
 		),
 	);
 }
@@ -453,14 +471,53 @@ function static_site_importer_rest_codebox_preview_from_session( array $session,
  * @return string
  */
 function static_site_importer_rest_codebox_preview_url( array $playground, array $artifacts ): string {
-	foreach ( array( $playground['preview_public_url'] ?? '', $playground['site_url'] ?? '', $playground['preview_url'] ?? '', $artifacts['preview_url'] ?? '' ) as $candidate ) {
-		$candidate = esc_url_raw( (string) $candidate );
-		if ( preg_match( '#^https?://#i', $candidate ) ) {
-			return $candidate;
+	$extraction = static_site_importer_rest_codebox_preview_url_extraction( $playground, $artifacts, '' );
+
+	return (string) ( $extraction['selected_url'] ?? '' );
+}
+
+/**
+ * Describe preview URL extraction without exposing raw session internals.
+ *
+ * @param array<string,mixed> $playground    Playground contract.
+ * @param array<string,mixed> $artifacts     Artifact contract.
+ * @param string              $blueprint_url Playground blueprint URL.
+ * @return array<string,mixed>
+ */
+function static_site_importer_rest_codebox_preview_url_extraction( array $playground, array $artifacts, string $blueprint_url ): array {
+	$candidates = array(
+		'playground.preview_public_url' => $playground['preview_public_url'] ?? null,
+		'playground.site_url'          => $playground['site_url'] ?? null,
+		'playground.preview_url'       => $playground['preview_url'] ?? null,
+		'artifacts.preview_url'        => $artifacts['preview_url'] ?? null,
+	);
+	$summary    = array();
+
+	foreach ( $candidates as $key => $value ) {
+		$url      = is_scalar( $value ) ? esc_url_raw( (string) $value ) : '';
+		$absolute = preg_match( '#^https?://#i', $url );
+		$summary[] = array(
+			'key'      => $key,
+			'present'  => '' !== $url,
+			'absolute' => (bool) $absolute,
+		);
+		if ( $absolute ) {
+			return array(
+				'status'       => 'absolute_preview_url_found',
+				'selected_key' => $key,
+				'selected_url' => $url,
+				'candidates'   => $summary,
+			);
 		}
 	}
 
-	return '';
+	return array(
+		'status'        => '' !== $blueprint_url ? 'blueprint_url_found' : 'missing_absolute_preview_url',
+		'selected_key'  => '' !== $blueprint_url ? 'blueprint_url' : '',
+		'selected_url'  => '',
+		'blueprint_url' => $blueprint_url,
+		'candidates'    => $summary,
+	);
 }
 
 /**
@@ -498,16 +555,229 @@ function static_site_importer_rest_codebox_blueprint_url( array $session ): stri
  */
 function static_site_importer_rest_codebox_session_summary( array $session ): array {
 	$session_envelope = isset( $session['session'] ) && is_array( $session['session'] ) ? $session['session'] : array();
+	$playground       = isset( $session['playground'] ) && is_array( $session['playground'] ) ? $session['playground'] : array();
+	$artifacts        = isset( $session['artifacts'] ) && is_array( $session['artifacts'] ) ? $session['artifacts'] : array();
 
 	return array_filter(
 		array(
 			'schema'          => isset( $session['schema'] ) ? (string) $session['schema'] : '',
 			'execution'       => isset( $session['execution'] ) ? (string) $session['execution'] : '',
 			'execution_scope' => isset( $session['execution_scope'] ) ? (string) $session['execution_scope'] : '',
-			'session_id'      => isset( $session_envelope['id'] ) ? (string) $session_envelope['id'] : '',
-			'status'          => isset( $session_envelope['status'] ) ? (string) $session_envelope['status'] : '',
+			'session_id'      => (string) ( $session_envelope['id'] ?? $session['session_id'] ?? '' ),
+			'status'          => (string) ( $session_envelope['status'] ?? $session['status'] ?? '' ),
+			'playground_keys' => array_keys( $playground ),
+			'artifact_keys'   => array_keys( $artifacts ),
 		)
 	);
+}
+
+/**
+ * Build a preview request id.
+ *
+ * @param array<string,mixed> $params Request params.
+ * @return string
+ */
+function static_site_importer_rest_preview_request_id( array $params ): string {
+	foreach ( array( 'request_id', 'correlation_id', 'preview_attempt_id' ) as $key ) {
+		if ( isset( $params[ $key ] ) && '' !== trim( (string) $params[ $key ] ) ) {
+			return sanitize_key( (string) $params[ $key ] );
+		}
+	}
+
+	return function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : 'ssi-preview-' . substr( hash( 'sha256', microtime( true ) . wp_rand() ), 0, 16 );
+}
+
+/**
+ * Build preview-attempt evidence before the provider response.
+ *
+ * @param string              $request_id Request id.
+ * @param array<string,mixed> $source     Source payload.
+ * @param array<string,mixed> $artifact   Website artifact.
+ * @param array<string,mixed> $params     Request params.
+ * @return array<string,mixed>
+ */
+function static_site_importer_rest_preview_attempt_base( string $request_id, array $source, array $artifact, array $params ): array {
+	return array(
+		'schema'         => 'static-site-importer/preview-attempt/v1',
+		'request_id'     => $request_id,
+		'correlation_id' => isset( $params['correlation_id'] ) ? sanitize_key( (string) $params['correlation_id'] ) : $request_id,
+		'timestamp'      => gmdate( 'c' ),
+		'source'         => static_site_importer_rest_preview_source_summary( $source, $artifact ),
+		'artifact'       => static_site_importer_rest_preview_artifact_summary( $artifact ),
+		'provider'       => 'wp-codebox/create-browser-playground-session',
+	);
+}
+
+/**
+ * Summarize the request source without file contents.
+ *
+ * @param array<string,mixed> $source   Source payload.
+ * @param array<string,mixed> $artifact Website artifact.
+ * @return array<string,mixed>
+ */
+function static_site_importer_rest_preview_source_summary( array $source, array $artifact ): array {
+	$types = array();
+	if ( isset( $source['url'] ) && '' !== trim( (string) $source['url'] ) ) {
+		$types[] = 'url';
+	}
+	if ( isset( $source['html'] ) && '' !== trim( (string) $source['html'] ) ) {
+		$types[] = 'html';
+	}
+	if ( isset( $source['files'] ) && is_array( $source['files'] ) && ! empty( $source['files'] ) ) {
+		$types[] = 'files';
+	}
+	if ( isset( $source['archive'] ) && is_array( $source['archive'] ) && ! empty( $source['archive'] ) ) {
+		$types[] = 'archive';
+	}
+
+	return array_merge(
+		array( 'type' => 1 === count( $types ) ? $types[0] : ( empty( $types ) ? 'unknown' : 'mixed' ) ),
+		static_site_importer_rest_preview_file_summary( $artifact )
+	);
+}
+
+/**
+ * Summarize artifact files without content.
+ *
+ * @param array<string,mixed> $artifact Website artifact.
+ * @return array<string,mixed>
+ */
+function static_site_importer_rest_preview_file_summary( array $artifact ): array {
+	$files       = isset( $artifact['files'] ) && is_array( $artifact['files'] ) ? $artifact['files'] : array();
+	$paths       = array();
+	$total_bytes = 0;
+
+	foreach ( $files as $file ) {
+		if ( ! is_array( $file ) ) {
+			continue;
+		}
+		$path  = isset( $file['path'] ) ? (string) $file['path'] : '';
+		$bytes = 0;
+		if ( isset( $file['content'] ) ) {
+			$bytes = strlen( (string) $file['content'] );
+		} elseif ( isset( $file['content_base64'] ) ) {
+			$decoded = base64_decode( (string) $file['content_base64'], true );
+			$bytes   = false === $decoded ? 0 : strlen( $decoded );
+		}
+		$total_bytes += $bytes;
+		if ( count( $paths ) < 50 ) {
+			$paths[] = array_filter(
+				array(
+					'path'  => $path,
+					'bytes' => $bytes,
+					'kind'  => preg_match( '/\.html?$/i', $path ) ? 'html' : 'asset',
+				)
+			);
+		}
+	}
+
+	return array(
+		'file_count'  => count( $files ),
+		'total_bytes' => $total_bytes,
+		'paths'       => $paths,
+	);
+}
+
+/**
+ * Summarize the website artifact without content.
+ *
+ * @param array<string,mixed> $artifact Website artifact.
+ * @return array<string,mixed>
+ */
+function static_site_importer_rest_preview_artifact_summary( array $artifact ): array {
+	$files = isset( $artifact['files'] ) && is_array( $artifact['files'] ) ? $artifact['files'] : array();
+
+	return array_filter(
+		array(
+			'schema'     => isset( $artifact['schema'] ) ? (string) $artifact['schema'] : '',
+			'entrypoint' => isset( $artifact['entrypoint'] ) ? (string) $artifact['entrypoint'] : '',
+			'file_count' => count( $files ),
+		)
+	);
+}
+
+/**
+ * Add WP_Error details to preview-attempt evidence.
+ *
+ * @param array<string,mixed> $attempt Preview attempt.
+ * @param WP_Error            $error   Error.
+ * @return array<string,mixed>
+ */
+function static_site_importer_rest_preview_attempt_with_error( array $attempt, WP_Error $error ): array {
+	$attempt['final'] = array(
+		'success' => false,
+		'status'  => 'error',
+		'error'   => array(
+			'code'    => $error->get_error_code(),
+			'message' => $error->get_error_message(),
+		),
+	);
+
+	return $attempt;
+}
+
+/**
+ * Add provider result details to preview-attempt evidence.
+ *
+ * @param array<string,mixed> $attempt Preview attempt.
+ * @param array<string,mixed> $result  Normalized preview result.
+ * @return array<string,mixed>
+ */
+function static_site_importer_rest_preview_attempt_with_result( array $attempt, array $result ): array {
+	$preview = isset( $result['preview'] ) && is_array( $result['preview'] ) ? $result['preview'] : array();
+	$codebox = isset( $result['codebox'] ) && is_array( $result['codebox'] ) ? $result['codebox'] : array();
+	if ( ! empty( $codebox ) ) {
+		$attempt['codebox'] = $codebox;
+	}
+	$attempt['preview_url_extraction'] = isset( $codebox['preview_url_extraction'] ) && is_array( $codebox['preview_url_extraction'] ) ? $codebox['preview_url_extraction'] : array();
+	$attempt['final'] = array(
+		'success' => (bool) ( $result['success'] ?? false ),
+		'status'  => (string) ( $preview['status'] ?? ( ! empty( $result['success'] ) ? 'ready' : 'unavailable' ) ),
+		'error'   => empty( $result['success'] ) ? array( 'message' => (string) ( $preview['message'] ?? '' ) ) : array(),
+	);
+
+	return $attempt;
+}
+
+/**
+ * Return a public preview-attempt summary for the REST response.
+ *
+ * @param array<string,mixed> $attempt Preview attempt.
+ * @return array<string,mixed>
+ */
+function static_site_importer_rest_preview_attempt_public_summary( array $attempt ): array {
+	return array_filter(
+		array(
+			'schema'         => 'static-site-importer/preview-attempt-ref/v1',
+			'request_id'     => (string) ( $attempt['request_id'] ?? '' ),
+			'correlation_id' => (string) ( $attempt['correlation_id'] ?? '' ),
+			'status'         => (string) ( $attempt['final']['status'] ?? '' ),
+			'file_count'     => isset( $attempt['source']['file_count'] ) ? (int) $attempt['source']['file_count'] : null,
+		)
+	);
+}
+
+/**
+ * Persist sanitized preview attempts in a non-autoloaded option ring buffer.
+ *
+ * @param array<string,mixed> $attempt Preview attempt.
+ * @return void
+ */
+function static_site_importer_rest_persist_preview_attempt( array $attempt ): void {
+	if ( ! function_exists( 'get_option' ) || ! function_exists( 'update_option' ) ) {
+		return;
+	}
+
+	$option   = 'static_site_importer_preview_attempts';
+	$attempts = get_option( $option, array() );
+	if ( ! is_array( $attempts ) ) {
+		$attempts = array();
+	}
+	$attempts[] = $attempt;
+	$limit      = max( 1, (int) apply_filters( 'static_site_importer_preview_attempt_limit', 25 ) );
+	$attempts   = array_slice( $attempts, -1 * $limit );
+
+	update_option( $option, $attempts, false );
 }
 
 /**
