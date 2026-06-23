@@ -34,8 +34,14 @@
 		return file.webkitRelativePath || file.name || 'upload';
 	};
 
-	const buildFiles = async function ( input ) {
-		const selectedFiles = input && input.files ? Array.prototype.slice.call( input.files ) : [];
+	const selectedInputFiles = function ( inputs ) {
+		return Array.prototype.slice.call( inputs || [] ).flatMap( function ( input ) {
+			return input && input.files ? Array.prototype.slice.call( input.files ) : [];
+		} );
+	};
+
+	const buildFiles = async function ( inputs ) {
+		const selectedFiles = selectedInputFiles( inputs );
 		const files = selectedFiles.filter( function ( file ) {
 			return ! /\.zip$/i.test( file.name || '' );
 		} );
@@ -58,8 +64,8 @@
 		} ) );
 	};
 
-	const buildArchive = async function ( input ) {
-		const selectedFiles = input && input.files ? Array.prototype.slice.call( input.files ) : [];
+	const buildArchive = async function ( inputs ) {
+		const selectedFiles = selectedInputFiles( inputs );
 		const file = selectedFiles.find( function ( upload ) {
 			return /\.zip$/i.test( upload.name || '' );
 		} );
@@ -139,16 +145,16 @@
 		}
 
 		submit.addEventListener( 'click', async function () {
-			const sourceUrl = root.querySelector( '[data-static-site-importer-source-url]' );
+			const form = root.querySelector( '[data-static-site-importer-form]' );
 			const html = root.querySelector( '[data-static-site-importer-source-html]' );
-			const files = root.querySelector( '[data-static-site-importer-source-files]' );
+			const uploadInputs = root.querySelectorAll( '[data-static-site-importer-source-files], [data-static-site-importer-source-directory]' );
 			const provider = root.getAttribute( 'data-static-site-importer-provider' ) || '';
 			const applyToCurrentSite = root.getAttribute( 'data-static-site-importer-apply-to-current-site' ) === '1';
 			const source = {
-				url: sourceUrl ? sourceUrl.value : '',
+				url: form ? form.getAttribute( 'data-static-site-importer-default-url' ) || '' : '',
 				html: html ? html.value : '',
-				files: await buildFiles( files ),
-				archive: await buildArchive( files ),
+				files: await buildFiles( uploadInputs ),
+				archive: await buildArchive( uploadInputs ),
 			};
 
 			if ( ! hasSource( source ) ) {
