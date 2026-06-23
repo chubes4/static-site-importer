@@ -72,8 +72,30 @@ class Static_Site_Importer_Figma_Import {
 			'success'               => true,
 			'status'                => 'created',
 			'open_url'              => home_url( '/' ),
-			'materialization'       => $ability_result,
-			'import_report_summary' => isset( $result['import_report_summary'] ) && is_array( $result['import_report_summary'] ) ? $result['import_report_summary'] : array(),
+			'materialization'       => self::materialization_summary( $ability_result ),
+		);
+	}
+
+	/**
+	 * Build a compact materialization summary for browser runner clients.
+	 *
+	 * @param array<string,mixed> $ability_result Import ability result.
+	 * @return array<string,mixed>
+	 */
+	private static function materialization_summary( array $ability_result ): array {
+		$result = isset( $ability_result['result'] ) && is_array( $ability_result['result'] ) ? $ability_result['result'] : array();
+		$summary = isset( $result['import_report_summary'] ) && is_array( $result['import_report_summary'] ) ? $result['import_report_summary'] : array();
+
+		return array_filter(
+			array(
+				'success'          => ! empty( $ability_result['success'] ),
+				'theme_slug'       => isset( $result['theme_slug'] ) ? (string) $result['theme_slug'] : '',
+				'theme_name'       => isset( $result['theme_name'] ) ? (string) $result['theme_name'] : '',
+				'pages'            => isset( $result['pages'] ) && is_array( $result['pages'] ) ? $result['pages'] : array(),
+				'quality_pass'     => isset( $summary['quality_pass'] ) ? (bool) $summary['quality_pass'] : null,
+				'diagnostic_count' => isset( $summary['diagnostic_count'] ) ? (int) $summary['diagnostic_count'] : null,
+				'fallback_count'   => isset( $summary['fallback_count'] ) ? (int) $summary['fallback_count'] : null,
+			)
 		);
 	}
 

@@ -29,11 +29,50 @@ function static_site_importer_register_rest_routes(): void {
 		'static-site-importer/v1',
 		'/import-figma',
 		array(
-			'methods'             => WP_REST_Server::CREATABLE,
-			'callback'            => 'static_site_importer_rest_import_figma',
-			'permission_callback' => 'static_site_importer_rest_manage_permission',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => 'static_site_importer_rest_import_figma',
+				'permission_callback' => 'static_site_importer_rest_import_figma_permission',
+			),
+			array(
+				'methods'             => 'OPTIONS',
+				'callback'            => 'static_site_importer_rest_import_figma_preflight',
+				'permission_callback' => '__return_true',
+			),
 		)
 	);
+}
+
+/**
+ * Permission callback for Figma runner imports.
+ *
+ * @param WP_REST_Request $request REST request.
+ * @return true|WP_Error
+ */
+function static_site_importer_rest_import_figma_permission( WP_REST_Request $request ) {
+	$operator = static_site_importer_rest_manage_permission();
+	if ( true === $operator ) {
+		return true;
+	}
+
+	if ( static_site_importer_rest_import_figma_allows_local_runner( $request ) ) {
+		return true;
+	}
+
+	return $operator;
+}
+
+/**
+ * Handle CORS preflight for the Figma runner endpoint.
+ *
+ * @param WP_REST_Request $request REST request.
+ * @return WP_REST_Response
+ */
+function static_site_importer_rest_import_figma_preflight( WP_REST_Request $request ): WP_REST_Response {
+	$response = new WP_REST_Response( null, 204 );
+	static_site_importer_rest_add_figma_cors_headers( $response, $request );
+
+	return $response;
 }
 
 /**
@@ -48,12 +87,66 @@ function static_site_importer_rest_import_figma( WP_REST_Request $request ) {
 		$input = $request->get_params();
 	}
 
-	$result = static_site_importer_rest_execute_import_ability( 'static-site-importer/import-figma', $input, 'static_site_importer_ability_import_figma' );
+	$result = static_site_importer_rest_execute_import_ability( 'static-site-importer/import-figma', $input, 'static_site_importer_ability_import_figma', static_site_importer_rest_import_figma_allows_local_runner( $request ) );
 	if ( is_wp_error( $result ) ) {
 		return $result;
 	}
 
-	return rest_ensure_response( Static_Site_Importer_Figma_Import::runner_response( $result ) );
+	$response = rest_ensure_response( Static_Site_Importer_Figma_Import::runner_response( $result ) );
+	if ( $response instanceof WP_REST_Response ) {
+		static_site_importer_rest_add_figma_cors_headers( $response, $request );
+	}
+
+	return $response;
+}
+
+/**
+ * Add CORS headers for the local Figma runner endpoint when explicitly enabled.
+ *
+ * @param WP_REST_Response $response REST response.
+ * @param WP_REST_Request  $request  REST request.
+ * @return void
+ */
+function static_site_importer_rest_add_figma_cors_headers( WP_REST_Response $response, WP_REST_Request $request ): void {
+	if ( ! static_site_importer_rest_import_figma_allows_local_runner( $request ) ) {
+		return;
+	}
+
+	$origin = (string) $request->get_header( 'origin' );
+	if ( '' === $origin ) {
+		$origin = 'null';
+	}
+
+	$response->header( 'Access-Control-Allow-Origin', $origin );
+	$response->header( 'Access-Control-Allow-Methods', 'POST, OPTIONS' );
+	$response->header( 'Access-Control-Allow-Headers', 'content-type, x-wp-nonce' );
+	$response->header( 'Vary', 'Origin', false );
+}
+
+/**
+ * Determine whether the local Figma runner is explicitly enabled for this site.
+ *
+ * @param WP_REST_Request $request REST request.
+ * @return bool
+ */
+function static_site_importer_rest_import_figma_allows_local_runner( WP_REST_Request $request ): bool {
+	if ( ! (bool) get_option( 'static_site_importer_figma_allow_local_runner', false ) ) {
+		return false;
+	}
+
+	$site_host = strtolower( (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST ) );
+	if ( ! in_array( $site_host, array( 'localhost', '127.0.0.1', '::1' ), true ) ) {
+		return false;
+	}
+
+	$origin = (string) $request->get_header( 'origin' );
+	if ( '' === $origin || 'null' === $origin ) {
+		return true;
+	}
+
+	$origin_host = strtolower( (string) wp_parse_url( $origin, PHP_URL_HOST ) );
+
+	return in_array( $origin_host, array( 'localhost', '127.0.0.1', '::1' ), true );
 }
 
 /**
@@ -152,9 +245,14 @@ function static_site_importer_rest_apply_to_current_site( array $source, array $
  * @param string $ability_name Ability name.
  * @param array<string,mixed> $input Ability input.
  * @param callable-string $fallback_callback Local callback for non-Abilities test/runtime contexts.
+ * @param bool            $prefer_fallback   Whether to call the local callback before wp_get_ability().
  * @return array<string,mixed>|WP_Error
  */
-function static_site_importer_rest_execute_import_ability( string $ability_name, array $input, string $fallback_callback ) {
+function static_site_importer_rest_execute_import_ability( string $ability_name, array $input, string $fallback_callback, bool $prefer_fallback = false ) {
+	if ( $prefer_fallback && is_callable( $fallback_callback ) ) {
+		return call_user_func( $fallback_callback, $input );
+	}
+
 	if ( function_exists( 'wp_get_ability' ) ) {
 		$ability = wp_get_ability( $ability_name );
 		if ( is_object( $ability ) && is_callable( array( $ability, 'execute' ) ) ) {
