@@ -1353,8 +1353,17 @@ class Static_Site_Importer_Theme_Generator {
 				continue;
 			}
 
-			$analysis = self::analyze_generated_block_document( $source, $content );
-			self::$conversion_report['generated_theme']['block_documents'][] = $analysis;
+			$analysis = array_merge(
+				self::analyze_generated_block_document( $source, $content ),
+				array(
+					'target'      => 'materialized_post_content',
+					'source_path' => $page->source_key(),
+					'slug'        => $slug,
+					'post_type'   => Static_Site_Importer_Page_Materializer::page_post_type( $page ),
+				)
+			);
+			self::$conversion_report['materialized_content']['block_documents'][] = $analysis;
+			self::$conversion_report['generated_theme']['block_documents'][]      = $analysis;
 		}
 	}
 
@@ -2361,6 +2370,20 @@ class Static_Site_Importer_Theme_Generator {
 	 * @return array<string,mixed>
 	 */
 	private static function analyze_generated_block_document( string $relative_path, string $block_markup ): array {
+		$validation_method = function_exists( 'parse_blocks' ) && function_exists( 'serialize_blocks' ) ? 'wordpress_parse_blocks_serialize_blocks' : 'unavailable';
+		if ( 'unavailable' === $validation_method ) {
+			return array(
+				'path'                   => $relative_path,
+				'block_count'            => 0,
+				'core_html_block_count'  => 0,
+				'freeform_block_count'   => 0,
+				'invalid_block_count'    => 0,
+				'serialization_mismatch' => false,
+				'validation_method'      => $validation_method,
+				'validation_available'   => false,
+			);
+		}
+
 		$blocks          = parse_blocks( $block_markup );
 		$block_count     = 0;
 		$core_html_count = 0;
@@ -2402,6 +2425,8 @@ class Static_Site_Importer_Theme_Generator {
 			'freeform_block_count'   => $freeform_count,
 			'invalid_block_count'    => $invalid_count,
 			'serialization_mismatch' => $serialization_mismatch,
+			'validation_method'      => $validation_method,
+			'validation_available'   => true,
 		);
 	}
 

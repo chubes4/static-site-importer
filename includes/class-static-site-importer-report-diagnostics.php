@@ -122,6 +122,9 @@ class Static_Site_Importer_Report_Diagnostics {
 				'block_documents'   => array(),
 				'freeform_blocks'   => array(),
 			),
+			'materialized_content'    => array(
+				'block_documents' => array(),
+			),
 			'visual_fidelity'         => array(
 				'status'             => 'requires_runtime_visual_parity_check',
 				'gate_owner'         => 'codebox_runtime',
