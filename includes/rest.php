@@ -654,6 +654,7 @@ function static_site_importer_rest_preview_file_summary( array $artifact ): arra
 		if ( isset( $file['content'] ) ) {
 			$bytes = strlen( (string) $file['content'] );
 		} elseif ( isset( $file['content_base64'] ) ) {
+			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- Decodes artifact payload content for size accounting.
 			$decoded = base64_decode( (string) $file['content_base64'], true );
 			$bytes   = false === $decoded ? 0 : strlen( $decoded );
 		}
@@ -834,6 +835,7 @@ function static_site_importer_rest_source_artifact( array $source ) {
 			}
 
 			if ( isset( $file['content_base64'] ) ) {
+				// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- Decodes uploaded artifact payload content.
 				$content = base64_decode( (string) $file['content_base64'], true );
 				if ( false === $content ) {
 					return new WP_Error( 'static_site_importer_invalid_file_content', __( 'Uploaded file content could not be decoded.', 'static-site-importer' ), array( 'status' => 400 ) );
@@ -884,6 +886,7 @@ function static_site_importer_rest_archive_files( array $archive ) {
 		return new WP_Error( 'static_site_importer_zip_unavailable', __( 'ZIP archive extraction is unavailable on this server.', 'static-site-importer' ), array( 'status' => 500 ) );
 	}
 
+	// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- Decodes uploaded ZIP archive payload content.
 	$content = isset( $archive['content_base64'] ) ? base64_decode( (string) $archive['content_base64'], true ) : false;
 	if ( false === $content ) {
 		return new WP_Error( 'static_site_importer_invalid_archive_content', __( 'Uploaded ZIP archive content could not be decoded.', 'static-site-importer' ), array( 'status' => 400 ) );

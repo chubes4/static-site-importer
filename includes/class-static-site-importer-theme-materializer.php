@@ -397,7 +397,8 @@ class Static_Site_Importer_Theme_Materializer {
 				return new WP_Error( 'static_site_importer_materialization_plan_asset_content_invalid', sprintf( 'Blocks Engine materialization_plan.assets content_base64 must be scalar: %s', $relative ) );
 			}
 
-			$base64  = preg_replace( '/\s+/', '', (string) $asset['content_base64'] ) ?? '';
+			$base64 = preg_replace( '/\s+/', '', (string) $asset['content_base64'] ) ?? '';
+			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- Decodes declared artifact payload content, not executable code.
 			$decoded = base64_decode( $base64, true );
 			if ( false === $decoded ) {
 				return new WP_Error( 'static_site_importer_materialization_plan_asset_base64_invalid', sprintf( 'Blocks Engine materialization_plan.assets content_base64 is not valid base64: %s', $relative ) );
@@ -681,16 +682,20 @@ class Static_Site_Importer_Theme_Materializer {
 				continue;
 			}
 
-			$handle        = sanitize_key( $theme_slug . '-asset-' . preg_replace( '/\.[^.]+$/', '', str_replace( '/', '-', $theme_path ) ) );
-			$in_footer     = 'head' !== (string) ( $script['placement'] ?? '' );
+			$handle    = sanitize_key( $theme_slug . '-asset-' . preg_replace( '/\.[^.]+$/', '', str_replace( '/', '-', $theme_path ) ) );
+			$in_footer = 'head' !== (string) ( $script['placement'] ?? '' );
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export -- Generates quoted PHP string literals for functions.php.
 			$script_lines .= "\twp_enqueue_script( " . var_export( $handle, true ) . ', get_template_directory_uri() . ' . var_export( '/' . $theme_path, true ) . ", array(), wp_get_theme()->get( 'Version' ), " . ( $in_footer ? 'true' : 'false' ) . " );\n";
 			if ( ! empty( $script['defer'] ) ) {
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export -- Generates quoted PHP string literals for functions.php.
 				$script_lines .= "\twp_script_add_data( " . var_export( $handle, true ) . ", 'defer', true );\n";
 			}
 			if ( ! empty( $script['async'] ) ) {
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export -- Generates quoted PHP string literals for functions.php.
 				$script_lines .= "\twp_script_add_data( " . var_export( $handle, true ) . ", 'async', true );\n";
 			}
 			if ( isset( $script['type'] ) && 'module' === strtolower( (string) $script['type'] ) ) {
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export -- Generates quoted PHP string literals for functions.php.
 				$script_lines .= "\twp_script_add_data( " . var_export( $handle, true ) . ", 'type', 'module' );\n";
 			}
 		}

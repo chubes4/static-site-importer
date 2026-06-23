@@ -40,7 +40,7 @@ class Static_Site_Importer_Codebox_Validation {
 			return $result;
 		}
 
-		$delegation_request = self::host_delegation_request( $request, $input );
+		$delegation_request       = self::host_delegation_request( $request, $input );
 		$host_delegation_callback = array( 'WP_Codebox_Abilities', 'request_host_delegation' );
 		if ( is_callable( $host_delegation_callback ) ) {
 			$delegation_result = call_user_func( $host_delegation_callback, $delegation_request );
