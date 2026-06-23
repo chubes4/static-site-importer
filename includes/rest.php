@@ -95,6 +95,23 @@ function static_site_importer_rest_should_apply_to_current_site( array $params )
  * @return array<string,mixed>|WP_Error
  */
 function static_site_importer_rest_apply_to_current_site( array $source, array $input, array $params ) {
+	$decorate_current_site_preview = static function ( $result ) {
+		if ( ! is_array( $result ) ) {
+			return $result;
+		}
+
+		$preview_url = function_exists( 'home_url' ) ? home_url( '/' ) : '';
+		$preview     = isset( $result['preview'] ) && is_array( $result['preview'] ) ? $result['preview'] : array();
+		if ( '' !== $preview_url ) {
+			$preview['url'] = $preview_url;
+		}
+		$preview['status'] = isset( $preview['status'] ) ? $preview['status'] : 'ready';
+
+		$result['preview'] = $preview;
+
+		return $result;
+	};
+
 	if ( isset( $source['url'] ) && '' !== trim( (string) $source['url'] ) ) {
 		$input['url'] = esc_url_raw( (string) $source['url'] );
 		if ( isset( $params['provider'] ) ) {
@@ -104,7 +121,7 @@ function static_site_importer_rest_apply_to_current_site( array $source, array $
 			$input['provider_args'] = $params['provider_args'];
 		}
 
-		return static_site_importer_rest_execute_import_ability( 'static-site-importer/import-url', $input, 'static_site_importer_ability_import_url' );
+		return $decorate_current_site_preview( static_site_importer_rest_execute_import_ability( 'static-site-importer/import-url', $input, 'static_site_importer_ability_import_url' ) );
 	} else {
 		$artifact = static_site_importer_rest_source_artifact( $source );
 		if ( is_wp_error( $artifact ) ) {
@@ -113,7 +130,7 @@ function static_site_importer_rest_apply_to_current_site( array $source, array $
 
 		$input['artifact'] = $artifact;
 
-		return static_site_importer_rest_execute_import_ability( 'static-site-importer/import-website-artifact', $input, 'static_site_importer_ability_import_website_artifact' );
+		return $decorate_current_site_preview( static_site_importer_rest_execute_import_ability( 'static-site-importer/import-website-artifact', $input, 'static_site_importer_ability_import_website_artifact' ) );
 	}
 }
 
