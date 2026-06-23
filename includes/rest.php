@@ -490,20 +490,21 @@ function static_site_importer_rest_codebox_preview_input( array $request, array 
 	$import_args = isset( $request['import_args'] ) && is_array( $request['import_args'] ) ? $request['import_args'] : array();
 
 	$input = array(
-		'goal'               => __( 'Create a disposable WordPress preview for a Static Site Importer request.', 'static-site-importer' ),
-		'target'             => array(
+		'goal'                        => __( 'Create a disposable WordPress preview for a Static Site Importer request.', 'static-site-importer' ),
+		'include_raw_browser_session' => true,
+		'target'                      => array(
 			'kind' => 'static-site-importer-preview',
 			'ref'  => 'static-site-importer/importer',
 		),
-		'expected_artifacts' => array( 'preview', 'static-site-importer-report' ),
-		'context'            => array(
+		'expected_artifacts'          => array( 'preview', 'static-site-importer-report' ),
+		'context'                     => array(
 			'product'        => 'static-site-importer',
 			'request_schema' => (string) ( $request['schema'] ?? 'static-site-importer/preview-request/v1' ),
 			'request_id'     => (string) ( $request['request_id'] ?? '' ),
 			'source_url'     => isset( $source['url'] ) ? (string) $source['url'] : '',
 		),
-		'artifact_files'     => static_site_importer_rest_codebox_artifact_files( $artifact ),
-		'browser_runner'     => array(
+		'artifact_files'              => static_site_importer_rest_codebox_artifact_files( $artifact ),
+		'browser_runner'              => array(
 			'task_path'     => '/tmp/static-site-importer-preview-request.json',
 			'result_path'   => '/tmp/static-site-importer-preview-result.json',
 			'invocation'    => array(
@@ -525,7 +526,7 @@ function static_site_importer_rest_codebox_preview_input( array $request, array 
 				),
 			),
 		),
-		'orchestrator'       => array(
+		'orchestrator'                => array(
 			'type' => 'static-site-importer-preview',
 			'id'   => 'static-site-importer/importer',
 		),
