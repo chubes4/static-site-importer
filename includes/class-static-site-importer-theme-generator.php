@@ -87,6 +87,7 @@ class Static_Site_Importer_Theme_Generator {
 		$artifacts    = isset( $compiled['artifacts'] ) && is_array( $compiled['artifacts'] ) ? $compiled['artifacts'] : array();
 		$theme_name   = isset( $args['name'] ) && '' !== trim( (string) $args['name'] ) ? sanitize_text_field( (string) $args['name'] ) : 'Imported Website Artifact';
 		$theme_slug   = isset( $args['slug'] ) && '' !== trim( (string) $args['slug'] ) ? sanitize_title( (string) $args['slug'] ) : sanitize_title( $theme_name );
+		$site_title   = isset( $args['site_title'] ) && '' !== trim( (string) $args['site_title'] ) ? sanitize_text_field( (string) $args['site_title'] ) : '';
 		if ( '' === $theme_slug ) {
 			$theme_slug = 'imported-website-artifact';
 		}
@@ -144,6 +145,7 @@ class Static_Site_Importer_Theme_Generator {
 		if ( is_wp_error( $template_part_writes ) ) {
 			return $template_part_writes;
 		}
+		$has_header_part      = isset( $template_part_writes[ $theme_dir . '/parts/header.html' ] );
 		$has_footer_part      = isset( $template_part_writes[ $theme_dir . '/parts/footer.html' ] );
 
 		$visual_repair_styles = self::visual_repair_styles_from_artifacts( $artifacts );
@@ -152,12 +154,13 @@ class Static_Site_Importer_Theme_Generator {
 			$theme_dir,
 			$theme_name,
 			$materialized['css'],
+			$materialized['assets'],
 			$visual_repair_styles
 		);
 
 		$writes = array_merge(
 			$stylesheet_writes,
-			Static_Site_Importer_Theme_Materializer::base_theme_writes( $theme_dir, $theme_slug, $theme_name, $materialized['css'], $has_footer_part, $materialized['scripts'] )
+			Static_Site_Importer_Theme_Materializer::base_theme_writes( $theme_dir, $theme_slug, $theme_name, $materialized['css'], $has_header_part, $has_footer_part, $materialized['scripts'] )
 		);
 		$writes = array_merge( $writes, $template_part_writes );
 		$result         = Static_Site_Importer_Page_Materializer::write_page_contents( $document_pages, $page_ids, $page_artifacts['contents'] );
@@ -174,7 +177,7 @@ class Static_Site_Importer_Theme_Generator {
 				continue;
 			}
 
-			$writes[ $theme_dir . '/templates/page-' . $slug . '.html' ] = Static_Site_Importer_Theme_Materializer::content_template( '', $has_footer_part );
+			$writes[ $theme_dir . '/templates/page-' . $slug . '.html' ] = Static_Site_Importer_Theme_Materializer::content_template( '', $has_header_part, $has_footer_part );
 		}
 
 		if ( '' !== trim( $materialized['js'] ) ) {
@@ -242,8 +245,8 @@ class Static_Site_Importer_Theme_Generator {
 			}
 
 			switch_theme( $theme_slug );
-			if ( isset( $args['site_title'] ) && '' !== trim( (string) $args['site_title'] ) ) {
-				update_option( 'blogname', sanitize_text_field( (string) $args['site_title'] ) );
+			if ( '' !== $site_title ) {
+				update_option( 'blogname', $site_title );
 			}
 			if ( 0 !== $front_page_id ) {
 				update_option( 'show_on_front', 'page' );

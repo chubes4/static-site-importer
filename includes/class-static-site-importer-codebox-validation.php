@@ -440,7 +440,7 @@ class Static_Site_Importer_Codebox_Validation {
 			return array();
 		}
 
-		$allowed = array( 'artifact_id', 'artifact_ref', 'url', 'path', 'relative_path', 'sha256', 'media_type', 'label', 'kind', 'status' );
+		$allowed = array( 'artifact_id', 'artifact_ref', 'artifact_name', 'url', 'path', 'relative_path', 'sha256', 'media_type', 'label', 'kind', 'status' );
 		$output  = array();
 		foreach ( $allowed as $key ) {
 			if ( ! array_key_exists( $key, $ref ) ) {
@@ -490,4 +490,5 @@ class Static_Site_Importer_Codebox_Validation {
 			|| str_contains( $value, 'localhost' )
 			|| str_contains( $value, '127.0.0.1' );
 	}
+
 }

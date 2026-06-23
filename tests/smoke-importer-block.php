@@ -29,6 +29,7 @@ $assert = static function ( bool $condition, string $label, string $detail = '' 
 $GLOBALS['ssi_registered_block'] = null;
 $GLOBALS['ssi_options']          = array();
 $GLOBALS['ssi_test_options']     = array();
+$GLOBALS['ssi_home_url']         = 'https://example.test/';
 $GLOBALS['ssi_uuid_count']       = 0;
 
 if ( ! function_exists( 'register_block_type' ) ) {
@@ -108,6 +109,26 @@ if ( ! function_exists( 'rest_ensure_response' ) ) {
 	}
 }
 
+if ( ! function_exists( 'blocks_engine_php_transformer_convert_format' ) ) {
+	function blocks_engine_php_transformer_convert_format( string $content, string $from, string $to, array $options = array() ): array {
+		unset( $content, $options );
+		if ( 'html' !== $from || 'blocks' !== $to ) {
+			return array(
+				'schema'            => 'blocks-engine/php-transformer/result/v1',
+				'status'            => 'failed',
+				'serialized_blocks' => '',
+			);
+		}
+
+		return array(
+			'schema'            => 'blocks-engine/php-transformer/result/v1',
+			'status'            => 'success',
+			'serialized_blocks' => '<!-- wp:heading {"level":1} --><h1>Figma HTML</h1><!-- /wp:heading --><!-- wp:image {"url":"assets/hero.png","alt":"Hero"} --><figure class="wp-block-image"><img src="assets/hero.png" alt="Hero" /></figure><!-- /wp:image -->',
+			'diagnostics'       => array(),
+		);
+	}
+}
+
 if ( ! function_exists( 'apply_filters' ) ) {
 	function apply_filters( string $hook, $value, ...$args ) {
 		return $value;
@@ -164,6 +185,12 @@ if ( ! function_exists( 'wp_json_encode' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_parse_url' ) ) {
+	function wp_parse_url( string $url, int $component = -1 ) {
+		return parse_url( $url, $component );
+	}
+}
+
 if ( ! function_exists( 'wp_delete_file' ) ) {
 	function wp_delete_file( string $file ): bool {
 		return file_exists( $file ) ? unlink( $file ) : true;
@@ -206,6 +233,12 @@ if ( ! class_exists( 'WP_REST_Request' ) ) {
 
 		public function get_json_params(): array {
 			return $this->params;
+		}
+
+		public function get_header( string $name ): string {
+			unset( $name );
+
+			return 'null';
 		}
 	}
 }
@@ -285,7 +318,7 @@ if ( ! function_exists( 'rest_url' ) ) {
 
 if ( ! function_exists( 'home_url' ) ) {
 	function home_url( string $path = '' ): string {
-		return 'https://example.test/' . ltrim( $path, '/' );
+		return rtrim( $GLOBALS['ssi_home_url'], '/' ) . '/' . ltrim( $path, '/' );
 	}
 }
 
@@ -308,8 +341,12 @@ if ( ! function_exists( 'get_page_uri' ) ) {
 }
 
 require_once dirname( __DIR__ ) . '/includes/block.php';
+require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-figma-import.php';
 require_once dirname( __DIR__ ) . '/includes/abilities.php';
 require_once dirname( __DIR__ ) . '/includes/rest.php';
+require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-document.php';
+require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-source-page.php';
+require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-theme-materializer.php';
 require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-page-materializer.php';
 
 $plugin_source = file_get_contents( dirname( __DIR__ ) . '/static-site-importer.php' );
@@ -487,6 +524,17 @@ $assert( 'missing_absolute_preview_url' === ( $failed_attempt['preview_url_extra
 $assert( 'unavailable' === ( $failed_attempt['final']['status'] ?? '' ), 'rest-preview-unavailable-attempt-final-status' );
 $assert( false === str_contains( wp_json_encode( $failed_attempt ), '<main>No provider</main>' ), 'rest-preview-unavailable-attempt-omits-raw-html' );
 
+$GLOBALS['ssi_test_options']['static_site_importer_figma_allow_local_runner'] = true;
+$GLOBALS['ssi_home_url'] = 'http://localhost:8882/';
+$local_figma_request = new WP_REST_Request( array() );
+$assert( static_site_importer_rest_import_figma_allows_local_runner( $local_figma_request ), 'figma-runner-allows-localhost-site-by-default' );
+$GLOBALS['ssi_home_url'] = 'https://remote.example.test/';
+$assert( ! static_site_importer_rest_import_figma_allows_local_runner( $local_figma_request ), 'figma-runner-blocks-remote-site-without-allowed-host-setting' );
+$GLOBALS['ssi_test_options']['static_site_importer_figma_allowed_site_hosts'] = array( 'remote.example.test' );
+$assert( static_site_importer_rest_import_figma_allows_local_runner( $local_figma_request ), 'figma-runner-allows-configured-remote-site-host' );
+$GLOBALS['ssi_home_url'] = 'https://example.test/';
+unset( $GLOBALS['ssi_test_options']['static_site_importer_figma_allow_local_runner'], $GLOBALS['ssi_test_options']['static_site_importer_figma_allowed_site_hosts'] );
+
 $codebox_missing = static_site_importer_rest_preview_unavailable_result( array( 'schema' => 'static-site-importer/preview-request/v1' ) );
 $assert( false === ( $codebox_missing['success'] ?? null ), 'rest-codebox-unavailable-does-not-pretend-success' );
 $assert( 'wp-codebox/create-browser-playground-session' === ( $codebox_missing['provider'] ?? '' ), 'rest-codebox-unavailable-identifies-required-api' );
@@ -525,6 +573,107 @@ $assert( Static_Site_Importer_Page_Materializer::is_protected_page( new WP_Post(
 $assert( Static_Site_Importer_Page_Materializer::is_protected_page( new WP_Post( 8, 'settings' ) ), 'protected-page-matches-path' );
 $assert( Static_Site_Importer_Page_Materializer::is_protected_page( new WP_Post( 42, 'other' ) ), 'protected-page-matches-id' );
 $assert( ! Static_Site_Importer_Page_Materializer::is_protected_page( new WP_Post( 9, 'ordinary' ) ), 'ordinary-page-is-not-protected' );
+
+$html_source_page = Static_Site_Importer_Source_Page::from_materialization_plan_page(
+	array(
+		'source_path'  => 'website/index.html',
+		'title'        => 'Figma HTML',
+		'slug'         => 'figma-html',
+		'body_format' => 'blocks',
+		'block_markup' => '<!-- wp:heading {"level":1} --><h1>Figma HTML</h1><!-- /wp:heading --><!-- wp:image {"url":"assets/hero.png","alt":"Hero"} --><figure class="wp-block-image"><img src="assets/hero.png" alt="Hero" /></figure><!-- /wp:image -->',
+	)
+);
+$assert( ! is_wp_error( $html_source_page ), 'html-materialization-source-page-builds' );
+if ( ! is_wp_error( $html_source_page ) ) {
+	$html_page_artifacts = Static_Site_Importer_Page_Materializer::page_artifacts(
+		array( 'website/index.html' => $html_source_page ),
+		'figma-import',
+		array(
+			'website/assets/hero.png' => array(
+				'final_url' => 'https://example.test/wp-content/themes/figma-import/assets/materialized/website/assets/hero.png',
+			),
+		)
+	);
+	$assert( ! str_contains( $html_page_artifacts['contents']['website/index.html'] ?? '', '<!-- wp:html -->' ), 'html-materialization-avoids-core-html-block' );
+	$assert( str_contains( $html_page_artifacts['contents']['website/index.html'] ?? '', '<!-- wp:heading {"level":1} -->' ), 'html-materialization-converts-html-to-blocks' );
+	$assert( str_contains( $html_page_artifacts['contents']['website/index.html'] ?? '', 'https://example.test/wp-content/themes/figma-import/assets/materialized/website/assets/hero.png' ), 'html-materialization-rewrites-root-relative-asset-reference' );
+	$assert( ! str_contains( $html_page_artifacts['contents']['website/index.html'] ?? '', '"url":"assets/hero.png"' ), 'html-materialization-rewrites-block-json-asset-reference' );
+	$assert( array() === $html_page_artifacts['diagnostics'], 'html-materialization-does-not-emit-unsupported-format-diagnostic' );
+}
+
+Static_Site_Importer_Theme_Generator::$last_artifact = array();
+Static_Site_Importer_Theme_Generator::$last_args     = array();
+WP_Codebox_Abilities::$next_session = array(
+	'success'         => true,
+	'schema'          => 'wp-codebox/browser-playground-session/v1',
+	'execution'       => 'browser-playground',
+	'execution_scope' => 'disposable-playground',
+	'session'         => array(
+		'id'     => 'ssi-figma-preview-session',
+		'status' => 'ready',
+	),
+	'playground'      => array(
+		'preview_url'      => '/?preview=1',
+		'scope'            => 'ssi-figma-preview-session',
+		'prepared_runtime' => array(
+			'cache_key'  => 'ssi-figma-preview-cache',
+			'input_hash' => str_repeat( 'c', 64 ),
+		),
+	),
+);
+$figma_response = static_site_importer_rest_import_figma(
+	new WP_REST_Request(
+		array(
+			'schema'          => 'figma-to-wordpress/runner-request/v1',
+			'source'          => array(
+				'tool'       => 'figma',
+				'nodeIds'    => array( '1:2' ),
+				'exportedAt' => '2026-06-23T00:00:00.000Z',
+			),
+			'goal'            => 'Import Figma into WordPress.',
+			'artifact_bundle' => array(
+				'schema'        => 'figma-to-wordpress/website-artifact-bundle/v1',
+				'root'          => 'website/',
+				'entrypoint'    => 'website/index.html',
+				'import_source' => 'figma-to-wordpress',
+				'files'         => array(
+					array(
+						'path'      => 'website/index.html',
+						'content'   => '<main><h1>Figma</h1></main>',
+						'role'      => 'html',
+						'mime_type' => 'text/html',
+					),
+					array(
+						'path'      => 'website/assets/styles.css',
+						'content'   => 'body{color:#111}',
+						'role'      => 'css',
+						'mime_type' => 'text/css',
+					),
+					array(
+						'path'      => 'website/metadata.json',
+						'content'   => '{"title":"Fisiostetic"}',
+						'role'      => 'metadata',
+						'mime_type' => 'application/json',
+					),
+				),
+			),
+		)
+	)
+);
+$assert( true === ( $figma_response['success'] ?? null ), 'figma-rest-response-succeeds' );
+$assert( 'figma-to-wordpress/runner-response/v1' === ( $figma_response['schema'] ?? '' ), 'figma-rest-response-uses-runner-schema' );
+$assert( 'created' === ( $figma_response['status'] ?? '' ), 'figma-rest-response-created-status' );
+$assert( str_starts_with( $figma_response['open_url'] ?? '', 'https://playground.wordpress.net/?blueprint-url=' ), 'figma-rest-response-open-url-is-playground-blueprint' );
+$assert( isset( $figma_response['preview_session']['playground']['blueprint_url'] ), 'figma-rest-response-exposes-playground-blueprint-url' );
+$assert( array() === Static_Site_Importer_Theme_Generator::$last_artifact, 'figma-rest-preview-does-not-apply-to-current-site' );
+$assert( 'static-site-importer/import-website-artifact' === ( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['name'] ?? '' ), 'figma-rest-preview-invokes-ssi-import-ability' );
+$assert( 'website/index.html' === ( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['input']['artifact']['entrypoint'] ?? '' ), 'figma-artifact-entrypoint-normalized' );
+$assert( 'website/assets/styles.css' === ( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['input']['artifact']['files'][1]['path'] ?? '' ), 'figma-artifact-file-path-normalized' );
+$assert( true === ( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['input']['activate'] ?? null ), 'figma-preview-defaults-to-activate-in-playground' );
+$assert( true === ( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['input']['overwrite'] ?? null ), 'figma-preview-defaults-to-overwrite-in-playground' );
+$assert( 'Fisiostetic' === ( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['input']['name'] ?? null ), 'figma-import-name-derived-from-metadata' );
+$assert( 'Fisiostetic' === ( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['input']['site_title'] ?? null ), 'figma-import-site-title-derived-from-metadata' );
+$assert( 'figma-to-wordpress' === ( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['input']['artifact']['provenance']['source'] ?? '' ), 'figma-artifact-provenance-source' );
 
 if ( class_exists( 'ZipArchive' ) ) {
 	$zip_path = tempnam( sys_get_temp_dir(), 'ssi-test-' );
