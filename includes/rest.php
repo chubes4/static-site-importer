@@ -148,9 +148,14 @@ function static_site_importer_rest_figma_preview_blueprint( WP_REST_Request $req
  * @return array<string,mixed>|WP_Error
  */
 function static_site_importer_rest_create_figma_playground_preview( array $artifact, array $input ) {
-	$blueprint = static_site_importer_rest_figma_playground_blueprint( $input );
-	$ref       = hash( 'sha256', wp_json_encode( $blueprint ) ?: serialize( $blueprint ) );
-	$stored    = static_site_importer_rest_store_figma_blueprint( $ref, $blueprint );
+	$blueprint      = static_site_importer_rest_figma_playground_blueprint( $input );
+	$blueprint_json = wp_json_encode( $blueprint );
+	if ( false === $blueprint_json ) {
+		return new WP_Error( 'static_site_importer_figma_blueprint_encode_failed', __( 'Could not encode the Figma preview blueprint.', 'static-site-importer' ), array( 'status' => 500 ) );
+	}
+
+	$ref    = hash( 'sha256', $blueprint_json );
+	$stored = static_site_importer_rest_store_figma_blueprint( $ref, $blueprint );
 	if ( ! $stored ) {
 		return new WP_Error( 'static_site_importer_figma_blueprint_store_failed', __( 'Could not store the Figma preview blueprint.', 'static-site-importer' ), array( 'status' => 500 ) );
 	}
@@ -159,8 +164,8 @@ function static_site_importer_rest_create_figma_playground_preview( array $artif
 	$blueprint_url = 'https://playground.wordpress.net/?blueprint-url=' . rawurlencode( $endpoint ) . '&url=%2F';
 
 	return array(
-		'success' => true,
-		'preview' => array(
+		'success'  => true,
+		'preview'  => array(
 			'status'     => 'ready',
 			'playground' => array(
 				'blueprint_url' => esc_url_raw( $blueprint_url ),
@@ -170,10 +175,10 @@ function static_site_importer_rest_create_figma_playground_preview( array $artif
 		),
 		'provider' => 'static-site-importer/figma-direct-playground-blueprint',
 		'request'  => array(
-			'schema'     => 'static-site-importer/figma-preview-request/v1',
-			'artifact'   => array(
+			'schema'    => 'static-site-importer/figma-preview-request/v1',
+			'artifact'  => array(
 				'entrypoint' => (string) ( $artifact['entrypoint'] ?? '' ),
-				'file_count'  => isset( $artifact['files'] ) && is_array( $artifact['files'] ) ? count( $artifact['files'] ) : 0,
+				'file_count' => isset( $artifact['files'] ) && is_array( $artifact['files'] ) ? count( $artifact['files'] ) : 0,
 			),
 			'blueprint' => array(
 				'ref' => $ref,
@@ -189,6 +194,16 @@ function static_site_importer_rest_create_figma_playground_preview( array $artif
  * @return array<string,mixed>
  */
 function static_site_importer_rest_figma_playground_blueprint( array $input ): array {
+	$encoded_input = wp_json_encode( $input );
+	if ( false === $encoded_input ) {
+		$encoded_input = '{}';
+	}
+
+	$input_literal = wp_json_encode( $encoded_input );
+	if ( false === $input_literal ) {
+		$input_literal = '"{}"';
+	}
+
 	$import_code = '<?php
 require_once "/wordpress/wp-load.php";
 
@@ -196,7 +211,11 @@ if ( ! function_exists( "static_site_importer_ability_import_website_artifact" )
 	throw new RuntimeException( "Static Site Importer import function is unavailable." );
 }
 
-$input = ' . var_export( $input, true ) . ';
+$input = json_decode( ' . $input_literal . ', true );
+if ( ! is_array( $input ) ) {
+	throw new RuntimeException( "Static Site Importer Figma import input is invalid." );
+}
+
 $result = static_site_importer_ability_import_website_artifact( $input );
 
 if ( ! is_array( $result ) || empty( $result["success"] ) ) {
@@ -307,8 +326,8 @@ function static_site_importer_rest_figma_blueprint_path( string $ref ): string {
 		return '';
 	}
 
-	$uploads = wp_upload_dir( null, false );
-	$base_dir = isset( $uploads['basedir'] ) ? (string) $uploads['basedir'] : '';
+	$uploads  = wp_upload_dir( null, false );
+	$base_dir = (string) $uploads['basedir'];
 	if ( '' === $base_dir ) {
 		return '';
 	}
