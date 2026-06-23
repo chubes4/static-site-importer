@@ -152,7 +152,7 @@ class Static_Site_Importer_Theme_Generator {
 
 		$writes = array_merge(
 			$stylesheet_writes,
-			Static_Site_Importer_Theme_Materializer::base_theme_writes( $theme_dir, $theme_slug, $theme_name, $materialized['css'], $has_footer_part, $materialized['scripts'] )
+			Static_Site_Importer_Theme_Materializer::base_theme_writes( $theme_dir, $theme_slug, $theme_name, $materialized['css'], $has_footer_part, $materialized['scripts'], $materialized['stylesheets'] )
 		);
 		$writes = array_merge( $writes, $template_part_writes );
 		$result         = Static_Site_Importer_Page_Materializer::write_page_contents( $document_pages, $page_ids, $page_artifacts['contents'] );
@@ -1349,7 +1349,7 @@ class Static_Site_Importer_Theme_Generator {
 	 *
 	 * @param string              $theme_dir Theme directory.
 	 * @param array<string,mixed> $artifacts WordPress artifacts from Blocks Engine.
-	 * @return array{css:string,js:string,assets:array<string,array<string,mixed>>,scripts:array<int,array<string,mixed>>}|WP_Error
+	 * @return array{css:string,js:string,assets:array<string,array<string,mixed>>,scripts:array<int,array<string,mixed>>,stylesheets:array<int,array<string,mixed>>}|WP_Error
 	 */
 	private static function materialize_website_artifact_files_to_theme( string $theme_dir, array $artifacts ) {
 		$result = Static_Site_Importer_Theme_Materializer::materialize_website_artifact_files( $theme_dir, self::$active_theme_uri, $artifacts );
@@ -1361,10 +1361,11 @@ class Static_Site_Importer_Theme_Generator {
 			self::$conversion_report['diagnostics'][] = $diagnostic;
 		}
 		return array(
-			'css'     => $result['css'],
-			'js'      => $result['js'],
-			'assets'  => $result['assets'],
-			'scripts' => isset( $result['scripts'] ) && is_array( $result['scripts'] ) ? $result['scripts'] : array(),
+			'css'         => $result['css'],
+			'js'          => $result['js'],
+			'assets'      => $result['assets'],
+			'scripts'     => isset( $result['scripts'] ) && is_array( $result['scripts'] ) ? $result['scripts'] : array(),
+			'stylesheets' => isset( $result['stylesheets'] ) && is_array( $result['stylesheets'] ) ? $result['stylesheets'] : array(),
 		);
 	}
 
