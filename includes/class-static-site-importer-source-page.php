@@ -155,14 +155,15 @@ class Static_Site_Importer_Source_Page {
 		}
 		if ( isset( $page['metadata'] ) && is_array( $page['metadata'] ) ) {
 			foreach ( $page['metadata'] as $key => $value ) {
-				if ( is_string( $key ) && is_scalar( $value ) ) {
-					$metadata[ strtolower( str_replace( '-', '_', $key ) ) ] = (string) $value;
+				$metadata_key = is_string( $key ) ? strtolower( str_replace( '-', '_', $key ) ) : '';
+				if ( '' !== $metadata_key && is_scalar( $value ) && ! array_key_exists( $metadata_key, $metadata ) ) {
+					$metadata[ $metadata_key ] = (string) $value;
 				}
 			}
 		}
 
 		$title       = $metadata['title'] ?? '';
-		$body_format = isset( $metadata['body_format'] ) && '' !== $metadata['body_format'] ? $metadata['body_format'] : 'blocks';
+		$body_format = 'blocks';
 		$document    = new Static_Site_Importer_Document( '<!doctype html><html><head><title>' . esc_html( $title ) . '</title></head><body><main>' . $content . '</main></body></html>' );
 
 		return new self( $source_key, $source_key, 'materialization_plan_page', $document, $content, $body_format, $metadata );
@@ -269,5 +270,4 @@ class Static_Site_Importer_Source_Page {
 
 		return implode( '/', array_filter( $segments ) );
 	}
-
 }

@@ -33,7 +33,7 @@ class Static_Site_Importer_Page_Materializer {
 				continue;
 			}
 
-			$postarr  = array(
+			$postarr = array(
 				'post_title'   => $title,
 				'post_name'    => $slug,
 				'post_status'  => $status,
@@ -62,9 +62,10 @@ class Static_Site_Importer_Page_Materializer {
 	 * @param array<string, Static_Site_Importer_Source_Page> $pages      Pages.
 	 * @param string                                          $theme_slug Theme slug.
 	 * @param array<string,array<string,mixed>>                 $assets     Materialized assets keyed by source path.
+	 * @param array<string,string>                              $permalinks Imported page permalinks keyed by source path.
 	 * @return array{patterns:array<string,string>,files:array<string,string>,contents:array<string,string>,diagnostics:array<int,array<string,mixed>>}
 	 */
-	public static function page_artifacts( array $pages, string $theme_slug, array $assets = array() ): array {
+	public static function page_artifacts( array $pages, string $theme_slug, array $assets = array(), array $permalinks = array() ): array {
 		$patterns    = array();
 		$files       = array();
 		$contents    = array();
@@ -73,7 +74,7 @@ class Static_Site_Importer_Page_Materializer {
 		foreach ( $pages as $filename => $page ) {
 			$slug         = self::page_slug( $filename, $page );
 			$pattern_slug = sanitize_key( $theme_slug ) . '/page-' . $slug;
-			$content      = self::rewrite_materialized_asset_references( self::source_page_content_blocks( $page, $diagnostics ), $assets );
+			$content      = self::rewrite_materialized_asset_references( self::source_page_content_blocks( $page, $diagnostics ), $assets, $page->source_key(), $permalinks );
 
 			$patterns[ $filename ] = $pattern_slug;
 			$files[ $filename ]    = Static_Site_Importer_Theme_Materializer::pattern_file( self::page_title( $filename, $page ), $pattern_slug, $content );
@@ -339,21 +340,29 @@ class Static_Site_Importer_Page_Materializer {
 	 *
 	 * @param string                              $markup Serialized block markup.
 	 * @param array<string,array<string,mixed>>   $assets Materialized assets keyed by source path.
+	 * @param string                              $source_path Source page path for resolving page-relative URLs.
+	 * @param array<string,string>                $permalinks Imported page permalinks keyed by source path.
 	 * @return string Updated markup.
 	 */
-	private static function rewrite_materialized_asset_references( string $markup, array $assets ): string {
-		if ( '' === trim( $markup ) || empty( $assets ) ) {
+	private static function rewrite_materialized_asset_references( string $markup, array $assets, string $source_path = '', array $permalinks = array() ): string {
+		if ( '' === trim( $markup ) || ( empty( $assets ) && empty( $permalinks ) ) ) {
 			return $markup;
 		}
 
 		$replacements = array();
+		foreach ( $permalinks as $source => $permalink ) {
+			$normalized_source = self::normalize_route_path( $source );
+			if ( '' !== $normalized_source && '' !== trim( (string) $permalink ) ) {
+				$replacements[ $normalized_source ] = (string) $permalink;
+			}
+		}
 		foreach ( $assets as $source => $asset ) {
-			if ( ! is_string( $source ) || ! isset( $asset['final_url'] ) || ! is_scalar( $asset['final_url'] ) ) {
+			if ( ! isset( $asset['final_url'] ) || ! is_scalar( $asset['final_url'] ) ) {
 				continue;
 			}
 
 			$normalized_source = self::normalize_route_path( $source );
-			if ( '' !== $normalized_source ) {
+			if ( '' !== $normalized_source && ! isset( $replacements[ $normalized_source ] ) ) {
 				$replacements[ $normalized_source ] = (string) $asset['final_url'];
 				if ( str_starts_with( $normalized_source, 'website/' ) ) {
 					$replacements[ substr( $normalized_source, strlen( 'website/' ) ) ] = (string) $asset['final_url'];
@@ -364,6 +373,8 @@ class Static_Site_Importer_Page_Materializer {
 		if ( empty( $replacements ) ) {
 			return $markup;
 		}
+
+		$source_dir = dirname( self::normalize_route_path( $source_path ) );
 
 		$markup = preg_replace_callback(
 			'/"(url|href|src)"\s*:\s*"([^"]*)"/i',
@@ -381,14 +392,23 @@ class Static_Site_Importer_Page_Materializer {
 
 		return preg_replace_callback(
 			'/\b(src|href)=([' . "'\"" . '])([^' . "'\"" . ']*)\2/i',
-			static function ( array $matches ) use ( $replacements ): string {
+			static function ( array $matches ) use ( $replacements, $source_dir ): string {
 				$url        = html_entity_decode( (string) $matches[3], ENT_QUOTES | ENT_HTML5 );
 				$normalized = self::normalize_route_path( $url );
-				if ( '' === $normalized || ! isset( $replacements[ $normalized ] ) ) {
+				if ( '' !== $normalized && isset( $replacements[ $normalized ] ) ) {
+					return $matches[1] . '=' . $matches[2] . esc_url( $replacements[ $normalized ] ) . $matches[2];
+				}
+
+				if ( '' === $normalized || '' === $source_dir || '.' === $source_dir || str_starts_with( $url, '/' ) || preg_match( '#^[a-z][a-z0-9+.-]*:#i', $url ) ) {
 					return $matches[0];
 				}
 
-				return $matches[1] . '=' . $matches[2] . esc_url( $replacements[ $normalized ] ) . $matches[2];
+				$resolved = self::normalize_route_path( $source_dir . '/' . $url );
+				if ( '' === $resolved || ! isset( $replacements[ $resolved ] ) ) {
+					return $matches[0];
+				}
+
+				return $matches[1] . '=' . $matches[2] . esc_url( $replacements[ $resolved ] ) . $matches[2];
 			},
 			$markup
 		) ?? $markup;

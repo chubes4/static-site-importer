@@ -191,6 +191,12 @@ if ( ! function_exists( 'wp_parse_url' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_delete_file' ) ) {
+	function wp_delete_file( string $file ): bool {
+		return file_exists( $file ) ? unlink( $file ) : true;
+	}
+}
+
 if ( ! class_exists( 'WP_Error' ) ) {
 	class WP_Error {
 		private string $code;
@@ -547,6 +553,17 @@ $apply_response = static_site_importer_rest_create_import(
 $assert( true === ( $apply_response['success'] ?? null ), 'rest-current-site-apply-is-explicitly-available' );
 $assert( true === ( Static_Site_Importer_Theme_Generator::$last_args['activate'] ?? null ), 'rest-current-site-apply-preserves-activate' );
 $assert( isset( $apply_response['result'] ), 'rest-current-site-apply-returns-ability-envelope' );
+$assert( 'https://example.test/' === ( $apply_response['preview']['url'] ?? '' ), 'rest-current-site-apply-returns-site-preview-url' );
+
+$blueprint = json_decode( file_get_contents( dirname( __DIR__ ) . '/docs/playground/blueprint.json' ), true );
+$assert( is_array( $blueprint ), 'playground-blueprint-decodes' );
+$assert( '/import/' === ( $blueprint['landingPage'] ?? '' ), 'playground-blueprint-lands-on-import-page' );
+$blueprint_code = implode( "\n", array_map( static fn( array $step ): string => isset( $step['code'] ) ? (string) $step['code'] : '', $blueprint['steps'] ?? array() ) );
+$assert( str_contains( $blueprint_code, 'static-site-importer/importer' ), 'playground-blueprint-creates-importer-block-page' );
+$assert( str_contains( $blueprint_code, '"applyToCurrentSite":true' ), 'playground-blueprint-applies-to-disposable-site' );
+$assert( str_contains( $blueprint_code, 'static_site_importer_protected_pages' ), 'playground-blueprint-protects-import-page' );
+$plugin_step = $blueprint['steps'][1] ?? array();
+$assert( 'https://github.com/Automattic/static-site-importer/releases/latest/download/static-site-importer.zip' === ( $plugin_step['pluginData']['url'] ?? '' ), 'playground-blueprint-installs-packaged-release' );
 
 $GLOBALS['ssi_test_options']['static_site_importer_protected_pages'] = array( 'import', 'tools/settings', '42' );
 $assert( Static_Site_Importer_Page_Materializer::is_protected_page( new WP_Post( 7, 'import' ) ), 'protected-page-matches-slug' );
@@ -559,8 +576,8 @@ $html_source_page = Static_Site_Importer_Source_Page::from_materialization_plan_
 		'source_path'  => 'website/index.html',
 		'title'        => 'Figma HTML',
 		'slug'         => 'figma-html',
-		'body_format' => 'html',
-		'block_markup' => '<main><h1>Figma HTML</h1></main>',
+		'body_format' => 'blocks',
+		'block_markup' => '<!-- wp:heading {"level":1} --><h1>Figma HTML</h1><!-- /wp:heading --><!-- wp:image {"url":"assets/hero.png","alt":"Hero"} --><figure class="wp-block-image"><img src="assets/hero.png" alt="Hero" /></figure><!-- /wp:image -->',
 	)
 );
 $assert( ! is_wp_error( $html_source_page ), 'html-materialization-source-page-builds' );

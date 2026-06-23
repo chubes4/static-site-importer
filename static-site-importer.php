@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Static Site Importer
  * Description: Materialize compiled website artifacts into WordPress block themes.
- * Version: 1.1.9
+ * Version: 1.1.12
  * Author: Chris Huber
  * Requires at least: 6.9
  * Requires PHP: 8.1
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 define( 'STATIC_SITE_IMPORTER_PATH', plugin_dir_path( __FILE__ ) );
 define( 'STATIC_SITE_IMPORTER_URL', plugin_dir_url( __FILE__ ) );
-define( 'STATIC_SITE_IMPORTER_VERSION', '1.1.9' );
+define( 'STATIC_SITE_IMPORTER_VERSION', '1.1.12' );
 
 $static_site_importer_autoload = STATIC_SITE_IMPORTER_PATH . 'vendor/autoload.php';
 if ( is_readable( $static_site_importer_autoload ) ) {
@@ -39,6 +39,7 @@ require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-so
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-url-fetcher.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-url-import-runtime.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-plugin-materializer.php';
+require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-entity-materializer-registry.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-asset-reporter.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-document-metadata-reporter.php';
 require_once STATIC_SITE_IMPORTER_PATH . 'includes/class-static-site-importer-page-materializer.php';
@@ -98,11 +99,13 @@ if ( defined( 'WP_CLI' ) && WP_CLI && class_exists( 'WP_CLI' ) ) {
 			$result = Static_Site_Importer_Codebox_Validation::validate( $input );
 			if ( is_wp_error( $result ) ) {
 				WP_CLI::error( $result->get_error_message() );
+				return;
 			}
 
 			$json = wp_json_encode( $result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 			if ( false === $json ) {
 				WP_CLI::error( 'Failed to encode Codebox validation result.' );
+				return;
 			}
 
 			WP_CLI::line( $json );

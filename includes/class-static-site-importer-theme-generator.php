@@ -28,18 +28,18 @@ class Static_Site_Importer_Theme_Generator {
 	private static array $conversion_report = array();
 
 	/**
-	 * Generated theme directory for import-scoped asset writes.
-	 *
-	 * @var string
-	 */
-	private static string $active_theme_dir = '';
-
-	/**
 	 * Generated theme URI for import-scoped asset references.
 	 *
 	 * @var string
 	 */
 	private static string $active_theme_uri = '';
+
+	/**
+	 * CSS classes that identify decorative empty layers.
+	 *
+	 * @var array<string, true>
+	 */
+	private static array $decorative_empty_group_classes = array();
 
 	/**
 	 * Import a website artifact bundle as a block theme.
@@ -51,6 +51,12 @@ class Static_Site_Importer_Theme_Generator {
 	public static function import_website_artifact( array $artifact, array $args = array() ) {
 		if ( ! class_exists( 'Static_Site_Importer_Transformer_Adapter' ) ) {
 			return new WP_Error( 'static_site_importer_missing_transformer_adapter', 'Static Site Importer transformer adapter is required to import a website artifact.' );
+		}
+		if ( empty( $args['site_title'] ) ) {
+			$site_title = self::site_title_from_website_artifact( $artifact );
+			if ( '' !== $site_title ) {
+				$args['site_title'] = $site_title;
+			}
 		}
 
 		$compiler_options = isset( $args['compiler_options'] ) && is_array( $args['compiler_options'] ) ? $args['compiler_options'] : array();
@@ -106,8 +112,7 @@ class Static_Site_Importer_Theme_Generator {
 		self::record_products_manifest_from_import_args( $args, $compiled );
 		self::record_commerce_context_summary( $args );
 
-		self::$active_theme_dir         = $theme_dir;
-		self::$active_theme_uri         = trailingslashit( get_theme_root_uri( $theme_slug ) ) . $theme_slug;
+		self::$active_theme_uri = trailingslashit( get_theme_root_uri( $theme_slug ) ) . $theme_slug;
 		$asset_policy = Static_Site_Importer_Asset_Reporter::initialize_report( self::$conversion_report, $args );
 		if ( is_wp_error( $asset_policy ) ) {
 			return $asset_policy;
@@ -129,7 +134,7 @@ class Static_Site_Importer_Theme_Generator {
 			return $materialized;
 		}
 
-		$page_artifacts = Static_Site_Importer_Page_Materializer::page_artifacts( $document_pages, $theme_slug, $materialized['assets'] );
+		$page_artifacts = Static_Site_Importer_Page_Materializer::page_artifacts( $document_pages, $theme_slug, $materialized['assets'], $permalinks );
 		foreach ( $page_artifacts['diagnostics'] as $diagnostic ) {
 			self::$conversion_report['diagnostics'][] = $diagnostic;
 		}
@@ -155,7 +160,7 @@ class Static_Site_Importer_Theme_Generator {
 
 		$writes = array_merge(
 			$stylesheet_writes,
-			Static_Site_Importer_Theme_Materializer::base_theme_writes( $theme_dir, $theme_slug, $theme_name, $materialized['css'], $has_header_part, $has_footer_part )
+			Static_Site_Importer_Theme_Materializer::base_theme_writes( $theme_dir, $theme_slug, $theme_name, $materialized['css'], $has_header_part, $has_footer_part, $materialized['scripts'] )
 		);
 		$writes = array_merge( $writes, $template_part_writes );
 		$result         = Static_Site_Importer_Page_Materializer::write_page_contents( $document_pages, $page_ids, $page_artifacts['contents'] );
@@ -250,10 +255,10 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return array(
-			'theme_slug'            => $theme_slug,
-			'theme_name'            => $theme_name,
-			'theme_dir'             => $theme_dir,
-			'report_path'           => $theme_dir . '/import-report.json',
+			'theme_slug'                      => $theme_slug,
+			'theme_name'                      => $theme_name,
+			'theme_dir'                       => $theme_dir,
+			'report_path'                     => $theme_dir . '/import-report.json',
 			'validation_result_path'          => $theme_dir . '/import-validation-result.json',
 			'finding_packets_path'            => $theme_dir . '/finding-packets.json',
 			'external_report_path'            => $external_report_path,
@@ -526,7 +531,7 @@ class Static_Site_Importer_Theme_Generator {
 			)
 		);
 
-		return is_array( $pages ) && isset( $pages[0] ) && is_object( $pages[0] ) ? $pages[0] : null;
+		return $pages[0] ?? null;
 	}
 
 	/**
@@ -951,6 +956,37 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Infer a WordPress site title from the source artifact entrypoint.
+	 *
+	 * @param array<string,mixed> $artifact Website artifact bundle.
+	 * @return string
+	 */
+	private static function site_title_from_website_artifact( array $artifact ): string {
+		$entrypoint = isset( $artifact['entrypoint'] ) && is_scalar( $artifact['entrypoint'] ) ? self::normalize_route_path( (string) $artifact['entrypoint'] ) : '';
+		$files      = isset( $artifact['files'] ) && is_array( $artifact['files'] ) ? $artifact['files'] : array();
+		foreach ( $files as $file ) {
+			if ( ! is_array( $file ) ) {
+				continue;
+			}
+			$path = isset( $file['path'] ) && is_scalar( $file['path'] ) ? self::normalize_route_path( (string) $file['path'] ) : '';
+			if ( '' === $path || ( '' !== $entrypoint && $path !== $entrypoint ) ) {
+				continue;
+			}
+			$content = isset( $file['content'] ) && is_scalar( $file['content'] ) ? (string) $file['content'] : '';
+			if ( '' === trim( $content ) || ! preg_match( '/<title[^>]*>(.*?)<\/title>/is', $content, $matches ) ) {
+				continue;
+			}
+
+			$title = function_exists( 'wp_strip_all_tags' ) ? wp_strip_all_tags( (string) $matches[1] ) : preg_replace( '/<[^>]*>/', '', (string) $matches[1] );
+			$title = html_entity_decode( trim( $title ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+			$title = preg_split( '/\s+(?:\||\x{2014}|\x{2013}|-)\s+/u', $title )[0] ?? $title;
+			return function_exists( 'sanitize_text_field' ) ? sanitize_text_field( trim( $title ) ) : trim( preg_replace( '/<[^>]*>/', '', $title ) );
+		}
+
+		return '';
+	}
+
+	/**
 	 * Extract diagnostic messages by level/severity.
 	 *
 	 * @param mixed  $diagnostics Diagnostics.
@@ -1144,12 +1180,30 @@ class Static_Site_Importer_Theme_Generator {
 					$normalized[ $key ] = (string) $route[ $key ];
 				}
 			}
+			if ( ! isset( $normalized['slug'] ) && isset( $route['target_slug'] ) && is_scalar( $route['target_slug'] ) && '' !== trim( (string) $route['target_slug'] ) ) {
+				$normalized['slug'] = (string) $route['target_slug'];
+			}
+			if ( ! isset( $normalized['title'] ) && isset( $route['target_title'] ) && is_scalar( $route['target_title'] ) && '' !== trim( (string) $route['target_title'] ) ) {
+				$normalized['title'] = (string) $route['target_title'];
+			}
 
 			if ( isset( $route['route_key'] ) && is_scalar( $route['route_key'] ) && '' !== trim( (string) $route['route_key'] ) ) {
 				$normalized['route_key'] = (string) $route['route_key'];
 			}
+			$route_path = '';
 			if ( isset( $route['path'] ) && is_scalar( $route['path'] ) && '' !== trim( (string) $route['path'] ) ) {
-				$normalized['route_path'] = self::normalize_route_path( (string) $route['path'] );
+				$route_path = (string) $route['path'];
+			} elseif ( isset( $route['target_path'] ) && is_scalar( $route['target_path'] ) && '' !== trim( (string) $route['target_path'] ) ) {
+				$route_path = (string) $route['target_path'];
+			}
+			if ( '' !== $route_path ) {
+				$normalized['route_path'] = self::normalize_route_path( $route_path );
+				if ( '' === $normalized['route_path'] && ! empty( $route['source_relation'] ) && 'entrypoint' === (string) $route['source_relation'] ) {
+					$normalized['entrypoint'] = '1';
+				}
+				if ( '' === $normalized['route_path'] && isset( $normalized['slug'] ) && in_array( sanitize_title( $normalized['slug'] ), array( 'index', 'home' ), true ) ) {
+					$normalized['slug'] = 'home';
+				}
 			}
 
 			if ( isset( $route['metadata'] ) && is_array( $route['metadata'] ) ) {
@@ -1217,11 +1271,11 @@ class Static_Site_Importer_Theme_Generator {
 
 			$document = array_merge( $documents_by_source[ $source_path ] ?? array(), array_filter(
 				array(
-					'source_path' => $source_path,
-					'slug'        => $slug,
-					'route_key'   => $route_key,
-					'post_type'   => $post_type,
-					'title'       => isset( $page['title'] ) && is_scalar( $page['title'] ) ? (string) $page['title'] : '',
+					'source_path'  => $source_path,
+					'slug'         => $slug,
+					'route_key'    => $route_key,
+					'post_type'    => $post_type,
+					'title'        => isset( $page['title'] ) && is_scalar( $page['title'] ) ? (string) $page['title'] : '',
 					'block_markup' => isset( $page['block_markup'] ) && is_scalar( $page['block_markup'] ) ? (string) $page['block_markup'] : '',
 				),
 				static fn ( string $value ): bool => '' !== $value
@@ -1355,7 +1409,7 @@ class Static_Site_Importer_Theme_Generator {
 	 *
 	 * @param string              $theme_dir Theme directory.
 	 * @param array<string,mixed> $artifacts WordPress artifacts from Blocks Engine.
-	 * @return array{css:string,js:string,assets:array<string,array<string,mixed>>}|WP_Error
+	 * @return array{css:string,js:string,assets:array<string,array<string,mixed>>,scripts:array<int,array<string,mixed>>}|WP_Error
 	 */
 	private static function materialize_website_artifact_files_to_theme( string $theme_dir, array $artifacts ) {
 		$result = Static_Site_Importer_Theme_Materializer::materialize_website_artifact_files( $theme_dir, self::$active_theme_uri, $artifacts );
@@ -1367,9 +1421,10 @@ class Static_Site_Importer_Theme_Generator {
 			self::$conversion_report['diagnostics'][] = $diagnostic;
 		}
 		return array(
-			'css'    => $result['css'],
-			'js'     => $result['js'],
-			'assets' => $result['assets'],
+			'css'     => $result['css'],
+			'js'      => $result['js'],
+			'assets'  => $result['assets'],
+			'scripts' => $result['scripts'],
 		);
 	}
 
@@ -1500,6 +1555,50 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return $restore;
+	}
+
+	/**
+	 * Parse an HTML fragment into a wrapper document.
+	 *
+	 * @param string $html HTML fragment.
+	 * @return DOMDocument
+	 */
+	private static function load_fragment_document( string $html ): DOMDocument {
+		$doc      = new DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$doc->loadHTML( '<?xml encoding="UTF-8"><div data-static-site-importer-root="1">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+
+		return $doc;
+	}
+
+	/**
+	 * Check whether an empty element is CSS-declared decorative chrome.
+	 *
+	 * @param DOMElement $element Source element.
+	 * @return bool
+	 */
+	private static function is_empty_decorative_theme_part_element( DOMElement $element ): bool {
+		if ( 'div' !== strtolower( $element->tagName ) || empty( self::$decorative_empty_group_classes ) ) {
+			return false;
+		}
+
+		foreach ( $element->childNodes as $child ) {
+			if ( $child instanceof DOMElement || ( $child instanceof DOMText && '' !== trim( $child->textContent ) ) ) {
+				return false;
+			}
+		}
+
+		$classes = preg_split( '/\s+/', trim( $element->getAttribute( 'class' ) ) );
+		$classes = false === $classes ? array() : $classes;
+		foreach ( $classes as $class ) {
+			if ( isset( self::$decorative_empty_group_classes[ $class ] ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -1822,6 +1921,26 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Append a class to the first HTML class attribute in a serialized block fragment.
+	 *
+	 * @param string $html                 HTML fragment.
+	 * @param string $class_name_to_append Class to append.
+	 * @return string Updated HTML fragment.
+	 */
+	private static function append_class_to_first_html_class_attribute( string $html, string $class_name_to_append ): string {
+		$updated = preg_replace_callback(
+			'/class="([^"]*)"/',
+			static function ( array $matches ) use ( $class_name_to_append ): string {
+				return 'class="' . esc_attr( self::append_class_token( html_entity_decode( $matches[1], ENT_QUOTES ), $class_name_to_append ) ) . '"';
+			},
+			$html,
+			1
+		);
+
+		return null === $updated ? $html : $updated;
+	}
+
+	/**
 	 * Append a class token if it is not already present.
 	 *
 	 * @param string $classes Existing classes.
@@ -1890,10 +2009,6 @@ class Static_Site_Importer_Theme_Generator {
 
 		if ( empty( $records ) ) {
 			foreach ( $pages as $source_path => $page ) {
-				if ( ! $page instanceof Static_Site_Importer_Source_Page ) {
-					continue;
-				}
-
 				$post_id   = (int) ( $page_ids[ $source_path ] ?? 0 );
 				$records[] = array(
 					'source_path'  => (string) $source_path,
@@ -1912,8 +2027,8 @@ class Static_Site_Importer_Theme_Generator {
 		self::$conversion_report['source_documents'] = array_merge(
 			self::$conversion_report['source_documents'],
 			array(
-				'source'             => 'blocks_engine',
-				'total_count'        => count( $records ),
+				'source'                       => 'blocks_engine',
+				'total_count'                  => count( $records ),
 				'blocks_engine_documents'      => $records,
 				'blocks_engine_document_count' => count( $records ),
 			)
@@ -1937,7 +2052,8 @@ class Static_Site_Importer_Theme_Generator {
 			return;
 		}
 
-		$validation = self::validate_products_manifest(
+		$validation = Static_Site_Importer_Entity_Materializer_Registry::validate_manifest(
+			Static_Site_Importer_Entity_Materializer_Registry::product_adapter(),
 			array(
 				'schema_version' => 1,
 				'products'       => $products,
@@ -2008,136 +2124,6 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
-	 * Validate the generated store products manifest contract.
-	 *
-	 * @param mixed $data Decoded JSON data.
-	 * @return array{products:array<int,array<string,mixed>>,errors:array<int,array<string,string>>}
-	 */
-	private static function validate_products_manifest( $data ): array {
-		$products = array();
-		$errors   = array();
-
-		if ( ! is_array( $data ) || array_is_list( $data ) ) {
-			return array( 'products' => array(), 'errors' => array( array( 'path' => '$', 'message' => 'products_manifest must be an object with schema_version and products fields.' ) ) );
-		}
-
-		if ( 1 !== (int) ( $data['schema_version'] ?? 0 ) ) {
-			$errors[] = array( 'path' => '$.schema_version', 'message' => 'schema_version must be 1.' );
-		}
-		if ( ! isset( $data['products'] ) || ! is_array( $data['products'] ) || ! array_is_list( $data['products'] ) ) {
-			$errors[] = array( 'path' => '$.products', 'message' => 'products must be a JSON array.' );
-			return array( 'products' => array(), 'errors' => $errors );
-		}
-
-		foreach ( $data['products'] as $index => $product ) {
-			$path_prefix = '$.products[' . $index . ']';
-			if ( ! is_array( $product ) || array_is_list( $product ) ) {
-				$errors[] = array( 'path' => $path_prefix, 'message' => 'Product must be an object.' );
-				continue;
-			}
-
-			$name          = self::manifest_string( $product, 'name' );
-			$slug          = self::manifest_string( $product, 'slug' );
-			$regular_price = self::manifest_string( $product, 'regular_price' );
-			$sale_price    = self::manifest_string( $product, 'sale_price', false );
-			if ( '' === $name ) {
-				$errors[] = array( 'path' => $path_prefix . '.name', 'message' => 'name is required and must be a non-empty string.' );
-			}
-			if ( '' === $slug || ! preg_match( '/^[a-z0-9]+(?:-[a-z0-9]+)*$/', $slug ) ) {
-				$errors[] = array( 'path' => $path_prefix . '.slug', 'message' => 'slug is required and must be a lowercase URL slug.' );
-			}
-			if ( '' === $regular_price || ! self::is_manifest_price( $regular_price ) ) {
-				$errors[] = array( 'path' => $path_prefix . '.regular_price', 'message' => 'regular_price is required and must be a decimal string such as "19.00".' );
-			}
-			if ( '' !== $sale_price && ! self::is_manifest_price( $sale_price ) ) {
-				$errors[] = array( 'path' => $path_prefix . '.sale_price', 'message' => 'sale_price must be a decimal string such as "15.00" when provided.' );
-			}
-			foreach ( array( 'description', 'short_description', 'status', 'stock_status', 'image' ) as $field ) {
-				if ( isset( $product[ $field ] ) && ! is_string( $product[ $field ] ) ) {
-					$errors[] = array( 'path' => $path_prefix . '.' . $field, 'message' => $field . ' must be a string when provided.' );
-				}
-			}
-			foreach ( array( 'categories', 'source_selectors' ) as $field ) {
-				if ( ! isset( $product[ $field ] ) ) {
-					continue;
-				}
-				$values = self::manifest_string_collection( $product[ $field ] );
-				if ( null === $values ) {
-					$errors[] = array( 'path' => $path_prefix . '.' . $field, 'message' => $field . ' must be an array of strings when provided.' );
-					continue;
-				}
-				foreach ( $values as $value_index => $value ) {
-					if ( '' === trim( $value ) ) {
-						$errors[] = array( 'path' => $path_prefix . '.' . $field . '[' . $value_index . ']', 'message' => $field . ' entries must be non-empty strings.' );
-					}
-				}
-			}
-			if ( isset( $product['stock_quantity'] ) && ! is_int( $product['stock_quantity'] ) ) {
-				$errors[] = array( 'path' => $path_prefix . '.stock_quantity', 'message' => 'stock_quantity must be an integer when provided.' );
-			}
-
-			$summary = array( 'name' => $name, 'slug' => $slug, 'regular_price' => $regular_price );
-			foreach ( array( 'sale_price', 'description', 'short_description', 'categories', 'image', 'status', 'stock_status', 'stock_quantity', 'source_selectors' ) as $field ) {
-				if ( array_key_exists( $field, $product ) ) {
-					$summary[ $field ] = $product[ $field ];
-				}
-			}
-			$products[] = $summary;
-		}
-
-		return array( 'products' => empty( $errors ) ? $products : array(), 'errors' => $errors );
-	}
-
-	/**
-	 * Read a string field from a decoded manifest object.
-	 *
-	 * @param array<string,mixed> $data     Manifest object.
-	 * @param string              $key      Field key.
-	 * @param bool                $required Whether missing fields should return an empty string.
-	 * @return string
-	 */
-	private static function manifest_string( array $data, string $key, bool $required = true ): string {
-		if ( ! array_key_exists( $key, $data ) || ! is_string( $data[ $key ] ) ) {
-			return '';
-		}
-
-		$value = trim( $data[ $key ] );
-		return $required || '' !== $value ? $value : '';
-	}
-
-	/**
-	 * Normalize list or keyed-map string collections from products_manifest.
-	 *
-	 * @param mixed $value Raw manifest field value.
-	 * @return array<int|string,string>|null
-	 */
-	private static function manifest_string_collection( $value ): ?array {
-		if ( ! is_array( $value ) ) {
-			return null;
-		}
-
-		$normalized = array();
-		foreach ( $value as $key => $entry ) {
-			if ( ! is_string( $entry ) ) {
-				return null;
-			}
-			$normalized[ $key ] = $entry;
-		}
-
-		return $normalized;
-	}
-
-	/**
-	 * Check whether a manifest price uses a stable decimal string format.
-	 *
-	 * @param string $price Price string.
-	 * @return bool
-	 */
-	private static function is_manifest_price( string $price ): bool {
-		return 1 === preg_match( '/^(?:0|[1-9][0-9]*)(?:\.[0-9]{2})?$/', $price );
-	}
-
-	/**
 	 * Materialize plugins required by detected source intent.
 	 *
 	 * @param array<string, mixed> $args Import args.
@@ -2149,12 +2135,13 @@ class Static_Site_Importer_Theme_Generator {
 			'plugins' => array(),
 		);
 
-		$intent = self::commerce_dependency_intent();
+		$intent  = self::commerce_dependency_intent();
+		$adapter = Static_Site_Importer_Entity_Materializer_Registry::product_adapter();
 		if ( ! $intent['present'] ) {
 			self::$conversion_report['plugin_materialization']['reason'] = 'no_plugin_backed_intent';
 			return;
 		}
-		if ( ! empty( $args['allow_missing_woocommerce'] ) ) {
+		if ( ! empty( $args[ (string) ( $adapter['waiver_arg'] ?? 'allow_missing_woocommerce' ) ] ) ) {
 			self::$conversion_report['plugin_materialization']['reason'] = 'woocommerce_requirement_waived';
 			return;
 		}
@@ -2163,14 +2150,10 @@ class Static_Site_Importer_Theme_Generator {
 			return;
 		}
 
-		$report = Static_Site_Importer_Plugin_Materializer::ensure_wp_org_plugin(
-			'woocommerce',
-			'woocommerce/woocommerce.php',
-			array( 'Static_Site_Importer_Woo_Product_Seeder', 'woocommerce_available' )
-		);
+		$reports = Static_Site_Importer_Entity_Materializer_Registry::materialize_plugin_dependencies( $adapter );
 		self::$conversion_report['plugin_materialization'] = array(
-			'status'  => 'failed' === ( $report['status'] ?? '' ) ? 'failed' : 'completed',
-			'plugins' => array( 'woocommerce' => $report ),
+			'status'  => self::plugin_materialization_status( $reports ),
+			'plugins' => $reports,
 		);
 	}
 
@@ -2190,12 +2173,12 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		if ( null === $manifest ) {
-			self::$conversion_report['product_seeding']           = Static_Site_Importer_Woo_Product_Seeder::new_report();
+			self::$conversion_report['product_seeding']           = Static_Site_Importer_Entity_Materializer_Registry::new_entity_report( Static_Site_Importer_Entity_Materializer_Registry::product_adapter() );
 			self::$conversion_report['product_seeding']['reason'] = 'no_validated_manifest';
 			return;
 		}
 
-		self::$conversion_report['product_seeding'] = Static_Site_Importer_Woo_Product_Seeder::seed( $manifest );
+		self::$conversion_report['product_seeding'] = Static_Site_Importer_Entity_Materializer_Registry::materialize( Static_Site_Importer_Entity_Materializer_Registry::product_adapter(), $manifest );
 	}
 
 	/**
@@ -2216,19 +2199,10 @@ class Static_Site_Importer_Theme_Generator {
 			return;
 		}
 
-		$woocommerce_active = Static_Site_Importer_Woo_Product_Seeder::woocommerce_available();
-		$waived             = ! empty( $args['allow_missing_woocommerce'] );
-
-		$dependencies = array(
-			'woocommerce' => array(
-				'required'      => true,
-				'active'        => $woocommerce_active,
-				'sources'       => $intent['sources'],
-				'product_count' => $intent['product_count'],
-				'waived'        => $waived,
-				'missing_apis'  => $woocommerce_active ? array() : array( 'WC_Product_Simple', 'product_post_type', 'product_cat_taxonomy' ),
-			),
-		);
+		$adapter            = Static_Site_Importer_Entity_Materializer_Registry::product_adapter();
+		$waived             = ! empty( $args[ (string) ( $adapter['waiver_arg'] ?? 'allow_missing_woocommerce' ) ] );
+		$dependencies       = Static_Site_Importer_Entity_Materializer_Registry::dependency_rows( $adapter, $intent, $waived );
+		$woocommerce_active = Static_Site_Importer_Entity_Materializer_Registry::dependencies_available( $adapter );
 
 		if ( ! isset( self::$conversion_report['commerce'] ) || ! is_array( self::$conversion_report['commerce'] ) ) {
 			self::$conversion_report['commerce'] = array();
@@ -2272,6 +2246,22 @@ class Static_Site_Importer_Theme_Generator {
 		if ( isset( self::$conversion_report['product_seeding'] ) && is_array( self::$conversion_report['product_seeding'] ) ) {
 			self::$conversion_report['product_seeding']['reason'] = 'woocommerce_required_but_missing';
 		}
+	}
+
+	/**
+	 * Collapse dependency reports to the legacy plugin materialization status.
+	 *
+	 * @param array<string,array<string,mixed>> $reports Dependency reports keyed by plugin slug.
+	 * @return string
+	 */
+	private static function plugin_materialization_status( array $reports ): string {
+		foreach ( $reports as $report ) {
+			if ( is_array( $report ) && 'failed' === (string) ( $report['status'] ?? '' ) ) {
+				return 'failed';
+			}
+		}
+
+		return 'completed';
 	}
 
 	/**
@@ -2535,5 +2525,4 @@ class Static_Site_Importer_Theme_Generator {
 
 		return is_string( $markup ) ? trim( $markup ) : '';
 	}
-
 }

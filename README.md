@@ -2,6 +2,8 @@
 
 Import a static site or generated website artifact into WordPress pages and a companion block theme.
 
+[![Try Static Site Importer in WordPress Playground](https://img.shields.io/badge/Try_Static_Site_Importer_in-WordPress_Playground-3858e9?style=for-the-badge&logo=wordpress&logoColor=white)](https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/Automattic/static-site-importer/main/docs/playground/blueprint.json)
+
 Static Site Importer is a WordPress plugin. It requires the [Blocks Engine PHP transformer](https://github.com/Automattic/blocks-engine/tree/trunk/php-transformer) Composer package and calls that package's canonical helper functions for generic artifact compilation and format conversion.
 
 ## Architecture Stack
@@ -40,7 +42,7 @@ When a generated artifact contains full-document HTML, Static Site Importer rout
 - Composer dependencies installed with `composer install`.
 - Node dependencies installed only when running the JavaScript block-validation smoke tests.
 
-SSI requires `automattic/blocks-engine-php-transformer:^0.1.0` in Composer to align installed dependencies with the tagged Blocks Engine PHP transformer release. Until the package is published on Packagist, `composer.json` includes an explicit package repository for the `php-transformer-v0.1.0` tag at `ac92ddb` with autoloading rooted at the Blocks Engine monorepo archive's `php-transformer/src/` directory. Remove that repository override once Packagist serves the package metadata.
+SSI requires `automattic/blocks-engine-php-transformer:^0.1.1` in Composer to align installed dependencies with the tagged Blocks Engine PHP transformer release. Until the package is published on Packagist, `composer.json` includes an explicit package repository for the `php-transformer-v0.1.1` tag at `310ba6f` with autoloading rooted at the Blocks Engine monorepo archive's `php-transformer/src/` directory. Remove that repository override once Packagist serves the package metadata.
 
 At runtime, SSI loads the transformer package from `vendor/` and calls `blocks_engine_php_transformer_compile_artifact()` and `blocks_engine_php_transformer_convert_format()` directly.
 
@@ -52,6 +54,14 @@ At runtime, SSI loads the transformer package from `vendor/` and calls `blocks_e
 4. Leave **Activate imported theme** checked if the generated theme should become active immediately.
 
 The admin path always overwrites an existing generated theme with the same slug. Pasted HTML, fetched URL HTML, and direct HTML uploads are copied into a generated upload work directory as `index.html` and imported as a single-page site. ZIP uploads are for multi-page static sites or bundled source-site exports; they are extracted to an upload work directory, the selected `index.html` is used as the entry file, sibling HTML files from that extracted site directory are imported, and nested `.md` / `.markdown` files are imported as content pages. The importer does not require the original source model to be a single `index.html`; it needs one selected HTML entry file for shared shell/chrome and imports the source content documents it can read.
+
+## Browser Playground Demo
+
+Open Static Site Importer in a disposable WordPress Playground site:
+
+[![Try Static Site Importer in WordPress Playground](https://img.shields.io/badge/Try_Static_Site_Importer_in-WordPress_Playground-3858e9?style=for-the-badge&logo=wordpress&logoColor=white)](https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/Automattic/static-site-importer/main/docs/playground/blueprint.json)
+
+The blueprint installs and activates the packaged Static Site Importer release, logs the visitor in, and opens `/import/` with the `static-site-importer/importer` block configured to import into the current disposable Playground site. Testers can upload a ZIP, choose a local site directory, paste HTML, or enter one public URL. Separate preview sessions require WP Codebox, which the public WordPress Playground environment does not provide, so the public demo applies the import to the disposable site and returns that site's URL.
 
 URL intake rules:
 
