@@ -2,6 +2,8 @@
 
 Import a static site or generated website artifact into WordPress pages and a companion block theme.
 
+[![Try Static Site Importer in WordPress Playground](https://img.shields.io/badge/Try_Static_Site_Importer_in-WordPress_Playground-3858e9?style=for-the-badge&logo=wordpress&logoColor=white)](https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/Automattic/static-site-importer/main/docs/playground/blueprint.json)
+
 Static Site Importer is a WordPress plugin. It requires the [Blocks Engine PHP transformer](https://github.com/Automattic/blocks-engine/tree/trunk/php-transformer) Composer package and calls that package's canonical helper functions for generic artifact compilation and format conversion.
 
 ## Architecture Stack
@@ -57,7 +59,7 @@ The admin path always overwrites an existing generated theme with the same slug.
 
 Open Static Site Importer in a disposable WordPress Playground site:
 
-https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/Automattic/static-site-importer/main/docs/playground/blueprint.json
+[![Try Static Site Importer in WordPress Playground](https://img.shields.io/badge/Try_Static_Site_Importer_in-WordPress_Playground-3858e9?style=for-the-badge&logo=wordpress&logoColor=white)](https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/Automattic/static-site-importer/main/docs/playground/blueprint.json)
 
 The blueprint installs and activates the packaged Static Site Importer release, logs the visitor in, and opens `/import/` with the `static-site-importer/importer` block in preview mode. Testers can upload a ZIP, choose a local site directory, paste HTML, or enter one public URL. Static Site Importer returns a generated WordPress Playground preview URL, so the imported result can be inspected without mutating the demo page itself or installing anything locally.
 
