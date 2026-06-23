@@ -559,6 +559,24 @@ if ( ! is_wp_error( $html_source_page ) ) {
 
 Static_Site_Importer_Theme_Generator::$last_artifact = array();
 Static_Site_Importer_Theme_Generator::$last_args     = array();
+WP_Codebox_Abilities::$next_session = array(
+	'success'         => true,
+	'schema'          => 'wp-codebox/browser-playground-session/v1',
+	'execution'       => 'browser-playground',
+	'execution_scope' => 'disposable-playground',
+	'session'         => array(
+		'id'     => 'ssi-figma-preview-session',
+		'status' => 'ready',
+	),
+	'playground'      => array(
+		'preview_url'      => '/?preview=1',
+		'scope'            => 'ssi-figma-preview-session',
+		'prepared_runtime' => array(
+			'cache_key'  => 'ssi-figma-preview-cache',
+			'input_hash' => str_repeat( 'c', 64 ),
+		),
+	),
+);
 $figma_response = static_site_importer_rest_import_figma(
 	new WP_REST_Request(
 		array(
@@ -601,15 +619,17 @@ $figma_response = static_site_importer_rest_import_figma(
 $assert( true === ( $figma_response['success'] ?? null ), 'figma-rest-response-succeeds' );
 $assert( 'figma-to-wordpress/runner-response/v1' === ( $figma_response['schema'] ?? '' ), 'figma-rest-response-uses-runner-schema' );
 $assert( 'created' === ( $figma_response['status'] ?? '' ), 'figma-rest-response-created-status' );
-$assert( 'https://example.test/' === ( $figma_response['open_url'] ?? '' ), 'figma-rest-response-open-url' );
-$assert( 'website/index.html' === ( Static_Site_Importer_Theme_Generator::$last_artifact['entrypoint'] ?? '' ), 'figma-artifact-entrypoint-normalized' );
-$assert( 'website/assets/styles.css' === ( Static_Site_Importer_Theme_Generator::$last_artifact['files'][1]['path'] ?? '' ), 'figma-artifact-file-path-normalized' );
-$assert( true === ( Static_Site_Importer_Theme_Generator::$last_args['activate'] ?? null ), 'figma-import-defaults-to-activate' );
-$assert( true === ( Static_Site_Importer_Theme_Generator::$last_args['overwrite'] ?? null ), 'figma-import-defaults-to-overwrite' );
-$assert( '' === ( Static_Site_Importer_Theme_Generator::$last_args['slug'] ?? null ), 'figma-import-does-not-force-generic-slug' );
-$assert( 'Fisiostetic' === ( Static_Site_Importer_Theme_Generator::$last_args['name'] ?? null ), 'figma-import-name-derived-from-metadata' );
-$assert( 'Fisiostetic' === ( Static_Site_Importer_Theme_Generator::$last_args['site_title'] ?? null ), 'figma-import-site-title-derived-from-metadata' );
-$assert( 'figma-to-wordpress' === ( Static_Site_Importer_Theme_Generator::$last_artifact['provenance']['source'] ?? '' ), 'figma-artifact-provenance-source' );
+$assert( str_starts_with( $figma_response['open_url'] ?? '', 'https://playground.wordpress.net/?blueprint-url=' ), 'figma-rest-response-open-url-is-playground-blueprint' );
+$assert( isset( $figma_response['preview_session']['playground']['blueprint_url'] ), 'figma-rest-response-exposes-playground-blueprint-url' );
+$assert( array() === Static_Site_Importer_Theme_Generator::$last_artifact, 'figma-rest-preview-does-not-apply-to-current-site' );
+$assert( 'static-site-importer/import-website-artifact' === ( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['name'] ?? '' ), 'figma-rest-preview-invokes-ssi-import-ability' );
+$assert( 'website/index.html' === ( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['input']['artifact']['entrypoint'] ?? '' ), 'figma-artifact-entrypoint-normalized' );
+$assert( 'website/assets/styles.css' === ( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['input']['artifact']['files'][1]['path'] ?? '' ), 'figma-artifact-file-path-normalized' );
+$assert( true === ( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['input']['activate'] ?? null ), 'figma-preview-defaults-to-activate-in-playground' );
+$assert( true === ( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['input']['overwrite'] ?? null ), 'figma-preview-defaults-to-overwrite-in-playground' );
+$assert( 'Fisiostetic' === ( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['input']['name'] ?? null ), 'figma-import-name-derived-from-metadata' );
+$assert( 'Fisiostetic' === ( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['input']['site_title'] ?? null ), 'figma-import-site-title-derived-from-metadata' );
+$assert( 'figma-to-wordpress' === ( WP_Codebox_Abilities::$last_input['browser_runner']['invocation']['input']['artifact']['provenance']['source'] ?? '' ), 'figma-artifact-provenance-source' );
 
 if ( class_exists( 'ZipArchive' ) ) {
 	$zip_path = tempnam( sys_get_temp_dir(), 'ssi-test-' );

@@ -69,13 +69,19 @@ class Static_Site_Importer_Figma_Import {
 			);
 		}
 
-		$result = isset( $ability_result['result'] ) && is_array( $ability_result['result'] ) ? $ability_result['result'] : array();
+		$preview = isset( $ability_result['preview'] ) && is_array( $ability_result['preview'] ) ? $ability_result['preview'] : array();
+		$playground = isset( $preview['playground'] ) && is_array( $preview['playground'] ) ? $preview['playground'] : array();
+		$open_url = isset( $preview['url'] ) ? (string) $preview['url'] : '';
+		if ( '' === $open_url && isset( $playground['blueprint_url'] ) ) {
+			$open_url = (string) $playground['blueprint_url'];
+		}
 
 		return array(
 			'schema'                => 'figma-to-wordpress/runner-response/v1',
 			'success'               => true,
 			'status'                => 'created',
-			'open_url'              => home_url( '/' ),
+			'open_url'              => '' !== $open_url ? $open_url : home_url( '/' ),
+			'preview_session'       => $preview,
 			'materialization'       => self::materialization_summary( $ability_result ),
 		);
 	}
@@ -352,7 +358,7 @@ class Static_Site_Importer_Figma_Import {
 	 * @param array<string,mixed> $artifact Website artifact.
 	 * @return array<string,mixed>
 	 */
-	private static function import_input( array $input, array $artifact ): array {
+	public static function import_input( array $input, array $artifact ): array {
 		$title = self::display_title( $input, $artifact );
 
 		return array(

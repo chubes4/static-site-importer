@@ -87,7 +87,19 @@ function static_site_importer_rest_import_figma( WP_REST_Request $request ) {
 		$input = $request->get_params();
 	}
 
-	$result = static_site_importer_rest_execute_import_ability( 'static-site-importer/import-figma', $input, 'static_site_importer_ability_import_figma', static_site_importer_rest_import_figma_allows_local_runner( $request ) );
+	$artifact = Static_Site_Importer_Figma_Import::website_artifact_from_input( $input );
+	if ( is_wp_error( $artifact ) ) {
+		return $artifact;
+	}
+
+	$params = array_merge(
+		$input,
+		array(
+			'activate'  => array_key_exists( 'activate', $input ) ? ! empty( $input['activate'] ) : true,
+			'overwrite' => array_key_exists( 'overwrite', $input ) ? ! empty( $input['overwrite'] ) : true,
+		)
+	);
+	$result = static_site_importer_rest_create_preview( array( 'artifact' => $artifact ), Static_Site_Importer_Figma_Import::import_input( $params, $artifact ), $params );
 	if ( is_wp_error( $result ) ) {
 		return $result;
 	}
@@ -935,6 +947,10 @@ function static_site_importer_rest_import_args( array $params ): array {
  * @return array<string,mixed>|WP_Error
  */
 function static_site_importer_rest_source_artifact( array $source ) {
+	if ( isset( $source['artifact'] ) && is_array( $source['artifact'] ) ) {
+		return $source['artifact'];
+	}
+
 	$files = array();
 
 	if ( isset( $source['html'] ) && '' !== trim( (string) $source['html'] ) ) {
