@@ -62,9 +62,10 @@ class Static_Site_Importer_Page_Materializer {
 	 * @param array<string, Static_Site_Importer_Source_Page> $pages      Pages.
 	 * @param string                                          $theme_slug Theme slug.
 	 * @param array<string,array<string,mixed>>                 $assets     Materialized assets keyed by source path.
+	 * @param array<string,string>                              $permalinks Imported page permalinks keyed by source path.
 	 * @return array{patterns:array<string,string>,files:array<string,string>,contents:array<string,string>,diagnostics:array<int,array<string,mixed>>}
 	 */
-	public static function page_artifacts( array $pages, string $theme_slug, array $assets = array() ): array {
+	public static function page_artifacts( array $pages, string $theme_slug, array $assets = array(), array $permalinks = array() ): array {
 		$patterns    = array();
 		$files       = array();
 		$contents    = array();
@@ -73,7 +74,7 @@ class Static_Site_Importer_Page_Materializer {
 		foreach ( $pages as $filename => $page ) {
 			$slug         = self::page_slug( $filename, $page );
 			$pattern_slug = sanitize_key( $theme_slug ) . '/page-' . $slug;
-			$content      = self::rewrite_materialized_asset_references( self::source_page_content_blocks( $page, $diagnostics ), $assets, $page->source_key() );
+			$content      = self::rewrite_materialized_asset_references( self::source_page_content_blocks( $page, $diagnostics ), $assets, $page->source_key(), $permalinks );
 
 			$patterns[ $filename ] = $pattern_slug;
 			$files[ $filename ]    = Static_Site_Importer_Theme_Materializer::pattern_file( self::page_title( $filename, $page ), $pattern_slug, $content );
@@ -293,21 +294,28 @@ class Static_Site_Importer_Page_Materializer {
 	 * @param string                              $markup Serialized block markup.
 	 * @param array<string,array<string,mixed>>   $assets Materialized assets keyed by source path.
 	 * @param string                              $source_path Source page path for resolving page-relative URLs.
+	 * @param array<string,string>                $permalinks Imported page permalinks keyed by source path.
 	 * @return string Updated markup.
 	 */
-	private static function rewrite_materialized_asset_references( string $markup, array $assets, string $source_path = '' ): string {
-		if ( '' === trim( $markup ) || empty( $assets ) ) {
+	private static function rewrite_materialized_asset_references( string $markup, array $assets, string $source_path = '', array $permalinks = array() ): string {
+		if ( '' === trim( $markup ) || ( empty( $assets ) && empty( $permalinks ) ) ) {
 			return $markup;
 		}
 
 		$replacements = array();
+		foreach ( $permalinks as $source => $permalink ) {
+			$normalized_source = self::normalize_route_path( $source );
+			if ( '' !== $normalized_source && '' !== trim( (string) $permalink ) ) {
+				$replacements[ $normalized_source ] = (string) $permalink;
+			}
+		}
 		foreach ( $assets as $source => $asset ) {
 			if ( ! isset( $asset['final_url'] ) || ! is_scalar( $asset['final_url'] ) ) {
 				continue;
 			}
 
 			$normalized_source = self::normalize_route_path( $source );
-			if ( '' !== $normalized_source ) {
+			if ( '' !== $normalized_source && ! isset( $replacements[ $normalized_source ] ) ) {
 				$replacements[ $normalized_source ] = (string) $asset['final_url'];
 			}
 		}

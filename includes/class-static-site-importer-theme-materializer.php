@@ -214,6 +214,9 @@ class Static_Site_Importer_Theme_Materializer {
 			$kind  = isset( $asset['kind'] ) && is_scalar( $asset['kind'] ) ? (string) $asset['kind'] : '';
 			$role  = isset( $asset['role'] ) && is_scalar( $asset['role'] ) ? (string) $asset['role'] : '';
 			$lower = strtolower( $relative );
+			if ( 'html' === $kind || str_ends_with( $lower, '.html' ) || str_ends_with( $lower, '.htm' ) ) {
+				continue;
+			}
 			++$order;
 
 			$target_relative = 'assets/materialized/' . $relative;

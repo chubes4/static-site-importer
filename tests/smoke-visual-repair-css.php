@@ -50,9 +50,21 @@ if ( ! function_exists( 'sanitize_title' ) ) {
 	}
 }
 
+if ( ! function_exists( 'sanitize_text_field' ) ) {
+	function sanitize_text_field( string $text ): string {
+		return trim( preg_replace( '/[\r\n\t ]+/', ' ', html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
+	}
+}
+
 if ( ! function_exists( 'esc_html' ) ) {
 	function esc_html( string $text ): string {
 		return htmlspecialchars( $text, ENT_QUOTES, 'UTF-8' );
+	}
+}
+
+if ( ! function_exists( 'esc_url' ) ) {
+	function esc_url( string $url ): string {
+		return htmlspecialchars( $url, ENT_QUOTES, 'UTF-8' );
 	}
 }
 
@@ -77,6 +89,7 @@ if ( ! function_exists( 'wp_json_encode' ) ) {
 require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-stylesheet-materializer.php';
 require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-document.php';
 require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-source-page.php';
+require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-page-materializer.php';
 require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-theme-materializer.php';
 require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-theme-generator.php';
 
@@ -419,6 +432,12 @@ $asset_result    = Static_Site_Importer_Theme_Materializer::materialize_website_
 					'mime_type'      => 'image/png',
 					'content_base64' => base64_encode( "\x89PNG\r\n\x1a\n" ),
 				),
+				array(
+					'path'    => 'website/3-artist-music/merch.html',
+					'kind'    => 'html',
+					'role'    => 'document',
+					'content' => '<!doctype html><html><body><main><h1>Merch</h1></main></body></html>',
+				),
 			),
 		),
 		'files' => array(
@@ -439,7 +458,9 @@ $assert( file_exists( $asset_theme_dir . '/assets/materialized/assets/logo.png' 
 $assert( file_exists( $asset_theme_dir . '/assets/materialized/assets/app.js' ), 'materialization-plan-script-asset-is-written' );
 $assert( file_exists( $asset_theme_dir . '/assets/materialized/assets/vendor.js' ), 'materialization-plan-second-script-asset-is-written' );
 $assert( file_exists( $asset_theme_dir . '/assets/materialized/fonts/native.woff2' ), 'materialization-plan-font-asset-is-written' );
+$assert( ! file_exists( $asset_theme_dir . '/assets/materialized/website/3-artist-music/merch.html' ), 'materialization-plan-html-document-is-not-written-as-asset' );
 $assert( 'materialization_plan.assets' === ( $asset_result['assets']['assets/logo.png']['origin'] ?? '' ), 'materialization-plan-asset-origin-is-reported' );
+$assert( ! isset( $asset_result['assets']['website/3-artist-music/merch.html'] ), 'materialization-plan-html-document-is-not-reported-as-asset' );
 $assert( str_ends_with( (string) ( $asset_result['assets']['assets/logo.png']['final_url'] ?? '' ), '/assets/materialized/assets/logo.png' ), 'materialization-plan-asset-final-url-shape' );
 $assert( 'screen' === ( $asset_result['assets']['assets/site.css']['media'] ?? '' ), 'materialization-plan-style-metadata-is-preserved' );
 $assert( 'font' === ( $asset_result['assets']['fonts/native.woff2']['role'] ?? '' ), 'materialization-plan-font-role-is-preserved' );
@@ -451,6 +472,33 @@ $assert( 'assets/vendor.js' === ( $asset_result['scripts'][1]['path'] ?? '' ), '
 $assert( true === ( $asset_result['scripts'][0]['defer'] ?? false ), 'materialization-plan-script-defer-is-preserved' );
 $assert( 'module' === ( $asset_result['scripts'][0]['type'] ?? '' ), 'materialization-plan-script-type-is-preserved' );
 $assert( true === ( $asset_result['scripts'][1]['async'] ?? false ), 'materialization-plan-script-async-is-preserved' );
+
+$source_page = Static_Site_Importer_Source_Page::from_materialization_plan_page(
+	array(
+		'source_path'  => 'website/3-artist-music/index.html',
+		'slug'         => 'home',
+		'title'        => 'Home',
+		'block_markup' => '<!-- wp:paragraph --><p><a href="merch.html">Merch</a><img src="assets/logo.png" alt="Logo"></p><!-- /wp:paragraph -->',
+	)
+);
+$assert( $source_page instanceof Static_Site_Importer_Source_Page, 'source-page-for-link-rewrite-is-created' );
+$page_artifacts = $source_page instanceof Static_Site_Importer_Source_Page ? Static_Site_Importer_Page_Materializer::page_artifacts(
+	array( 'website/3-artist-music/index.html' => $source_page ),
+	'fixture-theme',
+	array(
+		'website/3-artist-music/merch.html' => array( 'final_url' => 'https://example.test/wp-content/themes/generated/assets/materialized/website/3-artist-music/merch.html' ),
+		'website/3-artist-music/assets/logo.png' => array( 'final_url' => 'https://example.test/wp-content/themes/generated/assets/materialized/website/3-artist-music/assets/logo.png' ),
+	),
+	array(
+		'website/3-artist-music/merch.html' => 'https://example.test/merch/',
+		'merch.html'                       => 'https://example.test/merch/',
+	)
+) : array( 'contents' => array() );
+$rewritten_content = (string) ( $page_artifacts['contents']['website/3-artist-music/index.html'] ?? '' );
+$assert( str_contains( $rewritten_content, 'href="https://example.test/merch/"' ), 'html-page-link-rewrites-to-imported-page-permalink' );
+$assert( ! str_contains( $rewritten_content, 'href="https://example.test/wp-content/themes/generated/assets/materialized/website/3-artist-music/merch.html"' ), 'html-page-link-does-not-rewrite-to-materialized-html-asset' );
+$assert( str_contains( $rewritten_content, 'src="https://example.test/wp-content/themes/generated/assets/materialized/website/3-artist-music/assets/logo.png"' ), 'non-html-asset-link-still-rewrites-to-materialized-asset' );
+
 $base_writes   = Static_Site_Importer_Theme_Materializer::base_theme_writes( $asset_theme_dir, 'fixture-theme', 'Fixture Theme', (string) $asset_result['css'], false, $asset_result['scripts'] );
 $functions_php = (string) ( $base_writes[ $asset_theme_dir . '/functions.php' ] ?? '' );
 $assert( str_contains( $functions_php, '/assets/materialized/assets/app.js' ), 'materialization-plan-script-is-enqueued' );

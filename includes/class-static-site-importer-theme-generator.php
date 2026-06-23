@@ -133,7 +133,7 @@ class Static_Site_Importer_Theme_Generator {
 			return $materialized;
 		}
 
-		$page_artifacts = Static_Site_Importer_Page_Materializer::page_artifacts( $document_pages, $theme_slug, $materialized['assets'] );
+		$page_artifacts = Static_Site_Importer_Page_Materializer::page_artifacts( $document_pages, $theme_slug, $materialized['assets'], $permalinks );
 		foreach ( $page_artifacts['diagnostics'] as $diagnostic ) {
 			self::$conversion_report['diagnostics'][] = $diagnostic;
 		}
