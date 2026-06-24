@@ -29,6 +29,7 @@ $assert = static function ( bool $condition, string $label, string $detail = '' 
 $GLOBALS['ssi_registered_block'] = null;
 $GLOBALS['ssi_options']          = array();
 $GLOBALS['ssi_test_options']     = array();
+$GLOBALS['ssi_filters']          = array();
 $GLOBALS['ssi_home_url']         = 'https://example.test/';
 $GLOBALS['ssi_uuid_count']       = 0;
 $GLOBALS['ssi_transients']       = array();
@@ -135,7 +136,26 @@ if ( ! function_exists( 'blocks_engine_php_transformer_convert_format' ) ) {
 
 if ( ! function_exists( 'apply_filters' ) ) {
 	function apply_filters( string $hook, $value, ...$args ) {
+		foreach ( $GLOBALS['ssi_filters'][ $hook ] ?? array() as $callback ) {
+			$value = $callback( $value, ...$args );
+		}
+
 		return $value;
+	}
+}
+
+if ( ! function_exists( 'add_filter' ) ) {
+	function add_filter( string $hook, callable $callback, int $priority = 10, int $accepted_args = 1 ): bool {
+		unset( $priority, $accepted_args );
+		$GLOBALS['ssi_filters'][ $hook ][] = $callback;
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'has_filter' ) ) {
+	function has_filter( string $hook ) {
+		return empty( $GLOBALS['ssi_filters'][ $hook ] ) ? false : true;
 	}
 }
 
@@ -396,6 +416,7 @@ if ( is_readable( $figma_transformer_bootstrap ) ) {
 	require_once $figma_transformer_bootstrap;
 }
 require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-figma-import.php';
+Static_Site_Importer_Figma_Import::register_default_zstd_decoder();
 require_once dirname( __DIR__ ) . '/includes/abilities.php';
 require_once dirname( __DIR__ ) . '/includes/rest.php';
 require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-document.php';
@@ -408,6 +429,14 @@ $assert( is_string( $plugin_source ), 'plugin-source-readable' );
 $assert( ! str_contains( $plugin_source, 'Requires Plugins: blocks-engine-php-transformer' ), 'transformer-is-not-a-required-wordpress-plugin' );
 $assert( str_contains( $plugin_source, "vendor/autoload.php" ), 'loads-composer-autoloader' );
 $assert( str_contains( $plugin_source, "vendor/automattic/blocks-engine-php-transformer/php-transformer/php-transformer.php" ), 'loads-composer-transformer-bootstrap' );
+$assert( str_contains( $plugin_source, 'Static_Site_Importer_Figma_Import::register_default_zstd_decoder();' ), 'plugin-registers-figma-zstd-decoder' );
+
+$known_zstd_command = false;
+foreach ( array( '/opt/homebrew/bin/zstd', '/usr/local/bin/zstd', '/usr/bin/zstd' ) as $known_zstd_path ) {
+	$known_zstd_command = $known_zstd_command || is_executable( $known_zstd_path );
+}
+$figma_zstd_decoder = apply_filters( 'blocks_engine_figma_transformer_zstd_decoder', null );
+$assert( ! $known_zstd_command || is_callable( $figma_zstd_decoder ), 'figma-zstd-decoder-registers-when-command-exists' );
 
 $rest_source = file_get_contents( dirname( __DIR__ ) . '/includes/rest.php' );
 $assert( is_string( $rest_source ), 'rest-source-readable' );
@@ -701,6 +730,11 @@ $figma_upload_artifact = Static_Site_Importer_Figma_Import::website_artifact_fro
 	)
 );
 $assert( is_wp_error( $figma_upload_artifact ) || is_array( $figma_upload_artifact ), 'figma-file-source-routes-through-transformer' );
+if ( is_wp_error( $figma_upload_artifact ) && 'static_site_importer_figma_transform_empty' === $figma_upload_artifact->get_error_code() ) {
+	$figma_upload_error_data = $figma_upload_artifact->get_error_data();
+	$assert( isset( $figma_upload_error_data['diagnostic'] ) && is_array( $figma_upload_error_data['diagnostic'] ), 'figma-empty-transform-error-exposes-diagnostic' );
+	$assert( 'Blocks Engine Figma transformer did not produce importable files.' !== $figma_upload_artifact->get_error_message(), 'figma-empty-transform-error-message-includes-diagnostic' );
+}
 $generic_fig_artifact = static_site_importer_rest_source_artifact(
 	array(
 		'files' => array(
