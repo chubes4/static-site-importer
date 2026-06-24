@@ -319,6 +319,161 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Codebox validation output exposes fixture diagnostics for matrix grouping.
+	 */
+	public function test_codebox_validation_result_includes_fixture_matrix_diagnostics(): void {
+		$provider = static function (): array {
+			$import_report = array(
+				'quality'                  => array(
+					'fallback_count'                        => 1,
+					'core_html_block_count'                 => 1,
+					'freeform_block_count'                  => 1,
+					'invalid_block_count'                   => 1,
+					'invalid_block_document_count'          => 1,
+					'svg_materialization_failure_count'     => 1,
+					'runtime_dependency_parity_issue_count' => 1,
+				),
+				'diagnostics'              => array(
+					array(
+						'id'          => 'diag-core-html',
+						'type'        => 'core_html_block',
+						'severity'    => 'warning',
+						'reason_code' => 'generated_document_contains_core_html',
+						'source_path' => 'templates/front-page.html',
+						'selector'    => 'a.wp-block-button__link',
+						'block_name'  => 'core/html',
+					),
+					array(
+						'id'          => 'diag-svg',
+						'type'        => 'svg_materialization_failure',
+						'code'        => 'svg_missing_payload',
+						'source_path' => 'assets/icon.svg',
+					),
+					array(
+						'id'          => 'diag-image',
+						'type'        => 'dropped_image_asset',
+						'code'        => 'image_missing',
+						'source_path' => 'assets/hero.jpg',
+					),
+				),
+				'blocks_engine'           => array(
+					'conversion_report'         => array(
+						'diagnostic_count'  => 1,
+						'diagnostics'       => array(
+							array(
+								'id'          => 'be-button-style',
+								'type'        => 'button_style_loss',
+								'code'        => 'button_radius_dropped',
+								'source_path' => 'index.html',
+								'selector'    => 'button.cta',
+							),
+						),
+						'fallbacks'         => array(
+							array(
+								'id'          => 'be-fallback',
+								'type'        => 'unsupported_html_fallback',
+								'source_path' => 'index.html',
+								'selector'    => 'iframe.map',
+							),
+						),
+					),
+					'runtime_dependency_parity' => array(
+						'finding_count'       => 1,
+						'missing_dom_targets' => array(
+							array(
+								'id'          => 'runtime-missing-target',
+								'type'        => 'runtime_dependency_missing_dom_target',
+								'code'        => 'missing_dom_target',
+								'source_path' => 'scripts/app.js',
+								'selector'    => '#cart-drawer',
+							),
+						),
+					),
+				),
+				'import_validation_result' => array(
+					'artifacts' => array(
+						'import_report' => array( 'path' => 'import-report.json' ),
+					),
+				),
+			);
+
+			return array(
+				'success'       => false,
+				'status'        => 'failed',
+				'import_report' => $import_report,
+				'artifacts'     => array(
+					'import_report' => array(
+						'artifact_id' => 'run-123/import-report.json',
+						'path'        => '/tmp/local/import-report.json',
+					),
+				),
+			);
+		};
+
+		add_filter( 'static_site_importer_codebox_validation_result', $provider, 1 );
+		try {
+			$result = Static_Site_Importer_Codebox_Validation::validate(
+				array(
+					'artifact' => array( 'schema' => 'blocks-engine/php-transformer/site-artifact/v1' ),
+					'slug'     => 'fixture-one',
+					'name'     => 'Fixture One',
+				)
+			);
+		} finally {
+			remove_filter( 'static_site_importer_codebox_validation_result', $provider, 1 );
+		}
+
+		$this->assertIsArray( $result );
+		$fixture = $result['fixture_diagnostics'] ?? array();
+		$this->assertSame( 'static-site-importer/codebox-fixture-diagnostics/v1', $fixture['schema'] ?? '' );
+		$this->assertSame( 'fixture-one', $fixture['fixture']['slug'] ?? '' );
+		$this->assertSame( 'Fixture One', $fixture['fixture']['name'] ?? '' );
+		$this->assertSame( 1, $fixture['quality_counts']['core_html_block_count'] ?? 0 );
+		$this->assertSame( 1, $fixture['import_report_quality_counts']['runtime_dependency_parity_issue_count'] ?? 0 );
+		$this->assertSame( 1, $fixture['diagnostic_summary']['type']['core_html_block'] ?? 0 );
+		$this->assertSame( 'templates/front-page.html', $fixture['diagnostics'][0]['source_path'] ?? '' );
+		$this->assertSame( 'a.wp-block-button__link', $fixture['diagnostics'][0]['selector'] ?? '' );
+		$this->assertSame( 'generated_document_contains_core_html', $fixture['diagnostics'][0]['code'] ?? '' );
+		$this->assertCount( 1, $fixture['runtime_dependency_target_gaps'] ?? array() );
+		$this->assertSame( '#cart-drawer', $fixture['runtime_dependency_target_gaps'][0]['selector'] ?? '' );
+		$this->assertCount( 1, $fixture['asset_diagnostics'] ?? array() );
+		$this->assertSame( 'assets/hero.jpg', $fixture['asset_diagnostics'][0]['source_path'] ?? '' );
+		$this->assertCount( 1, $fixture['svg_diagnostics'] ?? array() );
+		$this->assertSame( 'assets/icon.svg', $fixture['svg_diagnostics'][0]['source_path'] ?? '' );
+		$this->assertCount( 1, $fixture['button_style_loss_hints'] ?? array() );
+		$this->assertSame( 'button.cta', $fixture['button_style_loss_hints'][0]['selector'] ?? '' );
+		$this->assertSame( 'run-123/import-report.json', $fixture['artifact_refs']['import_report']['artifact_id'] ?? '' );
+		$this->assertArrayNotHasKey( 'path', $fixture['artifact_refs']['import_report'] ?? array() );
+	}
+
+	/**
+	 * Pre-dispatch validation errors can still be consumed as structured JSON.
+	 */
+	public function test_codebox_validation_error_result_is_structured(): void {
+		$error = Static_Site_Importer_Codebox_Validation::validate(
+			array(
+				'slug' => 'missing-artifact',
+				'name' => 'Missing Artifact',
+			)
+		);
+
+		$this->assertWPError( $error );
+		$result = Static_Site_Importer_Codebox_Validation::error_result_from_wp_error(
+			$error,
+			array(
+				'slug' => 'missing-artifact',
+				'name' => 'Missing Artifact',
+			)
+		);
+
+		$this->assertSame( 'static-site-importer/codebox-validation-result/v1', $result['schema'] ?? '' );
+		$this->assertFalse( $result['success'] ?? true );
+		$this->assertSame( 'missing-artifact', $result['fixture_diagnostics']['fixture']['slug'] ?? '' );
+		$this->assertSame( 'validation_request_error', $result['fixture_diagnostics']['diagnostics'][0]['type'] ?? '' );
+		$this->assertSame( 'static_site_importer_codebox_validation_source_missing', $result['fixture_diagnostics']['diagnostics'][0]['code'] ?? '' );
+	}
+
+	/**
 	 * Assert that a report value does not expose local filesystem paths.
 	 *
 	 * @param mixed $value Report value.
