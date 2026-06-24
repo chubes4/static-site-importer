@@ -35,6 +35,101 @@ class Static_Site_Importer_Figma_Import {
 	}
 
 	/**
+	 * Diagnose a Figma runner request through the production transform boundary.
+	 *
+	 * @param array<string,mixed> $input Figma import input.
+	 * @return array<string,mixed>|WP_Error
+	 */
+	public static function diagnostics_report( array $input ) {
+		$artifact = self::website_artifact_from_input( $input );
+		if ( is_wp_error( $artifact ) ) {
+			return $artifact;
+		}
+
+		$import_input = self::import_input( $input, $artifact );
+		$scenegraph   = self::scenegraph_from_input( $input );
+
+		$transform_diagnostics = array();
+		if ( ! empty( $scenegraph ) && function_exists( 'blocks_engine_figma_transformer_transform_scenegraph' ) ) {
+			$transform = blocks_engine_figma_transformer_transform_scenegraph( $scenegraph, self::transform_options( $input ) );
+			if ( is_object( $transform ) && is_callable( array( $transform, 'toArray' ) ) ) {
+				$transform = $transform->toArray();
+			}
+			if ( is_array( $transform ) ) {
+				$transform_diagnostics = $transform['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+			}
+		}
+
+		return array(
+			'schema'                  => 'static-site-importer/figma-diagnostics/v1',
+			'success'                 => true,
+			'request'                 => self::diagnostics_request_summary( $input ),
+			'artifact'                => self::diagnostics_artifact_summary( $artifact ),
+			'transform_diagnostics'   => is_array( $transform_diagnostics ) ? $transform_diagnostics : array(),
+			'production_import_input' => array(
+				'slug'      => (string) ( $import_input['slug'] ?? '' ),
+				'name'      => (string) ( $import_input['name'] ?? '' ),
+				'activate'  => (bool) ( $import_input['activate'] ?? false ),
+				'overwrite' => (bool) ( $import_input['overwrite'] ?? false ),
+			),
+		);
+	}
+
+	/**
+	 * Summarize the Figma request without echoing the full design payload.
+	 *
+	 * @param array<string,mixed> $input Figma import input.
+	 * @return array<string,mixed>
+	 */
+	private static function diagnostics_request_summary( array $input ): array {
+		$scenegraph = self::scenegraph_from_input( $input );
+		$source     = isset( $input['source'] ) && is_array( $input['source'] ) ? $input['source'] : array();
+
+		return array_filter(
+			array(
+				'has_scenegraph'  => ! empty( $scenegraph ),
+				'has_bundle'      => isset( $input['artifact_bundle'] ) && is_array( $input['artifact_bundle'] ),
+				'frame_id'        => isset( $input['frame_id'] ) ? (string) $input['frame_id'] : '',
+				'source_file_key' => isset( $source['fileKey'] ) ? (string) $source['fileKey'] : '',
+				'node_ids'        => isset( $source['nodeIds'] ) && is_array( $source['nodeIds'] ) ? array_values( array_map( 'strval', $source['nodeIds'] ) ) : array(),
+			)
+		);
+	}
+
+	/**
+	 * Summarize the generated website artifact boundary.
+	 *
+	 * @param array<string,mixed> $artifact Website artifact.
+	 * @return array<string,mixed>
+	 */
+	private static function diagnostics_artifact_summary( array $artifact ): array {
+		$files       = isset( $artifact['files'] ) && is_array( $artifact['files'] ) ? $artifact['files'] : array();
+		$paths       = array();
+		$asset_paths = array();
+
+		foreach ( $files as $file ) {
+			if ( ! is_array( $file ) || ! isset( $file['path'] ) || ! is_scalar( $file['path'] ) ) {
+				continue;
+			}
+
+			$path    = (string) $file['path'];
+			$paths[] = $path;
+			if ( str_contains( $path, '/assets/' ) ) {
+				$asset_paths[] = $path;
+			}
+		}
+
+		return array(
+			'schema'      => (string) ( $artifact['schema'] ?? '' ),
+			'root'        => (string) ( $artifact['root'] ?? '' ),
+			'entrypoint'  => (string) ( $artifact['entrypoint'] ?? '' ),
+			'file_count'  => count( $paths ),
+			'asset_count' => count( $asset_paths ),
+			'asset_paths' => $asset_paths,
+		);
+	}
+
+	/**
 	 * Build a Figma plugin runner response for browser clients.
 	 *
 	 * @param array<string,mixed> $ability_result Ability result.
