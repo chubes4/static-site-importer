@@ -51,7 +51,7 @@ class Static_Site_Importer_Transformer_Adapter {
 		$options = $this->normalize_compile_options( $options );
 		$result  = blocks_engine_php_transformer_compile_artifact( $artifact, $options );
 
-		return $this->compiled_result_from_transformer_contract( $result );
+		return $this->compiled_result_from_transformer_contract( $result, $artifact );
 	}
 
 	/**
@@ -60,7 +60,7 @@ class Static_Site_Importer_Transformer_Adapter {
 	 * @param array<string,mixed> $result TransformerResult::toArray() output.
 	 * @return array<string,mixed>|WP_Error
 	 */
-	private function compiled_result_from_transformer_contract( array $result ) {
+	private function compiled_result_from_transformer_contract( array $result, array $artifact = array() ) {
 		$view     = $this->materialization_view_from_result( $result );
 		$compiled = ! empty( $view ) ? $this->compiled_result_from_materialization_view( $view ) : $this->compiled_result_from_native_transformer_contract( $result );
 		if ( is_wp_error( $compiled ) ) {
@@ -72,7 +72,10 @@ class Static_Site_Importer_Transformer_Adapter {
 			$source_reports       = isset( $result['source_reports'] ) && is_array( $result['source_reports'] ) ? $result['source_reports'] : array();
 			$materialization_plan = isset( $source_reports['materialization_plan'] ) && is_array( $source_reports['materialization_plan'] ) ? $source_reports['materialization_plan'] : array();
 		}
-		$products  = $this->products_manifest_from_transformer_reports( $result, $materialization_plan );
+		$products  = $this->merge_product_manifests(
+			$this->products_manifest_from_transformer_reports( $result, $materialization_plan ),
+			$this->products_manifest_from_raw_artifact_html( $artifact )
+		);
 		$artifacts = isset( $compiled['artifacts'] ) && is_array( $compiled['artifacts'] ) ? $compiled['artifacts'] : array();
 		$blocks    = isset( $artifacts['blocks'] ) && is_array( $artifacts['blocks'] ) ? $artifacts['blocks'] : array();
 
@@ -289,6 +292,293 @@ class Static_Site_Importer_Transformer_Adapter {
 		}
 
 		return $products;
+	}
+
+	/**
+	 * Infer product rows from raw HTML carried by a website artifact.
+	 *
+	 * @param array<string,mixed> $artifact Website artifact bundle.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function products_manifest_from_raw_artifact_html( array $artifact ): array {
+		$products = array();
+		foreach ( $this->html_documents_from_artifact( $artifact ) as $document ) {
+			$products = array_merge( $products, $this->products_from_json_ld_html( $document['html'], $document['path'] ) );
+			$products = array_merge( $products, $this->products_from_product_card_html( $document['html'], $document['path'] ) );
+		}
+
+		return $this->merge_product_manifests( array(), $products );
+	}
+
+	/**
+	 * Return HTML file payloads from a website artifact.
+	 *
+	 * @param array<string,mixed> $artifact Website artifact bundle.
+	 * @return array<int,array{path:string,html:string}>
+	 */
+	private function html_documents_from_artifact( array $artifact ): array {
+		$documents = array();
+		$files     = isset( $artifact['files'] ) && is_array( $artifact['files'] ) ? $artifact['files'] : array();
+		foreach ( $files as $file ) {
+			if ( ! is_array( $file ) ) {
+				continue;
+			}
+
+			$path = isset( $file['path'] ) && is_scalar( $file['path'] ) ? (string) $file['path'] : '';
+			$kind = isset( $file['kind'] ) && is_scalar( $file['kind'] ) ? strtolower( (string) $file['kind'] ) : '';
+			$mime = isset( $file['mime_type'] ) && is_scalar( $file['mime_type'] ) ? strtolower( (string) $file['mime_type'] ) : '';
+			if ( 'html' !== $kind && 'text/html' !== $mime && ! str_ends_with( strtolower( $path ), '.html' ) && ! str_ends_with( strtolower( $path ), '.htm' ) ) {
+				continue;
+			}
+
+			$html = '';
+			if ( isset( $file['content'] ) && is_scalar( $file['content'] ) ) {
+				$html = (string) $file['content'];
+			} elseif ( isset( $file['content_base64'] ) && is_scalar( $file['content_base64'] ) ) {
+				$decoded = base64_decode( (string) $file['content_base64'], true );
+				$html    = false !== $decoded ? $decoded : '';
+			}
+
+			if ( '' !== trim( $html ) ) {
+				$documents[] = array(
+					'path' => $path,
+					'html' => $html,
+				);
+			}
+		}
+
+		return $documents;
+	}
+
+	/**
+	 * Extract products from JSON-LD Product nodes.
+	 *
+	 * @param string $html        HTML document.
+	 * @param string $source_path Artifact source path.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function products_from_json_ld_html( string $html, string $source_path ): array {
+		$dom      = $this->load_html_document( $html );
+		$products = array();
+		foreach ( $dom->getElementsByTagName( 'script' ) as $script ) {
+			$type = strtolower( trim( $script->getAttribute( 'type' ) ) );
+			if ( ! str_contains( $type, 'ld+json' ) ) {
+				continue;
+			}
+
+			$data = json_decode( trim( (string) $script->textContent ), true );
+			if ( ! is_array( $data ) ) {
+				continue;
+			}
+
+			foreach ( $this->json_ld_product_nodes( $data ) as $node ) {
+				$product = $this->normalize_product_report_row( $this->product_row_from_json_ld_node( $node, $source_path ) );
+				if ( ! empty( $product ) ) {
+					$products[] = $product;
+				}
+			}
+		}
+
+		return $products;
+	}
+
+	/**
+	 * Extract products from visible product cards.
+	 *
+	 * @param string $html        HTML document.
+	 * @param string $source_path Artifact source path.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function products_from_product_card_html( string $html, string $source_path ): array {
+		$dom      = $this->load_html_document( $html );
+		$xpath    = new DOMXPath( $dom );
+		$products = array();
+		$cards    = $xpath->query( "//*[contains(concat(' ', normalize-space(@class), ' '), ' product-card ')]" );
+		if ( false === $cards ) {
+			return array();
+		}
+
+		foreach ( $cards as $card ) {
+			if ( ! $card instanceof DOMElement ) {
+				continue;
+			}
+			$name  = $this->first_xpath_text( $xpath, './/*[self::h1 or self::h2 or self::h3 or self::h4 or self::h5 or self::h6]', $card );
+			$price = $this->price_from_text( $this->first_xpath_text( $xpath, ".//*[contains(concat(' ', normalize-space(@class), ' '), ' price ')]", $card ) );
+			if ( '' === $price ) {
+				$price = $this->price_from_text( (string) $card->textContent );
+			}
+
+			$product = $this->normalize_product_report_row(
+				array(
+					'kind'             => 'product',
+					'name'             => $name,
+					'slug'             => $this->sanitize_slug( $name ),
+					'regular_price'    => $price,
+					'source_selectors' => array( '.product-card' ),
+					'source_path'      => $source_path,
+				)
+			);
+			if ( ! empty( $product ) ) {
+				$products[] = $product;
+			}
+		}
+
+		return $products;
+	}
+
+	/**
+	 * Merge product manifests by slug while preserving earlier sources.
+	 *
+	 * @param array<int,array<string,mixed>> $primary   Primary product rows.
+	 * @param array<int,array<string,mixed>> $secondary Secondary product rows.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function merge_product_manifests( array $primary, array $secondary ): array {
+		$products = array();
+		$seen     = array();
+		foreach ( array_merge( $primary, $secondary ) as $product ) {
+			if ( ! is_array( $product ) || empty( $product['slug'] ) || isset( $seen[ $product['slug'] ] ) ) {
+				continue;
+			}
+			$seen[ $product['slug'] ] = true;
+			$products[]              = $product;
+		}
+
+		return $products;
+	}
+
+	/**
+	 * Load an HTML document while suppressing parser warnings for arbitrary source HTML.
+	 *
+	 * @param string $html HTML document.
+	 * @return DOMDocument
+	 */
+	private function load_html_document( string $html ): DOMDocument {
+		$dom      = new DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$dom->loadHTML( $html );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+
+		return $dom;
+	}
+
+	/**
+	 * Recursively return JSON-LD nodes whose @type includes Product.
+	 *
+	 * @param array<string|int,mixed> $data JSON-LD data.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function json_ld_product_nodes( array $data ): array {
+		$nodes = array();
+		$type  = $data['@type'] ?? null;
+		if ( is_string( $type ) && $this->json_ld_type_is_product( $type ) ) {
+			$nodes[] = $data;
+		} elseif ( is_array( $type ) ) {
+			foreach ( $type as $type_entry ) {
+				if ( is_scalar( $type_entry ) && $this->json_ld_type_is_product( (string) $type_entry ) ) {
+					$nodes[] = $data;
+					break;
+				}
+			}
+		}
+
+		foreach ( array( '@graph', 'itemListElement' ) as $key ) {
+			if ( isset( $data[ $key ] ) && is_array( $data[ $key ] ) ) {
+				foreach ( $data[ $key ] as $child ) {
+					if ( is_array( $child ) ) {
+						$nodes = array_merge( $nodes, $this->json_ld_product_nodes( $child ) );
+					}
+				}
+			}
+		}
+
+		return $nodes;
+	}
+
+	/**
+	 * Check whether one JSON-LD @type token represents a Product.
+	 *
+	 * @param string $type JSON-LD type token.
+	 * @return bool
+	 */
+	private function json_ld_type_is_product( string $type ): bool {
+		$type = strtolower( trim( $type ) );
+		return 'product' === $type || str_ends_with( $type, ':product' );
+	}
+
+	/**
+	 * Convert a JSON-LD Product node into a generic product row.
+	 *
+	 * @param array<string,mixed> $node        JSON-LD Product node.
+	 * @param string              $source_path Artifact source path.
+	 * @return array<string,mixed>
+	 */
+	private function product_row_from_json_ld_node( array $node, string $source_path ): array {
+		$name   = isset( $node['name'] ) && is_scalar( $node['name'] ) ? trim( (string) $node['name'] ) : '';
+		$url    = isset( $node['url'] ) && is_scalar( $node['url'] ) ? trim( (string) $node['url'] ) : '';
+		$offers = isset( $node['offers'] ) && is_array( $node['offers'] ) ? $node['offers'] : array();
+		if ( isset( $offers[0] ) && is_array( $offers[0] ) ) {
+			$offers = $offers[0];
+		}
+
+		$price = '';
+		if ( isset( $offers['price'] ) && is_scalar( $offers['price'] ) ) {
+			$price = $this->price_from_text( (string) $offers['price'] );
+		} elseif ( isset( $node['price'] ) && is_scalar( $node['price'] ) ) {
+			$price = $this->price_from_text( (string) $node['price'] );
+		}
+
+		$slug = '';
+		if ( '' !== $url ) {
+			$path = function_exists( 'wp_parse_url' ) ? wp_parse_url( $url, PHP_URL_PATH ) : parse_url( $url, PHP_URL_PATH );
+			$path = trim( is_string( $path ) ? $path : '', '/' );
+			$slug = '' !== $path ? basename( $path ) : '';
+		}
+		if ( '' === $slug ) {
+			$slug = $this->sanitize_slug( $name );
+		}
+
+		return array(
+			'kind'             => 'product',
+			'name'             => $name,
+			'slug'             => $slug,
+			'regular_price'    => $price,
+			'description'      => isset( $node['description'] ) && is_scalar( $node['description'] ) ? trim( (string) $node['description'] ) : '',
+			'source_selectors' => array( 'script[type="application/ld+json"]' ),
+			'source_path'      => $source_path,
+		);
+	}
+
+	/**
+	 * Return first XPath text match under an optional context node.
+	 *
+	 * @param DOMXPath        $xpath XPath helper.
+	 * @param string          $query XPath query.
+	 * @param DOMElement|null $context Context node.
+	 * @return string
+	 */
+	private function first_xpath_text( DOMXPath $xpath, string $query, ?DOMElement $context = null ): string {
+		$nodes = $xpath->query( $query, $context );
+		if ( false === $nodes || 0 === $nodes->length ) {
+			return '';
+		}
+
+		return trim( (string) $nodes->item( 0 )->textContent );
+	}
+
+	/**
+	 * Extract a decimal price string from visible text.
+	 *
+	 * @param string $text Source text.
+	 * @return string
+	 */
+	private function price_from_text( string $text ): string {
+		if ( preg_match( '/(?:[$€£]\s*)?([0-9]+(?:[,.][0-9]{1,2})?)/', $text, $matches ) ) {
+			return str_replace( ',', '.', $matches[1] );
+		}
+
+		return '';
 	}
 
 	/**

@@ -350,6 +350,9 @@ if ( ! is_wp_error( $multi_page_result ) ) {
 	}
 
 	$assert( 3 === ( $source_docs['blocks_engine_document_count'] ?? null ), 'multi-page-blocks-engine-document-count' );
+	$assert( 3 === ( $source_docs['counts_by_format']['html'] ?? null ), 'multi-page-html-source-document-count' );
+	$assert( 0 === ( $source_docs['counts_by_format']['markdown'] ?? null ), 'multi-page-markdown-source-document-count' );
+	$assert( 0 === ( $source_docs['counts_by_format']['mdx'] ?? null ), 'multi-page-mdx-source-document-count' );
 	$assert( 'blocks_engine' === ( $source_docs['source'] ?? '' ), 'multi-page-source-is-blocks-engine' );
 	$assert( 'home' === ( $documents_by_source['website/index.html']['slug'] ?? '' ), 'entry-index-materializes-as-home' );
 	$assert( str_ends_with( (string) ( $documents_by_source['website/index.html']['permalink'] ?? '' ), '/' ), 'entry-index-has-front-page-permalink' );

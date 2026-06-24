@@ -103,8 +103,28 @@ namespace {
 										'selector'              => 'iframe.booking-widget',
 										'reason_code'           => 'unsupported_interactive_embed',
 										'block_name'            => 'core/html',
+										'attribute_path'        => 'attrs.content',
 										'source_html_preview'   => '<iframe class="booking-widget"></iframe>',
 										'emitted_block_preview' => '<!-- wp:html --><iframe class="booking-widget"></iframe><!-- /wp:html -->',
+									),
+								),
+								'asset_reference_count'   => 2,
+								'presentation_gap_count'  => 1,
+								'block_type_counts'       => array(
+									'core/paragraph' => 2,
+									'core/html'      => 1,
+								),
+								'source_selector_summaries' => array(
+									array(
+										'source_path' => 'website/index.html',
+										'selector'    => 'main',
+										'block_count' => 3,
+									),
+								),
+								'page_metrics'           => array(
+									array(
+										'source_path' => 'website/index.html',
+										'block_count' => 3,
 									),
 								),
 								'interaction_candidates' => array(
@@ -288,6 +308,11 @@ namespace {
 	$assert( 1 === ( $report['blocks_engine']['conversion_report']['fallback_count'] ?? 0 ), 'import-report-records-native-fallback-count' );
 	$assert( 1 === ( $report['blocks_engine']['conversion_report']['interaction_candidate_count'] ?? 0 ), 'import-report-records-native-interaction-candidate-count' );
 	$assert( 'button.reserve' === ( $report['blocks_engine']['conversion_report']['interaction_candidates'][0]['selector'] ?? '' ), 'import-report-records-native-interaction-candidates' );
+	$assert( 2 === ( $report['blocks_engine']['conversion_report']['asset_reference_count'] ?? 0 ), 'import-report-records-native-asset-reference-count' );
+	$assert( 1 === ( $report['blocks_engine']['conversion_report']['presentation_gap_count'] ?? 0 ), 'import-report-records-native-presentation-gap-count' );
+	$assert( 1 === ( $report['blocks_engine']['conversion_report']['block_type_counts']['core/html'] ?? 0 ), 'import-report-records-native-block-type-counts' );
+	$assert( 'main' === ( $report['blocks_engine']['conversion_report']['source_selector_summaries'][0]['selector'] ?? '' ), 'import-report-records-native-selector-summaries' );
+	$assert( 3 === ( $report['blocks_engine']['conversion_report']['page_metrics'][0]['block_count'] ?? 0 ), 'import-report-records-native-page-metrics' );
 	$assert( 1 === ( $report['quality']['interaction_candidate_count'] ?? 0 ), 'quality-records-interaction-candidate-count' );
 	$assert( 'reported' === ( $report['import_validation_result']['quality_gates']['interaction_candidates']['status'] ?? '' ), 'validation-gate-reports-interaction-candidates' );
 	$assert( 'unsupported_html_fallback' === ( $report['diagnostics'][0]['type'] ?? '' ), 'native-fallback-becomes-normalized-diagnostic' );
