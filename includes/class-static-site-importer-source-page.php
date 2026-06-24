@@ -5,10 +5,6 @@
  * @package StaticSiteImporter
  */
 
-if ( ! defined( 'ABSPATH' ) ) {
-	exit;
-}
-
 /**
  * Represents one importable source document.
  */
