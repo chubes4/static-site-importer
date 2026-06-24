@@ -270,6 +270,7 @@
 			const provider = root.getAttribute( 'data-static-site-importer-provider' ) || '';
 			const isCurrentSiteImport = root.getAttribute( 'data-static-site-importer-apply-to-current-site' ) === '1';
 			const isCurrentRuntimeGeneration = root.getAttribute( 'data-static-site-importer-generate-in-current-runtime' ) === '1';
+			const shouldWriteGeneratedSite = isCurrentSiteImport || isCurrentRuntimeGeneration;
 			const source = {
 				url: form ? form.getAttribute( 'data-static-site-importer-default-url' ) || '' : '',
 				html: html ? html.value : '',
@@ -299,8 +300,8 @@
 						provider,
 						source,
 						apply_to_current_site: isCurrentSiteImport,
-						activate: isCurrentSiteImport,
-						overwrite: isCurrentSiteImport,
+						activate: shouldWriteGeneratedSite,
+						overwrite: shouldWriteGeneratedSite,
 						generate_in_current_runtime: isCurrentRuntimeGeneration,
 					} ),
 				} );

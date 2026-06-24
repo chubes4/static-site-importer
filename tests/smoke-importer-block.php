@@ -475,9 +475,10 @@ $assert( str_contains( $view_js, 'shouldIncludeSiteFile' ), 'view-skips-known-no
 $assert( ! str_contains( $view_js, 'applyToCurrentSite || generateInCurrentRuntime' ), 'view-does-not-treat-current-runtime-generation-as-current-site-import' );
 $assert( str_contains( $view_js, 'isCurrentSiteImport' ), 'view-names-current-site-import-mode-explicitly' );
 $assert( str_contains( $view_js, 'isCurrentRuntimeGeneration' ), 'view-names-current-runtime-generation-mode-explicitly' );
+$assert( str_contains( $view_js, 'shouldWriteGeneratedSite = isCurrentSiteImport || isCurrentRuntimeGeneration' ), 'view-writes-generated-site-for-runtime-generation-without-marking-current-site-import' );
 $assert( str_contains( $view_js, 'apply_to_current_site: isCurrentSiteImport' ), 'view-sends-current-site-apply-flag-only-from-apply-mode' );
-$assert( str_contains( $view_js, 'activate: isCurrentSiteImport' ), 'view-activates-only-current-site-imports' );
-$assert( str_contains( $view_js, 'overwrite: isCurrentSiteImport' ), 'view-overwrites-only-current-site-imports' );
+$assert( str_contains( $view_js, 'activate: shouldWriteGeneratedSite' ), 'view-activates-current-site-and-runtime-generation' );
+$assert( str_contains( $view_js, 'overwrite: shouldWriteGeneratedSite' ), 'view-overwrites-current-site-and-runtime-generation' );
 $assert( str_contains( $view_js, 'generate_in_current_runtime: isCurrentRuntimeGeneration' ), 'view-sends-current-runtime-generation-flag' );
 $generic_preview_message = implode( ' ', array( 'no', 'preview', 'provider', 'is', 'configured' ) );
 $assert( ! str_contains( $view_js, $generic_preview_message ), 'view-does-not-reference-generic-preview-message' );
@@ -663,8 +664,10 @@ $assert( true === ( $runtime_response['success'] ?? null ), 'rest-current-runtim
 $assert( 'generated_in_current_runtime' === ( $runtime_response['mode'] ?? '' ), 'rest-current-runtime-generation-reports-mode' );
 $assert( true === ( Static_Site_Importer_Theme_Generator::$last_args['activate'] ?? null ), 'rest-current-runtime-generation-activates-generated-site' );
 $assert( true === ( Static_Site_Importer_Theme_Generator::$last_args['overwrite'] ?? null ), 'rest-current-runtime-generation-overwrites-generated-site' );
+$assert( 'generated-wordpress-website' === ( Static_Site_Importer_Theme_Generator::$last_args['slug'] ?? null ), 'rest-current-runtime-generation-uses-non-legacy-generated-theme-slug' );
+$assert( 'Generated WordPress Website' === ( Static_Site_Importer_Theme_Generator::$last_args['name'] ?? null ), 'rest-current-runtime-generation-uses-generated-theme-name' );
 $assert( array() === WP_Codebox_Abilities::$last_input, 'rest-current-runtime-generation-does-not-use-codebox-preview' );
-$assert( '/' === ( $runtime_response['preview']['url'] ?? '' ), 'rest-current-runtime-generation-returns-active-runtime-front-page-url' );
+$assert( 'https://playground.wordpress.net/?url=%2F' === ( $runtime_response['preview']['url'] ?? '' ), 'rest-current-runtime-generation-returns-playground-front-page-url' );
 $assert( '/' === ( $runtime_response['preview']['playground']['preview_url'] ?? '' ), 'rest-current-runtime-generation-records-playground-preview-path' );
 
 $blueprint = json_decode( file_get_contents( dirname( __DIR__ ) . '/docs/playground/blueprint.json' ), true );

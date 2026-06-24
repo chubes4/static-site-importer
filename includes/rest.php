@@ -522,8 +522,14 @@ function static_site_importer_rest_should_apply_to_current_site( array $params )
  * @return array<string,mixed>|WP_Error
  */
 function static_site_importer_rest_generate_in_current_runtime( array $source, array $input, array $params ) {
-	$input['activate']  = array_key_exists( 'activate', $params ) ? ! empty( $params['activate'] ) : true;
-	$input['overwrite'] = array_key_exists( 'overwrite', $params ) ? ! empty( $params['overwrite'] ) : true;
+	$input['activate']  = true;
+	$input['overwrite'] = true;
+	if ( empty( $input['slug'] ) ) {
+		$input['slug'] = 'generated-wordpress-website';
+	}
+	if ( empty( $input['name'] ) ) {
+		$input['name'] = __( 'Generated WordPress Website', 'static-site-importer' );
+	}
 
 	$result = static_site_importer_rest_apply_to_current_site( $source, $input, $params );
 	if ( ! is_array( $result ) ) {
@@ -534,7 +540,7 @@ function static_site_importer_rest_generate_in_current_runtime( array $source, a
 	$preview['status']         = isset( $preview['status'] ) ? $preview['status'] : 'ready';
 	$preview['url']            = static_site_importer_rest_current_runtime_preview_url();
 	$playground                = isset( $preview['playground'] ) && is_array( $preview['playground'] ) ? $preview['playground'] : array();
-	$playground['preview_url'] = $preview['url'];
+	$playground['preview_url'] = static_site_importer_rest_current_runtime_preview_path();
 	$preview['playground']     = $playground;
 	$result['preview']         = $preview;
 	$result['mode']            = 'generated_in_current_runtime';
@@ -548,6 +554,15 @@ function static_site_importer_rest_generate_in_current_runtime( array $source, a
  * @return string
  */
 function static_site_importer_rest_current_runtime_preview_url(): string {
+	return 'https://playground.wordpress.net/?url=%2F';
+}
+
+/**
+ * Return the active runtime front page path for public Playground generation.
+ *
+ * @return string
+ */
+function static_site_importer_rest_current_runtime_preview_path(): string {
 	return '/';
 }
 
