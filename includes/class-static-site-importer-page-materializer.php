@@ -321,7 +321,18 @@ class Static_Site_Importer_Page_Materializer {
 	 * @param array<int,array<string,mixed>> $diagnostics Diagnostics, passed by reference.
 	 */
 	private static function html_to_blocks( string $body, string $source_path, array &$diagnostics ): string {
-		$result = blocks_engine_php_transformer_convert_format( $body, 'html', 'blocks' );
+		if ( ! function_exists( 'blocks_engine_php_transformer_convert_format' ) ) {
+			$diagnostics[] = array(
+				'type'        => 'missing_transformer_bridge',
+				'source'      => 'blocks-engine/html-to-blocks',
+				'source_path' => $source_path,
+				'message'     => 'Blocks Engine php-transformer is required to convert HTML document artifacts to blocks.',
+			);
+			return '';
+		}
+
+		$result = call_user_func( 'blocks_engine_php_transformer_convert_format', $body, 'html', 'blocks' );
+		$result = is_array( $result ) ? $result : array();
 
 		foreach ( isset( $result['diagnostics'] ) && is_array( $result['diagnostics'] ) ? $result['diagnostics'] : array() as $diagnostic ) {
 			if ( is_array( $diagnostic ) ) {

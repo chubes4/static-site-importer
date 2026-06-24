@@ -49,7 +49,8 @@ class Static_Site_Importer_Transformer_Adapter {
 		}
 
 		$options = $this->normalize_compile_options( $options );
-		$result  = blocks_engine_php_transformer_compile_artifact( $artifact, $options );
+		$result  = call_user_func( 'blocks_engine_php_transformer_compile_artifact', $artifact, $options );
+		$result  = is_array( $result ) ? $result : array();
 
 		return $this->compiled_result_from_transformer_contract( $result, $artifact );
 	}
@@ -965,7 +966,8 @@ class Static_Site_Importer_Transformer_Adapter {
 	 */
 	public function blocks_to_html( string $block_markup, array $options = array() ): string {
 		if ( $this->supports_blocks_to_html() ) {
-			$result = blocks_engine_php_transformer_convert_format( $block_markup, 'blocks', 'html', $options );
+			$result = call_user_func( 'blocks_engine_php_transformer_convert_format', $block_markup, 'blocks', 'html', $options );
+			$result = is_array( $result ) ? $result : array();
 			if ( isset( $result['documents'][0]['content'] ) && is_scalar( $result['documents'][0]['content'] ) ) {
 				return (string) $result['documents'][0]['content'];
 			}

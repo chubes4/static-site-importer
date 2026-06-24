@@ -42,7 +42,8 @@ class Static_Site_Importer_Codebox_Validation {
 
 		$delegation_request       = self::host_delegation_request( $request, $input );
 		$host_delegation_callback = array( 'WP_Codebox_Abilities', 'request_host_delegation' );
-		if ( is_callable( $host_delegation_callback ) ) {
+		$host_delegation_methods  = class_exists( 'WP_Codebox_Abilities' ) ? get_class_methods( 'WP_Codebox_Abilities' ) : array();
+		if ( in_array( 'request_host_delegation', $host_delegation_methods, true ) ) {
 			$delegation_result = call_user_func( $host_delegation_callback, $delegation_request );
 		} elseif ( function_exists( 'has_filter' ) && has_filter( 'wp_codebox_host_delegation_request' ) ) {
 			$delegation_result = apply_filters( 'wp_codebox_host_delegation_request', null, $delegation_request );
