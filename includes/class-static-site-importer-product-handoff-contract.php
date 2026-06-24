@@ -22,6 +22,7 @@ class Static_Site_Importer_Product_Handoff_Contract {
 	public const SSI_IMPORT_REPORT_SCHEMA                    = 'static-site-importer/import-report/v1';
 	public const SSI_IMPORT_VALIDATION_RESULT_SCHEMA         = 'blocks-engine/import-validation-result/v1';
 	public const SSI_FINDING_PACKETS_SCHEMA                  = 'blocks-engine/finding-packets/v1';
+	public const BLOCKS_ENGINE_SEMANTIC_PARITY_SCHEMA        = 'blocks-engine/semantic-parity-report/v1';
 	public const SSI_ARTIFACT_DIAGNOSTICS_SCHEMA             = 'static-site-importer/artifact-diagnostics/v1';
 	public const CODEBOX_VALIDATION_ARTIFACT_ENVELOPE_SCHEMA = 'wp-codebox/validation-artifact-envelope/v1';
 
@@ -40,6 +41,7 @@ class Static_Site_Importer_Product_Handoff_Contract {
 			'ssi_import_report'                    => self::SSI_IMPORT_REPORT_SCHEMA,
 			'ssi_import_validation_result'         => self::SSI_IMPORT_VALIDATION_RESULT_SCHEMA,
 			'ssi_finding_packets'                  => self::SSI_FINDING_PACKETS_SCHEMA,
+			'blocks_engine_semantic_parity'        => self::BLOCKS_ENGINE_SEMANTIC_PARITY_SCHEMA,
 			'ssi_artifact_diagnostics'             => self::SSI_ARTIFACT_DIAGNOSTICS_SCHEMA,
 			'codebox_validation_artifact_envelope' => self::CODEBOX_VALIDATION_ARTIFACT_ENVELOPE_SCHEMA,
 		);

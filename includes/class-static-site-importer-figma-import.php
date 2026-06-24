@@ -14,6 +14,31 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class Static_Site_Importer_Figma_Import {
 	/**
+	 * Register the default local Zstandard decoder for .fig uploads.
+	 */
+	public static function register_default_zstd_decoder(): void {
+		if ( ! function_exists( 'add_filter' ) ) {
+			return;
+		}
+
+		add_filter(
+			'blocks_engine_figma_transformer_zstd_decoder',
+			static function ( $decoder ) {
+				if ( is_callable( $decoder ) || ! class_exists( '\Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCommandDecoder' ) ) {
+					return $decoder;
+				}
+
+				$command = self::zstd_command();
+				if ( empty( $command ) ) {
+					return $decoder;
+				}
+
+				return new \Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCommandDecoder( $command );
+			}
+		);
+	}
+
+	/**
 	 * Import a Figma request through the existing website artifact import ability.
 	 *
 	 * @param array<string,mixed> $input Figma import input.
@@ -320,10 +345,16 @@ class Static_Site_Importer_Figma_Import {
 
 		$files = self::normalize_files( isset( $transform['files'] ) && is_array( $transform['files'] ) ? $transform['files'] : array(), 'website/' );
 		if ( empty( $files ) ) {
-			return new WP_Error( 'static_site_importer_figma_transform_empty', 'Blocks Engine Figma transformer did not produce importable files.', array(
+			$diagnostic = self::first_transform_diagnostic( $transform );
+			$data       = array(
 				'status'    => 500,
 				'transform' => $transform,
-			) );
+			);
+			if ( ! empty( $diagnostic ) ) {
+				$data['diagnostic'] = $diagnostic;
+			}
+
+			return new WP_Error( 'static_site_importer_figma_transform_empty', self::empty_transform_message( $diagnostic ), $data );
 		}
 
 		return array(
@@ -333,6 +364,61 @@ class Static_Site_Importer_Figma_Import {
 			'files'      => $files,
 			'provenance' => self::provenance( $input ) + array( 'transform' => 'blocks-engine/figma-transformer' ),
 		);
+	}
+
+	/**
+	 * Return the first useful transformer diagnostic for an empty Figma result.
+	 *
+	 * @param array<string,mixed> $transform Transform result.
+	 * @return array<string,mixed>
+	 */
+	private static function first_transform_diagnostic( array $transform ): array {
+		$diagnostics = isset( $transform['diagnostics'] ) && is_array( $transform['diagnostics'] ) ? $transform['diagnostics'] : array();
+		foreach ( $diagnostics as $diagnostic ) {
+			if ( is_array( $diagnostic ) ) {
+				return $diagnostic;
+			}
+		}
+
+		return array();
+	}
+
+	/**
+	 * Build a concise empty-transform error message with transformer context.
+	 *
+	 * @param array<string,mixed> $diagnostic First transformer diagnostic.
+	 */
+	private static function empty_transform_message( array $diagnostic ): string {
+		$message = 'Blocks Engine Figma transformer did not produce importable files.';
+		if ( ! empty( $diagnostic['message'] ) && is_scalar( $diagnostic['message'] ) ) {
+			$message .= ' ' . (string) $diagnostic['message'];
+		}
+
+		return $message;
+	}
+
+	/**
+	 * Resolve an available zstd command for decoding compressed Figma chunks.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function zstd_command(): array {
+		$configured = defined( 'STATIC_SITE_IMPORTER_FIGMA_ZSTD_COMMAND' ) ? (string) STATIC_SITE_IMPORTER_FIGMA_ZSTD_COMMAND : '';
+		if ( '' === $configured ) {
+			$configured = (string) getenv( 'STATIC_SITE_IMPORTER_FIGMA_ZSTD_COMMAND' );
+		}
+
+		if ( '' !== $configured ) {
+			return array( $configured, '-dc' );
+		}
+
+		foreach ( array( '/opt/homebrew/bin/zstd', '/usr/local/bin/zstd', '/usr/bin/zstd' ) as $candidate ) {
+			if ( is_executable( $candidate ) ) {
+				return array( $candidate, '-dc' );
+			}
+		}
+
+		return array();
 	}
 
 	/**
