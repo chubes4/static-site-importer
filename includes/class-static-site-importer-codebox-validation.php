@@ -25,7 +25,66 @@ class Static_Site_Importer_Codebox_Validation {
 	 * @return void
 	 */
 	public static function register_default_provider(): void {
+		add_filter( 'static_site_importer_codebox_validation_result', array( self::class, 'validate_in_current_codebox_runtime' ), 5, 3 );
 		add_filter( 'static_site_importer_codebox_validation_result', array( self::class, 'delegate_to_wp_codebox_host_delegation' ), 10, 3 );
+	}
+
+	/**
+	 * Run SSI validation directly when already executing inside a disposable Codebox runtime.
+	 *
+	 * @param mixed               $result  Existing provider result.
+	 * @param array<string,mixed> $request SSI validation request.
+	 * @param array<string,mixed> $input   Raw caller input.
+	 * @return array<string,mixed>|WP_Error|null
+	 */
+	public static function validate_in_current_codebox_runtime( mixed $result, array $request, array $input ) {
+		unset( $input );
+
+		if ( null !== $result ) {
+			return $result;
+		}
+
+		if ( ! class_exists( 'Static_Site_Importer_Theme_Generator' ) ) {
+			return null;
+		}
+
+		$source = isset( $request['source'] ) && is_array( $request['source'] ) ? $request['source'] : array();
+		$artifact = isset( $source['artifact'] ) && is_array( $source['artifact'] ) ? $source['artifact'] : array();
+		if ( empty( $artifact ) ) {
+			return null;
+		}
+
+		$import_args = isset( $request['import_args'] ) && is_array( $request['import_args'] ) ? $request['import_args'] : array();
+		$slug        = isset( $import_args['slug'] ) ? sanitize_title( (string) $import_args['slug'] ) : 'ssi-codebox-validation';
+		if ( '' === $slug ) {
+			$slug = 'ssi-codebox-validation';
+		}
+
+		$artifact_dir = self::local_validation_artifact_dir( $slug );
+		if ( is_wp_error( $artifact_dir ) ) {
+			return $artifact_dir;
+		}
+
+		$report_path = trailingslashit( $artifact_dir ) . 'import-report.json';
+		$result      = Static_Site_Importer_Theme_Generator::import_website_artifact(
+			$artifact,
+			array_merge(
+				$import_args,
+				array(
+					'report'          => $report_path,
+					'source_metadata' => array_merge(
+						isset( $import_args['source_metadata'] ) && is_array( $import_args['source_metadata'] ) ? $import_args['source_metadata'] : array(),
+						array( 'codebox_validation_provider' => 'static-site-importer/current-runtime' )
+					),
+				)
+			)
+		);
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		return self::provider_result_from_local_import( $result, $artifact_dir );
 	}
 
 	/**
@@ -282,6 +341,112 @@ class Static_Site_Importer_Codebox_Validation {
 		}
 
 		return $provider_result;
+	}
+
+	/**
+	 * Convert local SSI import output into provider result shape.
+	 *
+	 * @param array<string,mixed> $import_result Local importer result.
+	 * @param string              $artifact_dir  Directory containing validation artifacts.
+	 * @return array<string,mixed>
+	 */
+	private static function provider_result_from_local_import( array $import_result, string $artifact_dir ): array {
+		$report_path            = (string) ( $import_result['external_report_path'] ?? $import_result['report_path'] ?? '' );
+		$validation_result_path = (string) ( $import_result['external_validation_result_path'] ?? $import_result['validation_result_path'] ?? '' );
+		$finding_packets_path   = (string) ( $import_result['external_finding_packets_path'] ?? $import_result['finding_packets_path'] ?? '' );
+		$quality                = isset( $import_result['quality'] ) && is_array( $import_result['quality'] ) ? $import_result['quality'] : array();
+		$quality_pass           = ! empty( $quality['pass'] );
+
+		return array(
+			'success'       => $quality_pass,
+			'status'        => $quality_pass ? 'succeeded' : 'failed',
+			'runtime'       => array(
+				'provider'     => 'static-site-importer/current-codebox-runtime',
+				'status'       => 'completed',
+				'artifact_dir' => basename( $artifact_dir ),
+			),
+			'summary'       => array(
+				'quality_pass'          => $quality_pass,
+				'import_report'         => is_readable( $report_path ) ? 'captured' : 'missing',
+				'block_validation'      => is_readable( $validation_result_path ) ? 'captured' : 'missing',
+				'browser_render'        => 'pending',
+				'screenshot_artifacts'  => 0,
+				'visual_diff_artifacts' => 0,
+				'theme_slug'            => (string) ( $import_result['theme_slug'] ?? '' ),
+			),
+			'import_report' => self::read_json_object_file( $report_path ),
+			'artifacts'     => array(
+				'generated_theme'         => array(
+					'artifact_ref' => (string) ( $import_result['theme_slug'] ?? '' ),
+					'kind'         => 'wordpress-theme-directory',
+					'status'       => 'materialized',
+				),
+				'import_report'           => self::local_file_artifact_ref( $report_path, 'blocks-engine/import-report' ),
+				'block_validation_result' => self::local_file_artifact_ref( $validation_result_path, 'blocks-engine/import-validation-result' ),
+				'raw'                     => array_values(
+					array_filter(
+						array(
+							self::local_file_artifact_ref( $finding_packets_path, 'blocks-engine/finding-packets' ),
+						)
+					)
+				),
+			),
+		);
+	}
+
+	/**
+	 * Create a per-validation artifact directory in uploads.
+	 *
+	 * @param string $slug Fixture/import slug.
+	 * @return string|WP_Error
+	 */
+	private static function local_validation_artifact_dir( string $slug ) {
+		$upload_dir = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : array();
+		$base_dir   = isset( $upload_dir['basedir'] ) && is_string( $upload_dir['basedir'] ) ? $upload_dir['basedir'] : sys_get_temp_dir();
+		$run_id     = function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'validation-', true );
+		$directory  = trailingslashit( $base_dir ) . 'static-site-importer/codebox-validation-' . sanitize_title( $slug ) . '-' . sanitize_key( $run_id );
+
+		$created = function_exists( 'wp_mkdir_p' ) ? wp_mkdir_p( $directory ) : ( is_dir( $directory ) || mkdir( $directory, 0777, true ) );
+		if ( ! $created ) {
+			return new WP_Error( 'static_site_importer_codebox_validation_artifact_dir_failed', 'Could not create Codebox validation artifact directory.' );
+		}
+
+		return $directory;
+	}
+
+	/**
+	 * Build a reviewer-safe artifact reference for a local artifact file.
+	 *
+	 * @param string $path Local file path.
+	 * @param string $kind Artifact kind.
+	 * @return array<string,string>
+	 */
+	private static function local_file_artifact_ref( string $path, string $kind ): array {
+		if ( '' === $path || ! is_readable( $path ) ) {
+			return array();
+		}
+
+		return array(
+			'artifact_ref' => basename( $path ),
+			'kind'         => $kind,
+		);
+	}
+
+	/**
+	 * Read a JSON object file.
+	 *
+	 * @param string $path JSON file path.
+	 * @return array<string,mixed>
+	 */
+	private static function read_json_object_file( string $path ): array {
+		if ( '' === $path || ! is_readable( $path ) ) {
+			return array();
+		}
+
+		$json = file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads importer-owned validation artifact.
+		$data = json_decode( false === $json ? '' : $json, true );
+
+		return is_array( $data ) ? $data : array();
 	}
 
 	/**

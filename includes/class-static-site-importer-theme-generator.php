@@ -1104,7 +1104,7 @@ class Static_Site_Importer_Theme_Generator {
 		$site      = isset( $artifacts['site'] ) && is_array( $artifacts['site'] ) ? $artifacts['site'] : array();
 		if ( ! empty( $site['pages'] ) && is_array( $site['pages'] ) ) {
 			if ( 'blocks-engine/php-transformer/materialization-plan/v1' === (string) ( $site['schema'] ?? '' ) ) {
-				return self::source_pages_from_materialization_plan( $site );
+				return self::source_pages_from_materialization_plan( $site, $documents );
 			}
 
 			if ( 'blocks-engine/php-transformer/compiled-site/v1' !== (string) ( $site['schema'] ?? '' ) ) {
@@ -1138,15 +1138,17 @@ class Static_Site_Importer_Theme_Generator {
 	/**
 	 * Build source pages directly from Blocks Engine materialization-plan page rows.
 	 *
-	 * @param array<string,mixed> $site Materialization-plan site report.
+	 * @param array<string,mixed> $site      Materialization-plan site report.
+	 * @param array<int,mixed>    $documents Document artifacts with serialized block markup.
 	 * @return array<string, Static_Site_Importer_Source_Page>|WP_Error
 	 */
-	private static function source_pages_from_materialization_plan( array $site ) {
+	private static function source_pages_from_materialization_plan( array $site, array $documents = array() ) {
 		$site_pages = isset( $site['pages'] ) && is_array( $site['pages'] ) ? $site['pages'] : array();
 		$routes     = self::materialization_plan_routes_by_source_path( $site );
 		if ( is_wp_error( $routes ) ) {
 			return $routes;
 		}
+		$documents_by_source = self::document_artifacts_by_source_path( $documents );
 
 		$pages = array();
 		foreach ( $site_pages as $page_row ) {
@@ -1158,6 +1160,15 @@ class Static_Site_Importer_Theme_Generator {
 			if ( '' !== $source_path && isset( $routes[ $source_path ] ) ) {
 				$page_row = array_merge( $page_row, $routes[ $source_path ] );
 			}
+			if ( '' !== $source_path && ( ! isset( $page_row['block_markup'] ) || ! is_scalar( $page_row['block_markup'] ) || '' === trim( (string) $page_row['block_markup'] ) ) && isset( $documents_by_source[ $source_path ] ) ) {
+				$document = $documents_by_source[ $source_path ];
+				foreach ( array( 'block_markup', 'content', 'post_content' ) as $content_key ) {
+					if ( isset( $document[ $content_key ] ) && is_scalar( $document[ $content_key ] ) && '' !== trim( (string) $document[ $content_key ] ) ) {
+						$page_row['block_markup'] = (string) $document[ $content_key ];
+						break;
+					}
+				}
+			}
 
 			$page = Static_Site_Importer_Source_Page::from_materialization_plan_page( $page_row );
 			if ( is_wp_error( $page ) ) {
@@ -1168,6 +1179,35 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return $pages;
+	}
+
+	/**
+	 * Normalize document artifacts by source path for materialization-plan joins.
+	 *
+	 * @param array<int,mixed> $documents Document artifact rows.
+	 * @return array<string,array<string,mixed>>
+	 */
+	private static function document_artifacts_by_source_path( array $documents ): array {
+		$documents_by_source = array();
+		foreach ( $documents as $document ) {
+			if ( ! is_array( $document ) ) {
+				continue;
+			}
+
+			$source_path = '';
+			foreach ( array( 'source_path', 'path', 'slug' ) as $key ) {
+				if ( isset( $document[ $key ] ) && is_scalar( $document[ $key ] ) && '' !== trim( (string) $document[ $key ] ) ) {
+					$source_path = self::normalize_route_path( (string) $document[ $key ] );
+					break;
+				}
+			}
+
+			if ( '' !== $source_path ) {
+				$documents_by_source[ $source_path ] = $document;
+			}
+		}
+
+		return $documents_by_source;
 	}
 
 	/**

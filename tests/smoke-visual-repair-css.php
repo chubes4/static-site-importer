@@ -296,6 +296,34 @@ $assert( $native_page instanceof Static_Site_Importer_Source_Page && 'Home Canon
 $assert( $native_page instanceof Static_Site_Importer_Source_Page && 'home-route' === $native_page->metadata_value( 'route_key' ), 'materialization-plan-route-key-is-preserved' );
 $assert( $native_page instanceof Static_Site_Importer_Source_Page && str_contains( $native_page->body(), 'Native page' ), 'materialization-plan-page-body-wins-over-compiled-site-document' );
 
+$document_backed_native_pages = $source_pages->invoke(
+	null,
+	array(
+		'artifacts' => array(
+			'site'      => array(
+				'schema' => 'blocks-engine/php-transformer/materialization-plan/v1',
+				'pages'  => array(
+					array(
+						'source_path' => 'website/about.html',
+						'post_type'   => 'page',
+						'slug'        => 'about',
+						'title'       => 'About',
+					),
+				),
+			),
+			'documents' => array(
+				array(
+					'source_path'  => 'website/about.html',
+					'block_markup' => '<!-- wp:paragraph --><p>Document backed native page</p><!-- /wp:paragraph -->',
+				),
+			),
+		),
+	)
+);
+$document_backed_native_page = is_array( $document_backed_native_pages ) ? ( $document_backed_native_pages['website/about.html'] ?? null ) : null;
+$assert( $document_backed_native_page instanceof Static_Site_Importer_Source_Page, 'materialization-plan-page-can-use-document-artifact-markup' );
+$assert( $document_backed_native_page instanceof Static_Site_Importer_Source_Page && str_contains( $document_backed_native_page->body(), 'Document backed native page' ), 'materialization-plan-page-body-comes-from-document-artifact' );
+
 $target_route_pages = $source_pages->invoke(
 	null,
 	array(
