@@ -53,6 +53,7 @@ class Static_Site_Importer_Report_Diagnostics {
 				'svg_sprite_reference_failure_count' => 0,
 				'commerce_dependency_failures'       => 0,
 				'interaction_candidate_count'        => 0,
+				'semantic_parity_failure_count'      => 0,
 				'failure_reasons'                    => array(),
 			),
 			'source_documents'        => array(
@@ -182,6 +183,12 @@ class Static_Site_Importer_Report_Diagnostics {
 		if ( ! empty( $conversion_report ) ) {
 			$report['blocks_engine']['conversion_report'] = self::conversion_report_payload( $conversion_report );
 			self::record_conversion_report_quality_metadata( $report, $conversion_report );
+		}
+
+		$semantic_parity = self::blocks_engine_semantic_parity_report( $compiled );
+		if ( ! empty( $semantic_parity ) ) {
+			$report['blocks_engine']['semantic_parity'] = self::semantic_parity_report_payload( $semantic_parity );
+			self::record_semantic_parity_quality_metadata( $report, $semantic_parity );
 		}
 	}
 
@@ -356,6 +363,7 @@ class Static_Site_Importer_Report_Diagnostics {
 				'svg_sprite_reference_failures' => (int) ( $quality['svg_sprite_reference_failure_count'] ?? 0 ),
 				'commerce_dependency_failures'  => (int) ( $quality['commerce_dependency_failures'] ?? 0 ),
 				'interaction_candidates'        => (int) ( $quality['interaction_candidate_count'] ?? 0 ),
+				'semantic_parity_failures'      => (int) ( $quality['semantic_parity_failure_count'] ?? 0 ),
 			),
 			'quality_gates'           => array(
 				'fallback_blocks'           => self::validation_gate( 'fallback_blocks', (int) ( $quality['fallback_count'] ?? 0 ), $quality ),
@@ -364,6 +372,7 @@ class Static_Site_Importer_Report_Diagnostics {
 				'asset_materialization'     => self::validation_gate( 'asset_materialization', (int) ( $quality['svg_materialization_failure_count'] ?? 0 ) + (int) ( $quality['svg_sprite_reference_failure_count'] ?? 0 ), $quality ),
 				'commerce_dependencies'     => self::validation_gate( 'commerce_dependencies', (int) ( $quality['commerce_dependency_failures'] ?? 0 ), $quality ),
 				'interaction_candidates'    => self::validation_gate( 'interaction_candidates', (int) ( $quality['interaction_candidate_count'] ?? 0 ), $quality ),
+				'semantic_parity'           => self::validation_gate( 'semantic_parity', (int) ( $quality['semantic_parity_failure_count'] ?? 0 ), $quality ),
 				'visual_fidelity'           => array(
 					'status' => (string) ( $report['visual_fidelity']['status'] ?? 'requires_external_render_check' ),
 					'owner'  => (string) ( $report['visual_fidelity']['gate_owner'] ?? 'benchmark_harness' ),
@@ -452,6 +461,9 @@ class Static_Site_Importer_Report_Diagnostics {
 		if ( ( $quality['commerce_dependency_failures'] ?? 0 ) > 0 ) {
 			$reasons[] = 'woocommerce_missing';
 		}
+		if ( ( $quality['semantic_parity_failure_count'] ?? 0 ) > 0 ) {
+			$reasons[] = 'semantic_parity_failure';
+		}
 
 		$quality['pass']            = empty( $reasons );
 		$quality['failure_reasons'] = $reasons;
@@ -508,6 +520,7 @@ class Static_Site_Importer_Report_Diagnostics {
 			'invalid_block_count'          => (int) ( $quality['invalid_block_count'] ?? 0 ),
 			'invalid_block_document_count' => (int) ( $quality['invalid_block_document_count'] ?? 0 ),
 			'interaction_candidate_count'  => (int) ( $quality['interaction_candidate_count'] ?? 0 ),
+			'semantic_parity_failure_count'  => (int) ( $quality['semantic_parity_failure_count'] ?? 0 ),
 			'source_document_count'        => (int) ( $source_documents['total_count'] ?? 0 ),
 			'unresolved_link_count'        => (int) ( $source_documents['unresolved_link_count'] ?? 0 ),
 			'commerce'                     => $commerce,
@@ -515,6 +528,7 @@ class Static_Site_Importer_Report_Diagnostics {
 			'plugin_materialization'       => $plugin_materialization,
 			'product_seeding'              => $product_seeding,
 			'visual_parity_artifacts'      => isset( $report['visual_parity_artifacts'] ) && is_array( $report['visual_parity_artifacts'] ) ? $report['visual_parity_artifacts'] : self::visual_parity_artifact_contract(),
+			'semantic_parity'              => self::compact_semantic_parity_summary( $report ),
 			'diagnostic_count'             => count( $diagnostics ),
 			'diagnostic_summary'           => self::compact_import_report_diagnostic_summary( $diagnostics ),
 			'warning_summaries'            => self::compact_import_report_diagnostic_summaries_by_severity( $diagnostics, 'warning' ),
@@ -539,6 +553,7 @@ class Static_Site_Importer_Report_Diagnostics {
 			'asset_materialization'     => 'svg_materialization_failure_count',
 			'commerce_dependencies'     => 'commerce_dependency_failures',
 			'interaction_candidates'    => 'interaction_candidate_count',
+			'semantic_parity'           => 'semantic_parity_failure_count',
 		);
 		$ref_key  = $ref_keys[ $name ] ?? $name;
 
@@ -853,6 +868,10 @@ class Static_Site_Importer_Report_Diagnostics {
 				'commerce_dependency_failure',
 				'commerce_product_inference_unmatched',
 				'interaction_candidate',
+				'semantic_parity_navigation_missing',
+				'semantic_parity_navigation_mismatch',
+				'semantic_parity_landmark_missing',
+				'semantic_parity_failure',
 			),
 			true
 		);
@@ -947,6 +966,9 @@ class Static_Site_Importer_Report_Diagnostics {
 		}
 		if ( in_array( $type, array( 'content_loss_abort', 'empty_conversion', 'invalid_block_document' ), true ) ) {
 			return 'Convert the source content into valid non-empty WordPress block markup without losing source content.';
+		}
+		if ( str_starts_with( $type, 'semantic_parity_' ) ) {
+			return 'Generate core WordPress blocks whose navigation, landmark, label, and URL semantics match the source structure.';
 		}
 
 		return 'Import should complete without this diagnostic being reported.';
@@ -1059,6 +1081,208 @@ class Static_Site_Importer_Report_Diagnostics {
 		}
 
 		return $payload;
+	}
+
+	/**
+	 * Locate an optional Blocks Engine semantic parity report in known result slots.
+	 *
+	 * @param array<string,mixed> $compiled Compiler result envelope.
+	 * @return array<string,mixed>
+	 */
+	private static function blocks_engine_semantic_parity_report( array $compiled ): array {
+		$candidates = array(
+			$compiled['semantic_parity'] ?? null,
+			$compiled['semantic_parity_report'] ?? null,
+			$compiled['reports']['semantic_parity'] ?? null,
+			$compiled['artifacts']['semantic_parity'] ?? null,
+			$compiled['artifacts']['semantic_parity_report'] ?? null,
+		);
+
+		foreach ( $candidates as $candidate ) {
+			if ( is_array( $candidate ) && ! empty( $candidate ) ) {
+				return $candidate;
+			}
+		}
+
+		return array();
+	}
+
+	/**
+	 * Preserve the semantic parity report in a compact, stable SSI report key.
+	 *
+	 * @param array<string,mixed> $semantic_parity Native Blocks Engine semantic parity report.
+	 * @return array<string,mixed>
+	 */
+	private static function semantic_parity_report_payload( array $semantic_parity ): array {
+		$findings = self::semantic_parity_findings( $semantic_parity );
+		$summary  = isset( $semantic_parity['summary'] ) && is_array( $semantic_parity['summary'] ) ? $semantic_parity['summary'] : array();
+
+		return array_filter(
+			array(
+				'schema'        => isset( $semantic_parity['schema'] ) && is_scalar( $semantic_parity['schema'] ) ? (string) $semantic_parity['schema'] : Static_Site_Importer_Product_Handoff_Contract::BLOCKS_ENGINE_SEMANTIC_PARITY_SCHEMA,
+				'status'        => isset( $semantic_parity['status'] ) && is_scalar( $semantic_parity['status'] ) ? (string) $semantic_parity['status'] : ( empty( $findings ) ? 'passed' : 'reported' ),
+				'finding_count' => count( $findings ),
+				'summary'       => self::compact_native_report_value( $summary ),
+				'findings'      => self::compact_native_report_rows( $findings ),
+				'counts'        => isset( $semantic_parity['counts'] ) && is_array( $semantic_parity['counts'] ) ? self::compact_native_report_value( $semantic_parity['counts'] ) : array(),
+				'coverage'      => isset( $semantic_parity['coverage'] ) && is_array( $semantic_parity['coverage'] ) ? self::compact_native_report_value( $semantic_parity['coverage'] ) : array(),
+			),
+			static fn ( mixed $value ): bool => array() !== $value
+		);
+	}
+
+	/**
+	 * Reflect semantic parity findings in SSI diagnostics and quality gates.
+	 *
+	 * @param array<string,mixed> $report          Import report.
+	 * @param array<string,mixed> $semantic_parity Native Blocks Engine semantic parity report.
+	 * @return void
+	 */
+	private static function record_semantic_parity_quality_metadata( array &$report, array $semantic_parity ): void {
+		$findings = self::semantic_parity_findings( $semantic_parity );
+		$report['quality']['semantic_parity_failure_count'] = (int) ( $report['quality']['semantic_parity_failure_count'] ?? 0 ) + count( $findings );
+
+		$report['semantic_fidelity'] = array_merge(
+			isset( $report['semantic_fidelity'] ) && is_array( $report['semantic_fidelity'] ) ? $report['semantic_fidelity'] : array(),
+			array(
+				'status'        => empty( $findings ) ? 'passed' : 'reported',
+				'gate_owner'    => 'blocks-engine/php-transformer',
+				'finding_count' => count( $findings ),
+				'summary'       => self::semantic_parity_summary_counts( $findings ),
+			)
+		);
+
+		foreach ( $findings as $finding ) {
+			if ( ! is_array( $finding ) ) {
+				continue;
+			}
+
+			$diagnostic = self::diagnostic_from_semantic_parity_finding( $finding );
+			if ( ! empty( $diagnostic ) ) {
+				$report['diagnostics'][] = $diagnostic;
+			}
+		}
+	}
+
+	/**
+	 * Return canonical semantic parity findings from current and expected report keys.
+	 *
+	 * @param array<string,mixed> $semantic_parity Native Blocks Engine semantic parity report.
+	 * @return array<int,mixed>
+	 */
+	private static function semantic_parity_findings( array $semantic_parity ): array {
+		foreach ( array( 'findings', 'failures', 'mismatches', 'diagnostics' ) as $key ) {
+			$rows = self::array_values_if_list( $semantic_parity[ $key ] ?? array() );
+			if ( ! empty( $rows ) ) {
+				return $rows;
+			}
+		}
+
+		return array();
+	}
+
+	/**
+	 * Build summary counts for semantic parity findings.
+	 *
+	 * @param array<int,mixed> $findings Semantic parity findings.
+	 * @return array<string,int>
+	 */
+	private static function semantic_parity_summary_counts( array $findings ): array {
+		$summary = array(
+			'total'      => 0,
+			'navigation' => 0,
+			'landmark'   => 0,
+		);
+
+		foreach ( $findings as $finding ) {
+			if ( ! is_array( $finding ) ) {
+				continue;
+			}
+
+			++$summary['total'];
+			$type = self::semantic_parity_diagnostic_type( $finding );
+			if ( str_contains( $type, 'navigation' ) ) {
+				++$summary['navigation'];
+			}
+			if ( str_contains( $type, 'landmark' ) ) {
+				++$summary['landmark'];
+			}
+		}
+
+		return $summary;
+	}
+
+	/**
+	 * Normalize a semantic parity finding into SSI's diagnostic shape.
+	 *
+	 * @param array<string,mixed> $finding Native semantic parity finding.
+	 * @return array<string,mixed>
+	 */
+	private static function diagnostic_from_semantic_parity_finding( array $finding ): array {
+		$type   = self::semantic_parity_diagnostic_type( $finding );
+		$source = self::first_scalar( $finding, array( 'source_path', 'source', 'path', 'route' ) );
+		$reason = self::first_scalar( $finding, array( 'reason_code', 'reason', 'code', 'kind', 'type' ) );
+
+		$diagnostic = array(
+			'type'      => $type,
+			'source'    => $source,
+			'reason'    => '' !== $reason ? $reason : $type,
+			'engine'    => 'blocks-engine/php-transformer',
+			'stage'     => 'semantic_parity',
+			'converter' => 'blocks-engine/php-transformer',
+		);
+
+		foreach ( array( 'source_path', 'selector', 'message', 'excerpt', 'source_html_preview', 'html_excerpt', 'expected', 'observed', 'label', 'source_label', 'generated_label', 'url', 'source_url', 'generated_url', 'landmark', 'role', 'block_name', 'block_path' ) as $field ) {
+			if ( isset( $finding[ $field ] ) && is_scalar( $finding[ $field ] ) && '' !== trim( (string) $finding[ $field ] ) ) {
+				$diagnostic[ $field ] = (string) $finding[ $field ];
+			}
+		}
+
+		return $diagnostic;
+	}
+
+	/**
+	 * Map Blocks Engine semantic finding kinds to SSI diagnostic types.
+	 *
+	 * @param array<string,mixed> $finding Native semantic parity finding.
+	 * @return string
+	 */
+	private static function semantic_parity_diagnostic_type( array $finding ): string {
+		$value = sanitize_key( self::first_scalar( $finding, array( 'type', 'kind', 'reason_code', 'reason', 'code' ) ) );
+		if ( str_contains( $value, 'nav' ) && str_contains( $value, 'missing' ) ) {
+			return 'semantic_parity_navigation_missing';
+		}
+		if ( str_contains( $value, 'nav' ) && ( str_contains( $value, 'mismatch' ) || str_contains( $value, 'label' ) || str_contains( $value, 'url' ) ) ) {
+			return 'semantic_parity_navigation_mismatch';
+		}
+		if ( str_contains( $value, 'header' ) || str_contains( $value, 'footer' ) || str_contains( $value, 'main' ) || str_contains( $value, 'landmark' ) ) {
+			return 'semantic_parity_landmark_missing';
+		}
+
+		return 'semantic_parity_failure';
+	}
+
+	/**
+	 * Compact semantic parity metrics for import-report summaries.
+	 *
+	 * @param array<string,mixed> $report Full import report.
+	 * @return array<string,mixed>
+	 */
+	private static function compact_semantic_parity_summary( array $report ): array {
+		$semantic_parity = isset( $report['blocks_engine']['semantic_parity'] ) && is_array( $report['blocks_engine']['semantic_parity'] ) ? $report['blocks_engine']['semantic_parity'] : array();
+		if ( empty( $semantic_parity ) ) {
+			return array(
+				'status' => (string) ( $report['semantic_fidelity']['status'] ?? 'requires_external_render_check' ),
+				'owner'  => (string) ( $report['semantic_fidelity']['gate_owner'] ?? 'benchmark_harness' ),
+			);
+		}
+
+		return array(
+			'status'        => (string) ( $semantic_parity['status'] ?? 'reported' ),
+			'owner'         => 'blocks-engine/php-transformer',
+			'finding_count' => (int) ( $semantic_parity['finding_count'] ?? 0 ),
+			'summary'       => isset( $report['semantic_fidelity']['summary'] ) && is_array( $report['semantic_fidelity']['summary'] ) ? $report['semantic_fidelity']['summary'] : array(),
+		);
 	}
 
 	/**
@@ -1181,7 +1405,7 @@ class Static_Site_Importer_Report_Diagnostics {
 	 * @return array<int,array<string,mixed>>
 	 */
 	private static function compact_native_report_rows( array $rows ): array {
-		$fields  = array( 'type', 'kind', 'code', 'severity', 'source', 'source_path', 'path', 'selector', 'tag_name', 'block_name', 'block_path', 'attribute_path', 'reason', 'reason_code', 'message', 'excerpt', 'source_html_preview', 'emitted_block_preview', 'html_excerpt' );
+		$fields  = array( 'type', 'kind', 'code', 'severity', 'source', 'source_path', 'path', 'selector', 'tag_name', 'block_name', 'block_path', 'attribute_path', 'reason', 'reason_code', 'message', 'excerpt', 'source_html_preview', 'emitted_block_preview', 'html_excerpt', 'expected', 'observed', 'label', 'source_label', 'generated_label', 'url', 'source_url', 'generated_url', 'landmark', 'role' );
 		$compact = array();
 		foreach ( array_slice( $rows, 0, 50 ) as $row ) {
 			if ( ! is_array( $row ) ) {
@@ -1326,6 +1550,7 @@ class Static_Site_Importer_Report_Diagnostics {
 			'svg_sprite_reference_failure_count' => array( 'svg_sprite_reference_failure' ),
 			'commerce_dependency_failures'       => array( 'commerce_dependency_failure' ),
 			'interaction_candidate_count'        => array( 'interaction_candidate' ),
+			'semantic_parity_failure_count'      => array( 'semantic_parity_navigation_missing', 'semantic_parity_navigation_mismatch', 'semantic_parity_landmark_missing', 'semantic_parity_failure' ),
 		);
 
 		$refs = array();
@@ -1464,6 +1689,10 @@ class Static_Site_Importer_Report_Diagnostics {
 			'commerce_dependency_failure'          => 'conversion_quality',
 			'commerce_product_inference_unmatched' => 'conversion_quality',
 			'interaction_candidate'                => 'source_interaction',
+			'semantic_parity_navigation_missing'   => 'semantic_parity',
+			'semantic_parity_navigation_mismatch'  => 'semantic_parity',
+			'semantic_parity_landmark_missing'     => 'semantic_parity',
+			'semantic_parity_failure'              => 'semantic_parity',
 		);
 
 		return $categories[ $type ] ?? 'import_quality';
@@ -1493,6 +1722,10 @@ class Static_Site_Importer_Report_Diagnostics {
 			'commerce_dependency_failure'          => 'install_or_configure_dependency',
 			'commerce_product_inference_unmatched' => 'provide_structured_product_data',
 			'interaction_candidate'                => 'inspect_interactive_behavior',
+			'semantic_parity_navigation_missing'   => 'generate_core_navigation_parity',
+			'semantic_parity_navigation_mismatch'  => 'repair_core_navigation_items',
+			'semantic_parity_landmark_missing'     => 'generate_semantic_landmark_parity',
+			'semantic_parity_failure'              => 'repair_semantic_structure',
 		);
 
 		return $classes[ $type ] ?? 'inspect_import_diagnostic';
@@ -1506,7 +1739,7 @@ class Static_Site_Importer_Report_Diagnostics {
 	 */
 	private static function diagnostic_context( array $diagnostic ): array {
 		$context = array();
-		foreach ( array( 'href', 'tag', 'tag_name', 'block_name', 'block_path', 'excerpt', 'html_excerpt', 'source_html_preview', 'error_message', 'kind' ) as $key ) {
+		foreach ( array( 'href', 'tag', 'tag_name', 'block_name', 'block_path', 'excerpt', 'html_excerpt', 'source_html_preview', 'error_message', 'kind', 'expected', 'observed', 'label', 'source_label', 'generated_label', 'url', 'source_url', 'generated_url', 'landmark', 'role' ) as $key ) {
 			if ( array_key_exists( $key, $diagnostic ) && null !== $diagnostic[ $key ] && '' !== $diagnostic[ $key ] ) {
 				$context[ $key ] = $diagnostic[ $key ];
 			}
