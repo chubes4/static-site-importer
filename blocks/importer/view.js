@@ -270,7 +270,6 @@
 			const provider = root.getAttribute( 'data-static-site-importer-provider' ) || '';
 			const applyToCurrentSite = root.getAttribute( 'data-static-site-importer-apply-to-current-site' ) === '1';
 			const generateInCurrentRuntime = root.getAttribute( 'data-static-site-importer-generate-in-current-runtime' ) === '1';
-			const shouldApplyToCurrentSite = applyToCurrentSite || generateInCurrentRuntime;
 			const source = {
 				url: form ? form.getAttribute( 'data-static-site-importer-default-url' ) || '' : '',
 				html: html ? html.value : '',
@@ -299,16 +298,16 @@
 					body: JSON.stringify( {
 						provider,
 						source,
-						apply_to_current_site: shouldApplyToCurrentSite,
-						activate: shouldApplyToCurrentSite,
-						overwrite: shouldApplyToCurrentSite,
+						apply_to_current_site: applyToCurrentSite,
+						activate: applyToCurrentSite,
+						overwrite: applyToCurrentSite,
 						generate_in_current_runtime: generateInCurrentRuntime,
 					} ),
 				} );
 				const report = await response.json();
 				setReport( root, report );
 				setPreviewLink( root, report );
-				if ( response.ok && shouldApplyToCurrentSite && report.success ) {
+				if ( response.ok && applyToCurrentSite && report.success ) {
 					showStatus( root, applyToCurrentSite ? 'Import complete.' : 'WordPress website generated.' );
 				} else if ( response.ok && previewUrl( report ) ) {
 					showStatus( root, 'Preview ready.' );
