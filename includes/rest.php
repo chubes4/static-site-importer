@@ -530,7 +530,7 @@ function static_site_importer_rest_generate_in_current_runtime( array $source, a
 		return $result;
 	}
 
-	$preview = isset( $result['preview'] ) && is_array( $result['preview'] ) ? $result['preview'] : array();
+	$preview           = isset( $result['preview'] ) && is_array( $result['preview'] ) ? $result['preview'] : array();
 	$preview['status'] = isset( $preview['status'] ) ? $preview['status'] : 'ready';
 	$result['preview'] = $preview;
 	$result['mode']    = 'generated_in_current_runtime';
