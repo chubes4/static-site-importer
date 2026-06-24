@@ -114,4 +114,37 @@ if ( defined( 'WP_CLI' ) && WP_CLI && class_exists( 'WP_CLI' ) ) {
 			}
 		}
 	);
+
+	WP_CLI::add_command(
+		'static-site-importer figma-diagnostics',
+		static function ( array $args, array $assoc_args ): void {
+			unset( $args );
+
+			if ( empty( $assoc_args['input'] ) ) {
+				WP_CLI::error( 'Provide a Figma request JSON file with --input=<path>.' );
+				return;
+			}
+
+			$input_json = file_get_contents( (string) $assoc_args['input'] ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- CLI reads an operator-provided request file.
+			$input      = json_decode( false === $input_json ? '' : $input_json, true );
+			if ( ! is_array( $input ) ) {
+				WP_CLI::error( 'The --input file must contain a JSON object.' );
+				return;
+			}
+
+			$result = Static_Site_Importer_Figma_Import::diagnostics_report( $input );
+			if ( is_wp_error( $result ) ) {
+				WP_CLI::error( $result->get_error_message() );
+				return;
+			}
+
+			$json = wp_json_encode( $result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+			if ( false === $json ) {
+				WP_CLI::error( 'Failed to encode Figma diagnostics result.' );
+				return;
+			}
+
+			WP_CLI::line( $json );
+		}
+	);
 }

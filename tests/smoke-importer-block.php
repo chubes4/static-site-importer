@@ -390,6 +390,10 @@ if ( ! function_exists( 'get_page_uri' ) ) {
 }
 
 require_once dirname( __DIR__ ) . '/includes/block.php';
+$figma_transformer_bootstrap = dirname( __DIR__ ) . '/vendor/automattic/blocks-engine-figma-transformer/figma-transformer/figma-transformer.php';
+if ( is_readable( $figma_transformer_bootstrap ) ) {
+	require_once $figma_transformer_bootstrap;
+}
 require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-figma-import.php';
 require_once dirname( __DIR__ ) . '/includes/abilities.php';
 require_once dirname( __DIR__ ) . '/includes/rest.php';
@@ -806,6 +810,46 @@ $assert( str_contains( (string) $figma_blueprint_code, "'overwrite' => true" ), 
 $assert( str_contains( (string) $figma_blueprint_code, "'name' => 'Fisiostetic'" ), 'figma-import-name-derived-from-metadata' );
 $assert( str_contains( (string) $figma_blueprint_code, "'site_title' => 'Fisiostetic'" ), 'figma-import-site-title-derived-from-metadata' );
 $assert( str_contains( (string) $figma_blueprint_code, "'source' => 'figma-to-wordpress'" ), 'figma-artifact-provenance-source' );
+
+$figma_diagnostics = Static_Site_Importer_Figma_Import::diagnostics_report(
+	array(
+		'schema'     => 'figma-to-wordpress/runner-request/v1',
+		'source'     => array(
+			'fileKey' => 'fixture-file-key',
+			'nodeIds' => array( '1:1' ),
+		),
+		'slug'       => 'figma-diagnostics',
+		'name'       => 'Figma Diagnostics',
+		'scenegraph' => array(
+			'name'  => 'Diagnostics Fixture',
+			'nodes' => array(
+				array(
+					'id'       => '1:1',
+					'type'     => 'FRAME',
+					'name'     => 'Landing Page',
+					'width'    => 640,
+					'height'   => 360,
+					'children' => array(
+						array(
+							'id'       => '1:2',
+							'type'     => 'TEXT',
+							'name'     => 'Heading',
+							'text'     => 'Hello diagnostics',
+							'fontSize' => 32,
+						),
+					),
+				),
+			),
+		),
+	)
+);
+$assert( is_array( $figma_diagnostics ), 'figma-diagnostics-builds-report' );
+$assert( true === ( $figma_diagnostics['success'] ?? null ), 'figma-diagnostics-succeeds' );
+$assert( 'static-site-importer/figma-diagnostics/v1' === ( $figma_diagnostics['schema'] ?? '' ), 'figma-diagnostics-uses-schema' );
+$assert( true === ( $figma_diagnostics['request']['has_scenegraph'] ?? null ), 'figma-diagnostics-summarizes-scenegraph-request' );
+$assert( 'website/index.html' === ( $figma_diagnostics['artifact']['entrypoint'] ?? '' ), 'figma-diagnostics-summarizes-artifact-entrypoint' );
+$assert( isset( $figma_diagnostics['transform_diagnostics']['diagnostic_codes'] ), 'figma-diagnostics-exposes-transform-diagnostics' );
+$assert( 'figma-diagnostics' === ( $figma_diagnostics['production_import_input']['slug'] ?? '' ), 'figma-diagnostics-summarizes-production-import-input' );
 
 if ( class_exists( 'ZipArchive' ) ) {
 	$zip_path = tempnam( sys_get_temp_dir(), 'ssi-test-' );
