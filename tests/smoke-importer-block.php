@@ -459,7 +459,11 @@ $assert( ! str_contains( $html, 'Import status' ), 'render-omits-import-status-s
 $assert( str_contains( $html, 'Import your site' ), 'render-uses-custom-title' );
 $assert( str_contains( $html, 'https://example.com/source' ), 'render-uses-default-url' );
 $assert( str_contains( static_site_importer_render_block(), 'Generate WordPress website' ), 'render-preview-mode-button-generates-wordpress-website' );
-$assert( str_contains( static_site_importer_render_block( array( 'generateInCurrentRuntime' => true ) ), 'data-static-site-importer-generate-in-current-runtime="1"' ), 'render-can-target-current-runtime-with-generate-label' );
+$runtime_generate_html = static_site_importer_render_block( array( 'generateInCurrentRuntime' => true ) );
+$assert( str_contains( $runtime_generate_html, 'data-static-site-importer-apply-to-current-site="0"' ), 'render-runtime-generation-does-not-enable-current-site-apply' );
+$assert( str_contains( $runtime_generate_html, 'data-static-site-importer-generate-in-current-runtime="1"' ), 'render-can-target-current-runtime-with-generate-label' );
+$assert( str_contains( $runtime_generate_html, 'Generate WordPress website' ), 'render-runtime-generation-button-generates-wordpress-website' );
+$assert( ! str_contains( $runtime_generate_html, 'Import to this site' ), 'render-runtime-generation-button-does-not-say-import-to-this-site' );
 
 $view_js = file_get_contents( dirname( __DIR__ ) . '/blocks/importer/view.js' );
 $assert( is_string( $view_js ), 'view-js-readable' );
@@ -468,9 +472,10 @@ $assert( str_contains( $view_js, 'data-static-site-importer-source-directory' ),
 $assert( str_contains( $view_js, 'webkitGetAsEntry' ), 'view-supports-dropped-directory-entries' );
 $assert( str_contains( $view_js, 'archive: await buildArchive( uploadInputs, root )' ), 'view-sends-zip-from-combined-upload-as-archive-payload' );
 $assert( str_contains( $view_js, 'shouldIncludeSiteFile' ), 'view-skips-known-non-site-upload-files-before-reading' );
-$assert( str_contains( $view_js, 'apply_to_current_site: shouldApplyToCurrentSite' ), 'view-sends-current-runtime-apply-flag' );
-$assert( str_contains( $view_js, 'activate: shouldApplyToCurrentSite' ), 'view-activates-current-runtime-generation' );
-$assert( str_contains( $view_js, 'overwrite: shouldApplyToCurrentSite' ), 'view-overwrites-current-runtime-generation' );
+$assert( ! str_contains( $view_js, 'applyToCurrentSite || generateInCurrentRuntime' ), 'view-does-not-treat-current-runtime-generation-as-current-site-import' );
+$assert( str_contains( $view_js, 'apply_to_current_site: applyToCurrentSite' ), 'view-sends-current-site-apply-flag-only-from-apply-mode' );
+$assert( str_contains( $view_js, 'activate: applyToCurrentSite' ), 'view-activates-only-current-site-imports' );
+$assert( str_contains( $view_js, 'overwrite: applyToCurrentSite' ), 'view-overwrites-only-current-site-imports' );
 $assert( str_contains( $view_js, 'generate_in_current_runtime: generateInCurrentRuntime' ), 'view-sends-current-runtime-generation-flag' );
 $generic_preview_message = implode( ' ', array( 'no', 'preview', 'provider', 'is', 'configured' ) );
 $assert( ! str_contains( $view_js, $generic_preview_message ), 'view-does-not-reference-generic-preview-message' );
