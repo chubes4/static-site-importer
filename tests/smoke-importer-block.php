@@ -183,10 +183,6 @@ if ( ! function_exists( 'get_transient' ) ) {
 
 if ( ! function_exists( 'set_transient' ) ) {
 	function set_transient( string $name, $value, int $expiration = 0 ): bool {
-		if ( str_starts_with( $name, 'static_site_importer_figma_blueprint_' ) ) {
-			return false;
-		}
-
 		$GLOBALS['ssi_transients'][ $name ] = $value;
 
 		return true;
@@ -407,6 +403,13 @@ $assert( is_string( $plugin_source ), 'plugin-source-readable' );
 $assert( ! str_contains( $plugin_source, 'Requires Plugins: blocks-engine-php-transformer' ), 'transformer-is-not-a-required-wordpress-plugin' );
 $assert( str_contains( $plugin_source, "vendor/autoload.php" ), 'loads-composer-autoloader' );
 $assert( str_contains( $plugin_source, "vendor/automattic/blocks-engine-php-transformer/php-transformer/php-transformer.php" ), 'loads-composer-transformer-bootstrap' );
+
+$rest_source = file_get_contents( dirname( __DIR__ ) . '/includes/rest.php' );
+$assert( is_string( $rest_source ), 'rest-source-readable' );
+$assert( ! str_contains( $rest_source, 'figma-preview-blueprint' ), 'rest-does-not-register-stored-figma-blueprint-route' );
+$assert( ! str_contains( $rest_source, 'static_site_importer_rest_store_figma_blueprint' ), 'rest-does-not-store-playground-blueprints' );
+$assert( ! str_contains( $rest_source, 'https://playground.wordpress.net/?url=%2F' ), 'rest-does-not-return-empty-playground-url' );
+$assert( ! str_contains( $rest_source, 'generate_in_current_runtime' ), 'rest-does-not-accept-current-runtime-mode' );
 
 $metadata = json_decode( file_get_contents( dirname( __DIR__ ) . '/blocks/importer/block.json' ), true );
 $assert( is_array( $metadata ), 'block-json-decodes' );
