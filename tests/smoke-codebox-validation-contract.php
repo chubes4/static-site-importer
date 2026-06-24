@@ -49,6 +49,24 @@ namespace {
 		return preg_replace( '/[^a-z0-9_-]/', '', $value ) ?: '';
 	}
 
+	function trailingslashit( string $value ): string {
+		return rtrim( $value, '/\\' ) . '/';
+	}
+
+	function wp_upload_dir(): array {
+		$dir = sys_get_temp_dir() . '/ssi-codebox-validation-smoke-uploads';
+
+		return array( 'basedir' => $dir );
+	}
+
+	function wp_mkdir_p( string $target ): bool {
+		return is_dir( $target ) || mkdir( $target, 0777, true );
+	}
+
+	function wp_generate_uuid4(): string {
+		return '00000000-0000-4000-8000-000000000000';
+	}
+
 	function wp_strip_all_tags( string $value ): string {
 		return strip_tags( $value );
 	}
@@ -244,6 +262,75 @@ namespace {
 	$assert( 'assets/hero.jpg' === ( $provided['fixture_diagnostics']['asset_diagnostics'][0]['source_path'] ?? '' ), 'provided-asset-diagnostic-source' );
 	$assert( 'assets/icon.svg' === ( $provided['fixture_diagnostics']['svg_diagnostics'][0]['source_path'] ?? '' ), 'provided-svg-diagnostic-source' );
 	$assert( 'button.cta' === ( $provided['fixture_diagnostics']['button_style_loss_hints'][0]['selector'] ?? '' ), 'provided-button-style-loss-selector' );
+
+	$GLOBALS['static_site_importer_test_filters']['static_site_importer_codebox_validation_result'] = array();
+	Static_Site_Importer_Codebox_Validation::register_default_provider();
+
+	if ( ! class_exists( 'Static_Site_Importer_Theme_Generator' ) ) {
+		class Static_Site_Importer_Theme_Generator {
+			public static function import_website_artifact( array $artifact, array $args = array() ): array {
+				unset( $artifact );
+
+				$report_path = (string) ( $args['report'] ?? '' );
+				if ( '' !== $report_path ) {
+					$dir = dirname( $report_path );
+					if ( ! is_dir( $dir ) ) {
+						mkdir( $dir, 0777, true );
+					}
+
+					file_put_contents(
+						$report_path,
+						json_encode(
+							array(
+								'quality'     => array(
+									'pass'                => false,
+									'invalid_block_count' => 2,
+								),
+								'diagnostics' => array(
+									array(
+										'id'          => 'local-invalid-blocks',
+										'type'        => 'invalid_block_content',
+										'reason_code' => 'block_validation_failed',
+									),
+								),
+							),
+							JSON_PRETTY_PRINT
+						)
+					);
+					file_put_contents( trailingslashit( $dir ) . 'import-validation-result.json', '{"success":false}' );
+					file_put_contents( trailingslashit( $dir ) . 'finding-packets.json', '[]' );
+				}
+
+				return array(
+					'theme_slug'                      => (string) ( $args['slug'] ?? 'local-validation-fixture' ),
+					'external_report_path'            => $report_path,
+					'external_validation_result_path' => trailingslashit( dirname( $report_path ) ) . 'import-validation-result.json',
+					'external_finding_packets_path'   => trailingslashit( dirname( $report_path ) ) . 'finding-packets.json',
+					'quality'                         => array(
+						'pass'                => false,
+						'invalid_block_count' => 2,
+					),
+				);
+			}
+		}
+	}
+
+	$local = Static_Site_Importer_Codebox_Validation::validate(
+		array(
+			'artifact' => array( 'schema' => 'blocks-engine/php-transformer/site-artifact/v1' ),
+			'slug'     => 'Local Fixture',
+			'name'     => 'Local Fixture',
+		)
+	);
+
+	$assert( false === ( $local['success'] ?? true ), 'local-provider-quality-fails' );
+	$assert( 'failed' === ( $local['status'] ?? '' ), 'local-provider-status' );
+	$assert( 'static-site-importer/current-codebox-runtime' === ( $local['runtime']['provider'] ?? '' ), 'local-provider-runtime' );
+	$assert( 'local-fixture' === ( $local['artifacts']['generated_theme']['artifact_ref'] ?? '' ), 'local-provider-theme-ref' );
+	$assert( 'import-report.json' === ( $local['artifacts']['import_report']['artifact_ref'] ?? '' ), 'local-provider-import-report-ref' );
+	$assert( 'import-validation-result.json' === ( $local['artifacts']['block_validation_result']['artifact_ref'] ?? '' ), 'local-provider-block-validation-ref' );
+	$assert( 2 === ( $local['fixture_diagnostics']['quality_counts']['invalid_block_count'] ?? 0 ), 'local-provider-invalid-block-count' );
+	$assert( 'invalid_block_content' === ( $local['fixture_diagnostics']['diagnostics'][0]['type'] ?? '' ), 'local-provider-diagnostic-type' );
 
 	if ( $failures ) {
 		fwrite( STDERR, implode( "\n", $failures ) . "\n" );
