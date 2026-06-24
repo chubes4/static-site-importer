@@ -20,6 +20,13 @@
       },
       "notes": "Blocks Engine emits the canonical WordPress materialization plan and remains unaware of Codebox validation details."
     },
+    "blocks_engine_semantic_parity": {
+      "owner": "blocks_engine",
+      "consumer": "static_site_importer",
+      "schema": "blocks-engine/semantic-parity-report/v1",
+      "required_fields": ["schema", "status", "findings"],
+      "notes": "Optional report consumed by SSI to surface semantic structure parity findings, including navigation and landmark mismatches."
+    },
     "ssi_import_report": {
       "owner": "static_site_importer",
       "consumer": "product_caller",
@@ -78,6 +85,22 @@
           "assets": []
         }
       }
+    },
+    "blocks_engine_semantic_parity": {
+      "schema": "blocks-engine/semantic-parity-report/v1",
+      "status": "reported",
+      "summary": {
+        "source_nav_count": 1,
+        "generated_nav_count": 0
+      },
+      "findings": [
+        {
+          "type": "navigation_missing",
+          "source_path": "website/index.html",
+          "selector": "header nav",
+          "message": "Source navigation exists but generated output has no core navigation/menu parity."
+        }
+      ]
     },
     "ssi_import_report": {
       "version": 1,

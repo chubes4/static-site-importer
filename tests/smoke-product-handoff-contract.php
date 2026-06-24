@@ -37,6 +37,7 @@ $example = isset( $fixture['example'] ) && is_array( $fixture['example'] ) ? $fi
 $expected_stage_schemas = array(
 	'input_artifact'                       => $schemas['input_artifact'],
 	'blocks_engine_result'                 => $schemas['blocks_engine_result'],
+	'blocks_engine_semantic_parity'        => $schemas['blocks_engine_semantic_parity'],
 	'ssi_import_report'                    => $schemas['ssi_import_report'],
 	'codebox_validation_artifact_envelope' => $schemas['codebox_validation_artifact_envelope'],
 );
