@@ -241,7 +241,7 @@ class Static_Site_Importer_Report_Diagnostics {
 		}
 
 		$emitted = '';
-		if ( function_exists( 'serialize_blocks' ) ) {
+		if ( function_exists( 'serialize_blocks' ) && self::is_serializable_parsed_block( $block ) ) {
 			// @phpstan-ignore-next-line argument.type -- Parsed block shape comes from WordPress parse_blocks() or transformer diagnostics.
 			$emitted = serialize_blocks( array( $block ) );
 		}
@@ -274,6 +274,34 @@ class Static_Site_Importer_Report_Diagnostics {
 		}
 
 		return $entry;
+	}
+
+	/**
+	 * Check whether a diagnostic block has the parsed-block fields WordPress serialization requires.
+	 *
+	 * @param array<string,mixed> $block Generated or parsed block.
+	 * @return bool
+	 */
+	private static function is_serializable_parsed_block( array $block ): bool {
+		if ( ! array_key_exists( 'blockName', $block ) || ! isset( $block['attrs'], $block['innerBlocks'], $block['innerContent'] ) ) {
+			return false;
+		}
+
+		if ( null !== $block['blockName'] && ! is_string( $block['blockName'] ) ) {
+			return false;
+		}
+
+		if ( ! is_array( $block['attrs'] ) || ! is_array( $block['innerBlocks'] ) || ! is_array( $block['innerContent'] ) ) {
+			return false;
+		}
+
+		foreach ( $block['innerBlocks'] as $inner_block ) {
+			if ( ! is_array( $inner_block ) || ! self::is_serializable_parsed_block( $inner_block ) ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/**
