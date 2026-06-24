@@ -99,8 +99,14 @@ if ( defined( 'WP_CLI' ) && WP_CLI && class_exists( 'WP_CLI' ) ) {
 
 			$result = Static_Site_Importer_Codebox_Validation::validate( $input );
 			if ( is_wp_error( $result ) ) {
-				WP_CLI::error( $result->get_error_message() );
-				return;
+				$error_result = Static_Site_Importer_Codebox_Validation::error_result_from_wp_error( $result, $input );
+				$json         = wp_json_encode( $error_result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+				if ( false === $json ) {
+					WP_CLI::error( $result->get_error_message() );
+				}
+
+				WP_CLI::line( (string) $json );
+				WP_CLI::halt( 1 );
 			}
 
 			$json = wp_json_encode( $result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );

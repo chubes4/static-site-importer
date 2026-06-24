@@ -332,7 +332,6 @@ class Static_Site_Importer_Page_Materializer {
 		}
 
 		$result = call_user_func( 'blocks_engine_php_transformer_convert_format', $body, 'html', 'blocks' );
-		$result = is_array( $result ) ? $result : array();
 
 		foreach ( isset( $result['diagnostics'] ) && is_array( $result['diagnostics'] ) ? $result['diagnostics'] : array() as $diagnostic ) {
 			if ( is_array( $diagnostic ) ) {
