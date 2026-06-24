@@ -241,7 +241,7 @@ class Static_Site_Importer_Report_Diagnostics {
 		}
 
 		$emitted = '';
-		if ( function_exists( 'serialize_blocks' ) ) {
+		if ( function_exists( 'serialize_blocks' ) && self::is_serializable_parsed_block( $block ) ) {
 			// @phpstan-ignore-next-line argument.type -- Parsed block shape comes from WordPress parse_blocks() or transformer diagnostics.
 			$emitted = serialize_blocks( array( $block ) );
 		}
@@ -274,6 +274,34 @@ class Static_Site_Importer_Report_Diagnostics {
 		}
 
 		return $entry;
+	}
+
+	/**
+	 * Check whether a diagnostic block has the parsed-block fields WordPress serialization requires.
+	 *
+	 * @param array<string,mixed> $block Generated or parsed block.
+	 * @return bool
+	 */
+	private static function is_serializable_parsed_block( array $block ): bool {
+		if ( ! array_key_exists( 'blockName', $block ) || ! isset( $block['attrs'], $block['innerBlocks'], $block['innerContent'] ) ) {
+			return false;
+		}
+
+		if ( null !== $block['blockName'] && ! is_string( $block['blockName'] ) ) {
+			return false;
+		}
+
+		if ( ! is_array( $block['attrs'] ) || ! is_array( $block['innerBlocks'] ) || ! is_array( $block['innerContent'] ) ) {
+			return false;
+		}
+
+		foreach ( $block['innerBlocks'] as $inner_block ) {
+			if ( ! is_array( $inner_block ) || ! self::is_serializable_parsed_block( $inner_block ) ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/**
@@ -1007,6 +1035,18 @@ class Static_Site_Importer_Report_Diagnostics {
 			'interaction_candidate_count' => count( $interaction_candidates ),
 		);
 
+		foreach ( array( 'asset_reference_count', 'presentation_gap_count' ) as $count_field ) {
+			if ( isset( $conversion_report[ $count_field ] ) && is_numeric( $conversion_report[ $count_field ] ) ) {
+				$payload[ $count_field ] = (int) $conversion_report[ $count_field ];
+			}
+		}
+
+		foreach ( array( 'source_selector_summaries', 'block_type_counts', 'asset_references', 'presentation_gaps', 'page_metrics' ) as $field ) {
+			if ( isset( $conversion_report[ $field ] ) && is_array( $conversion_report[ $field ] ) ) {
+				$payload[ $field ] = self::compact_native_report_value( $conversion_report[ $field ] );
+			}
+		}
+
 		if ( ! empty( $diagnostics ) ) {
 			$payload['diagnostics'] = self::compact_native_report_rows( $diagnostics );
 		}
@@ -1141,7 +1181,7 @@ class Static_Site_Importer_Report_Diagnostics {
 	 * @return array<int,array<string,mixed>>
 	 */
 	private static function compact_native_report_rows( array $rows ): array {
-		$fields  = array( 'type', 'kind', 'code', 'severity', 'source', 'source_path', 'path', 'selector', 'tag_name', 'block_name', 'block_path', 'reason', 'reason_code', 'message', 'excerpt', 'source_html_preview', 'emitted_block_preview', 'html_excerpt' );
+		$fields  = array( 'type', 'kind', 'code', 'severity', 'source', 'source_path', 'path', 'selector', 'tag_name', 'block_name', 'block_path', 'attribute_path', 'reason', 'reason_code', 'message', 'excerpt', 'source_html_preview', 'emitted_block_preview', 'html_excerpt' );
 		$compact = array();
 		foreach ( array_slice( $rows, 0, 50 ) as $row ) {
 			if ( ! is_array( $row ) ) {
@@ -1157,6 +1197,28 @@ class Static_Site_Importer_Report_Diagnostics {
 
 			if ( ! empty( $entry ) ) {
 				$compact[] = $entry;
+			}
+		}
+
+		return $compact;
+	}
+
+	/**
+	 * Compact nested native report values while preserving scalar metrics.
+	 *
+	 * @param mixed $value Native report value.
+	 * @return mixed
+	 */
+	private static function compact_native_report_value( mixed $value ): mixed {
+		if ( ! is_array( $value ) ) {
+			return is_scalar( $value ) || null === $value ? $value : null;
+		}
+
+		$compact = array();
+		foreach ( array_slice( $value, 0, 50, true ) as $key => $item ) {
+			$compacted = self::compact_native_report_value( $item );
+			if ( null !== $compacted ) {
+				$compact[ $key ] = $compacted;
 			}
 		}
 

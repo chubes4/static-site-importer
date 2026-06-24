@@ -86,6 +86,40 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Incomplete diagnostic blocks fall back to HTML previews instead of calling serialize_blocks().
+	 */
+	public function test_fallback_diagnostic_entry_handles_incomplete_block_shape(): void {
+		$warnings = array();
+		set_error_handler(
+			static function ( int $errno, string $errstr ) use ( &$warnings ): bool {
+				$warnings[] = $errstr;
+				return true;
+			}
+		);
+
+		try {
+			$entry = Static_Site_Importer_Report_Diagnostics::fallback_diagnostic_entry(
+				'freeform_block',
+				'generated:templates/front-page.html',
+				'<p>Unparsed HTML</p>',
+				array(
+					'reason' => 'generated_document_contains_malformed_freeform_html',
+					'stage'  => 'generated_theme_block_analysis',
+				),
+				array(
+					'innerHTML' => '<p>Unparsed HTML</p>',
+				)
+			);
+		} finally {
+			restore_error_handler();
+		}
+
+		$this->assertSame( array(), $warnings );
+		$this->assertStringContainsString( 'Unparsed HTML', $entry['emitted_block_preview'] ?? '' );
+		$this->assertNull( $entry['block_name'] ?? null );
+	}
+
+	/**
 	 * Import validation and finding packet artifacts expose repair-loop contracts.
 	 */
 	public function test_import_validation_result_and_finding_packets_are_machine_readable(): void {

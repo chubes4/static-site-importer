@@ -54,6 +54,12 @@ if ( ! function_exists( 'esc_html' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_strip_all_tags' ) ) {
+	function wp_strip_all_tags( string $value ): string {
+		return strip_tags( $value );
+	}
+}
+
 if ( ! function_exists( 'get_post_type_object' ) ) {
 	function get_post_type_object( string $post_type ): ?object {
 		return 'page' === $post_type ? (object) array( 'name' => 'page' ) : null;
@@ -140,6 +146,39 @@ $assert( 'wordpress_parse_blocks_serialize_blocks' === ( $materialized['validati
 $assert( 1 === ( $materialized['block_count'] ?? 0 ), 'block-count' );
 $assert( 0 === ( $materialized['invalid_block_count'] ?? -1 ), 'valid-content-has-no-invalid-blocks' );
 $assert( $materialized === $generated, 'legacy-generated-theme-bucket-preserved' );
+
+$report_property->setValue( null, Static_Site_Importer_Report_Diagnostics::new_conversion_report( '/tmp/source/index.html' ) );
+$analyze->invoke(
+	null,
+	array( 'index.html' => $page ),
+	array( 'index.html' => '<p>Loose unparsed HTML</p>' )
+);
+
+$invalid_report      = $report_property->getValue();
+$invalid_diagnostic = array();
+foreach ( $invalid_report['diagnostics'] ?? array() as $diagnostic ) {
+	if ( is_array( $diagnostic ) && 'invalid_block_document' === ( $diagnostic['type'] ?? '' ) ) {
+		$invalid_diagnostic = $diagnostic;
+		break;
+	}
+}
+
+$assert( 'invalid_block_document' === ( $invalid_diagnostic['type'] ?? '' ), 'invalid-document-diagnostic-type' );
+$assert( 'posts/page-home.post_content' === ( $invalid_diagnostic['source'] ?? '' ), 'invalid-document-source' );
+$assert( 'unparsed_html' === ( $invalid_diagnostic['block_name'] ?? '' ), 'invalid-document-block-name' );
+$assert( '0' === ( $invalid_diagnostic['block_path'] ?? '' ), 'invalid-document-block-path' );
+$assert( 'innerHTML' === ( $invalid_diagnostic['attribute_path'] ?? '' ), 'invalid-document-attribute-path' );
+$assert( '' !== ( $invalid_diagnostic['validation_message'] ?? '' ), 'invalid-document-validation-message' );
+$assert( '' !== ( $invalid_diagnostic['parser_validation_message'] ?? '' ), 'invalid-document-parser-validation-message' );
+
+$report_property->setValue( null, Static_Site_Importer_Report_Diagnostics::new_conversion_report( '/tmp/source/index.html' ) );
+$analyze->invoke(
+	null,
+	array( 'index.html' => $page ),
+	array( 'index.html' => '<!-- wp:navigation-link {"label":"Home","url":"http:\\/\\/localhost:8881\\/","kind":"custom"} /-->' )
+);
+$slash_report = $report_property->getValue();
+$assert( 0 === ( $slash_report['quality']['invalid_block_count'] ?? -1 ), 'escaped-url-slashes-are-not-invalid-blocks' );
 
 if ( $failures ) {
 	fwrite( STDERR, implode( "\n", $failures ) . "\n" );
