@@ -128,7 +128,7 @@
 		const selectedFiles = selectedInputFiles( inputs, root );
 		const files = selectedFiles.filter( function ( record ) {
 			const path = record.path || uploadedFilePath( record.file );
-			return ! /\.(fig|zip)$/i.test( record.file.name || path || '' ) && shouldIncludeSiteFile( path );
+			return ! /\.zip$/i.test( record.file.name || path || '' ) && shouldIncludeSiteFile( path );
 		} );
 		return Promise.all( files.map( async function ( upload ) {
 			const file = upload.file;
@@ -164,24 +164,6 @@
 			path: archive.path || file.name || 'website.zip',
 			name: file.name || 'website.zip',
 			type: file.type || 'application/zip',
-			size: file.size || 0,
-			content_base64: await fileToBase64( file ),
-		};
-	};
-
-	const buildFigmaFile = async function ( inputs, root ) {
-		const selectedFiles = selectedInputFiles( inputs, root );
-		const upload = selectedFiles.find( function ( record ) {
-			return /\.fig$/i.test( record.file.name || record.path || '' );
-		} );
-		if ( ! upload ) {
-			return null;
-		}
-		const file = upload.file;
-
-		return {
-			name: file.name || 'design.fig',
-			type: file.type || 'application/octet-stream',
 			size: file.size || 0,
 			content_base64: await fileToBase64( file ),
 		};
@@ -256,7 +238,6 @@
 		return Boolean(
 			( source.files && source.files.length > 0 ) ||
 			( source.archive && source.archive.content_base64 ) ||
-			( source.figma_file && source.figma_file.content_base64 ) ||
 			( source.html && source.html.trim() ) ||
 			( source.url && source.url.trim() )
 		);
@@ -329,7 +310,6 @@
 				html: html ? html.value : '',
 				files: await buildFiles( uploadInputs, root ),
 				archive: await buildArchive( uploadInputs, root ),
-				figma_file: await buildFigmaFile( uploadInputs, root ),
 			};
 
 			if ( ! hasSource( source ) ) {

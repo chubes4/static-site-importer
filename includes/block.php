@@ -31,7 +31,7 @@ function static_site_importer_register_block(): void {
  */
 function static_site_importer_render_block( array $attributes = array() ): string {
 	$title       = isset( $attributes['title'] ) && '' !== trim( (string) $attributes['title'] ) ? (string) $attributes['title'] : __( 'Bring a site into WordPress.', 'static-site-importer' );
-	$intro       = isset( $attributes['intro'] ) && '' !== trim( (string) $attributes['intro'] ) ? (string) $attributes['intro'] : __( 'Upload a static site, ZIP, or Figma export, or paste HTML. Static Site Importer will compile it into a block theme.', 'static-site-importer' );
+	$intro       = isset( $attributes['intro'] ) && '' !== trim( (string) $attributes['intro'] ) ? (string) $attributes['intro'] : __( 'Upload a static site, ZIP, folder, or paste HTML. Static Site Importer will compile it into a block theme.', 'static-site-importer' );
 	$provider    = isset( $attributes['provider'] ) ? sanitize_key( (string) $attributes['provider'] ) : '';
 	$default_url = isset( $attributes['defaultUrl'] ) ? esc_url_raw( (string) $attributes['defaultUrl'] ) : '';
 	$apply       = ! empty( $attributes['applyToCurrentSite'] );
@@ -49,18 +49,18 @@ function static_site_importer_render_block( array $attributes = array() ): strin
 			<form class="ssi-importer__form" data-static-site-importer-form data-static-site-importer-default-url="<?php echo esc_attr( $default_url ); ?>">
 				<fieldset class="ssi-importer__field ssi-importer__dropzone" data-static-site-importer-dropzone>
 					<legend class="ssi-importer__label"><?php esc_html_e( 'Drop website source', 'static-site-importer' ); ?></legend>
-					<p class="ssi-importer__upload-copy"><?php esc_html_e( 'Drag a folder, ZIP, Figma export, or static site files here.', 'static-site-importer' ); ?></p>
+					<p class="ssi-importer__upload-copy"><?php esc_html_e( 'Drag a folder, ZIP, or static site files here.', 'static-site-importer' ); ?></p>
 				</fieldset>
 
 				<fieldset class="ssi-importer__field ssi-importer__upload-controls">
 					<legend class="ssi-importer__label"><?php esc_html_e( 'Choose website source', 'static-site-importer' ); ?></legend>
 					<div class="ssi-importer__upload-row">
 						<select class="ssi-importer__source-select" aria-label="<?php echo esc_attr( __( 'Source type', 'static-site-importer' ) ); ?>" data-static-site-importer-source-type>
-							<option value="files"><?php esc_html_e( 'Files, ZIP, or FIG', 'static-site-importer' ); ?></option>
+							<option value="files"><?php esc_html_e( 'Files or ZIP', 'static-site-importer' ); ?></option>
 							<option value="folder"><?php esc_html_e( 'Folder', 'static-site-importer' ); ?></option>
 						</select>
 						<button type="button" class="ssi-importer__upload-button" data-static-site-importer-upload-trigger><?php esc_html_e( 'Upload source', 'static-site-importer' ); ?></button>
-						<input type="file" name="ssi_static_upload[]" accept=".fig,.zip,application/zip,.html,.htm,text/html,text/css,text/javascript,application/javascript,application/json,application/xml,text/xml,image/*,font/*" multiple hidden data-static-site-importer-source-files>
+						<input type="file" name="ssi_static_upload[]" accept=".zip,application/zip,.html,.htm,text/html,text/css,text/javascript,application/javascript,application/json,application/xml,text/xml,image/*,font/*" multiple hidden data-static-site-importer-source-files>
 						<input type="file" name="ssi_static_directory[]" multiple webkitdirectory hidden data-static-site-importer-source-directory>
 					</div>
 				</fieldset>

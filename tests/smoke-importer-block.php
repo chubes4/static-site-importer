@@ -481,14 +481,15 @@ $assert( ! str_contains( $html, 'data-static-site-importer-source-url' ), 'rende
 $assert( str_contains( $html, 'data-static-site-importer-default-url="https://example.com/source"' ), 'render-preserves-default-url-for-programmatic-use' );
 $assert( str_contains( $html, 'data-static-site-importer-source-files' ), 'render-has-file-input-hook' );
 $assert( str_contains( $html, 'Drop website source' ), 'render-has-decoupled-dropzone-label' );
-$assert( str_contains( $html, 'Drag a folder, ZIP, Figma export, or static site files here.' ), 'render-has-upload-dropzone-copy' );
+$assert( str_contains( $html, 'Drag a folder, ZIP, or static site files here.' ), 'render-has-upload-dropzone-copy' );
 $assert( str_contains( $html, 'data-static-site-importer-dropzone' ), 'render-has-upload-dropzone-hook' );
 $assert( str_contains( $html, 'Choose website source' ), 'render-has-decoupled-source-picker-label' );
 $assert( str_contains( $html, 'data-static-site-importer-source-type' ), 'render-has-source-type-dropdown-hook' );
 $assert( str_contains( $html, '<select' ), 'render-has-source-type-dropdown' );
 $assert( str_contains( $html, 'data-static-site-importer-upload-trigger' ), 'render-has-single-upload-trigger-hook' );
 $assert( str_contains( $html, 'Upload source' ), 'render-has-single-visible-upload-affordance' );
-$assert( str_contains( $html, 'Files, ZIP, or FIG' ), 'render-preserves-file-zip-fig-upload-choice' );
+$assert( str_contains( $html, 'Files or ZIP' ), 'render-preserves-file-zip-upload-choice' );
+$assert( ! str_contains( $html, 'FIG' ), 'render-omits-fig-upload-choice' );
 $assert( str_contains( $html, 'Folder' ), 'render-preserves-folder-upload-choice' );
 $assert( str_contains( $html, 'data-static-site-importer-source-directory' ), 'render-preserves-directory-upload-hook' );
 $assert( str_contains( $html, 'webkitdirectory' ), 'render-preserves-directory-picker' );
@@ -498,7 +499,7 @@ $assert( ! str_contains( $html, '<details class="ssi-importer__upload-picker"' )
 $assert( ! str_contains( $html, '<summary class="ssi-importer__upload-button"' ), 'render-omits-upload-summary-button' );
 $assert( ! str_contains( $html, 'Upload Figma file' ), 'render-omits-separate-figma-upload-label' );
 $assert( ! str_contains( $html, 'data-static-site-importer-source-figma-file' ), 'render-omits-separate-figma-upload-hook' );
-$assert( str_contains( $html, 'accept=&quot;.fig,.zip,application/zip' ) || str_contains( $html, 'accept=".fig,.zip,application/zip' ), 'render-figma-upload-accepts-fig-in-combined-upload' );
+$assert( ! str_contains( $html, '.fig' ), 'render-omits-fig-from-combined-upload-accept' );
 $assert( ! str_contains( $html, 'data-static-site-importer-source-archive' ), 'render-omits-separate-zip-upload-hook' );
 $assert( str_contains( $html, '.zip,application/zip' ), 'render-accepts-zip-in-combined-upload' );
 $assert( str_contains( $html, 'data-static-site-importer-source-html' ), 'render-has-html-input-hook' );
@@ -526,8 +527,9 @@ $assert( str_contains( $view_js, "sourceType.value === 'folder'" ), 'view-routes
 $assert( str_contains( $view_js, 'input.click()' ), 'view-opens-selected-hidden-input' );
 $assert( str_contains( $view_js, 'webkitGetAsEntry' ), 'view-supports-dropped-directory-entries' );
 $assert( str_contains( $view_js, 'archive: await buildArchive( uploadInputs, root )' ), 'view-sends-zip-from-combined-upload-as-archive-payload' );
-$assert( str_contains( $view_js, 'figma_file: await buildFigmaFile( uploadInputs, root )' ), 'view-sends-distinct-figma-source-shape-from-combined-upload' );
-$assert( str_contains( $view_js, '/\\.(fig|zip)$/i' ), 'view-excludes-fig-files-from-generic-static-upload' );
+$assert( ! str_contains( $view_js, 'figma_file' ), 'view-does-not-send-figma-source-shape-from-block' );
+$assert( ! str_contains( $view_js, 'buildFigmaFile' ), 'view-does-not-build-figma-file-payload' );
+$assert( str_contains( $view_js, '/\\.zip$/i' ), 'view-excludes-zip-files-from-generic-static-upload' );
 $assert( ! str_contains( $view_js, 'data-static-site-importer-source-figma-file' ), 'view-omits-separate-figma-file-input' );
 $assert( str_contains( $view_js, 'shouldIncludeSiteFile' ), 'view-skips-known-non-site-upload-files-before-reading' );
 $assert( ! str_contains( $view_js, 'CurrentRuntime' ), 'view-does-not-reference-current-runtime-mode' );
