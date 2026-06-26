@@ -553,10 +553,9 @@ $assert( str_contains( $view_js, 'isCurrentSiteImport' ), 'view-names-current-si
 $assert( str_contains( $view_js, 'apply_to_current_site: isCurrentSiteImport' ), 'view-sends-current-site-apply-flag-only-from-apply-mode' );
 $assert( str_contains( $view_js, 'activate: isCurrentSiteImport' ), 'view-activates-only-current-site-imports' );
 $assert( str_contains( $view_js, 'overwrite: isCurrentSiteImport' ), 'view-overwrites-only-current-site-imports' );
-$assert( str_contains( $view_js, "window.open( 'about:blank', '_blank' )" ), 'view-opens-controllable-playground-window-from-click' );
-$assert( ! str_contains( $view_js, "window.open( 'about:blank', '_blank', 'noopener,noreferrer' )" ), 'view-does-not-open-uncontrollable-about-blank-window' );
-$assert( str_contains( $view_js, 'openedWindow.opener = null' ), 'view-clears-playground-window-opener' );
-$assert( str_contains( $view_js, 'openPreview( report, playgroundWindow )' ), 'view-navigates-opened-window-to-playground-url' );
+$assert( ! str_contains( $view_js, 'about:blank' ), 'view-does-not-open-window-before-preview-url-is-ready' );
+$assert( ! str_contains( $view_js, 'openPendingPreviewWindow' ), 'view-has-no-pending-preview-window-helper' );
+$assert( str_contains( $view_js, 'openPreview( report )' ), 'view-opens-preview-only-after-report-is-ready' );
 $assert( str_contains( $view_js, 'playground.blueprint_url || preview.url' ), 'view-opens-playground-blueprint-for-generated-site' );
 $generic_preview_message = implode( ' ', array( 'no', 'preview', 'provider', 'is', 'configured' ) );
 $assert( ! str_contains( $view_js, $generic_preview_message ), 'view-does-not-reference-generic-preview-message' );

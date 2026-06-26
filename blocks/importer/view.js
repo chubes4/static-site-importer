@@ -199,29 +199,13 @@
 		return playground.blueprint_url || preview.url || '';
 	};
 
-	const openPendingPreviewWindow = function () {
-		const openedWindow = window.open( 'about:blank', '_blank' );
-		if ( openedWindow ) {
-			openedWindow.opener = null;
-		}
-
-		return openedWindow;
-	};
-
-	const openPreview = function ( report, openedWindow ) {
+	const openPreview = function ( report ) {
 		const url = previewUrl( report );
 		if ( ! url ) {
-			if ( openedWindow ) {
-				openedWindow.close();
-			}
 			return false;
 		}
 
-		if ( openedWindow ) {
-			openedWindow.location.href = url;
-		} else {
-			window.open( url, '_blank', 'noopener,noreferrer' );
-		}
+		window.open( url, '_blank', 'noopener,noreferrer' );
 
 		return true;
 	};
@@ -282,7 +266,6 @@
 		const restUrl = root.getAttribute( 'data-static-site-importer-figma-rest-url' );
 		const nonce = root.getAttribute( 'data-static-site-importer-nonce' );
 		const isCurrentSiteImport = root.getAttribute( 'data-static-site-importer-apply-to-current-site' ) === '1';
-		const playgroundWindow = isCurrentSiteImport ? null : openPendingPreviewWindow();
 		const formData = new FormData();
 		formData.append( 'figma_file', file );
 		formData.append( 'apply_to_current_site', isCurrentSiteImport ? '1' : '0' );
@@ -304,19 +287,13 @@
 			if ( response.ok && isCurrentSiteImport && report.success ) {
 				showStatus( root, 'Figma import complete.' );
 			} else if ( response.ok && report.success && previewUrl( report ) ) {
-				openPreview( report, playgroundWindow );
+				openPreview( report );
 				showStatus( root, 'WordPress Playground opened.' );
 			} else {
-				if ( playgroundWindow ) {
-					playgroundWindow.close();
-				}
 				showStatus( root, response.ok ? 'Figma import request complete.' : 'Figma import request failed.' );
 			}
 		} catch ( error ) {
 			setReport( root, { success: false, error: { message: error.message } } );
-			if ( playgroundWindow ) {
-				playgroundWindow.close();
-			}
 			showStatus( root, 'Figma import request failed.' );
 		}
 	};
@@ -351,7 +328,6 @@
 			const uploadInputs = root.querySelectorAll( '[data-static-site-importer-source-files], [data-static-site-importer-source-directory]' );
 			const provider = root.getAttribute( 'data-static-site-importer-provider' ) || '';
 			const isCurrentSiteImport = root.getAttribute( 'data-static-site-importer-apply-to-current-site' ) === '1';
-			const playgroundWindow = isCurrentSiteImport ? null : openPendingPreviewWindow();
 			const source = {
 				url: form ? form.getAttribute( 'data-static-site-importer-default-url' ) || '' : '',
 				html: html ? html.value : '',
@@ -360,9 +336,6 @@
 			};
 
 			if ( ! hasSource( source ) ) {
-				if ( playgroundWindow ) {
-					playgroundWindow.close();
-				}
 				setReport( root, { success: false, error: { message: 'Upload a website or paste HTML to start.' } } );
 				showStatus( root, 'Upload a website or paste HTML to start.' );
 				return;
@@ -393,27 +366,18 @@
 				if ( response.ok && isCurrentSiteImport && report.success ) {
 					showStatus( root, 'Import complete.' );
 				} else if ( response.ok && report.success && previewUrl( report ) ) {
-					openPreview( report, playgroundWindow );
+					openPreview( report );
 					showStatus( root, 'WordPress Playground opened.' );
 				} else if ( response.ok && previewUrl( report ) ) {
-					openPreview( report, playgroundWindow );
+					openPreview( report );
 					showStatus( root, 'Preview opened.' );
 				} else if ( response.ok && report.preview && report.preview.status === 'unavailable' ) {
-					if ( playgroundWindow ) {
-						playgroundWindow.close();
-					}
 					showStatus( root, report.preview.message || 'Preview unavailable: WP Codebox did not return a preview URL or Playground blueprint URL.' );
 				} else {
-					if ( playgroundWindow ) {
-						playgroundWindow.close();
-					}
 					showStatus( root, response.ok && report.success ? 'Preview request complete.' : 'Preview request failed.' );
 				}
 			} catch ( error ) {
 				setReport( root, { success: false, error: { message: error.message } } );
-				if ( playgroundWindow ) {
-					playgroundWindow.close();
-				}
 				showStatus( root, 'Preview request failed.' );
 			} finally {
 				submit.disabled = false;
