@@ -195,26 +195,7 @@
 
 	const previewUrl = function ( report ) {
 		const preview = report && report.preview && typeof report.preview === 'object' ? report.preview : {};
-		const playground = preview.playground && typeof preview.playground === 'object' ? preview.playground : {};
-		return preview.url || playground.blueprint_url || '';
-	};
-
-	const setPreviewLink = function ( root, report ) {
-		const wrap = root.querySelector( '[data-static-site-importer-preview-link-wrap]' );
-		const link = root.querySelector( '[data-static-site-importer-preview-link]' );
-
-		if ( ! wrap || ! link ) {
-			return;
-		}
-
-		const url = previewUrl( report );
-		if ( url ) {
-			link.href = url;
-			wrap.hidden = false;
-		} else {
-			link.removeAttribute( 'href' );
-			wrap.hidden = true;
-		}
+		return preview.url || '';
 	};
 
 	const openPreview = function ( report, openedWindow ) {
@@ -298,7 +279,7 @@
 		formData.append( 'activate', isCurrentSiteImport ? '1' : '0' );
 		formData.append( 'overwrite', isCurrentSiteImport ? '1' : '0' );
 
-		showStatus( root, isCurrentSiteImport ? 'Importing Figma file to this site...' : 'Preparing Figma file for WordPress Playground...' );
+		showStatus( root, isCurrentSiteImport ? 'Importing Figma file to this site...' : 'Preparing Figma file for WordPress preview...' );
 
 		try {
 			const response = await fetch( restUrl, {
@@ -310,12 +291,11 @@
 			} );
 			const report = await response.json();
 			setReport( root, report );
-			setPreviewLink( root, report );
 			if ( response.ok && isCurrentSiteImport && report.success ) {
 				showStatus( root, 'Figma import complete.' );
 			} else if ( response.ok && report.success && previewUrl( report ) ) {
 				openPreview( report, playgroundWindow );
-				showStatus( root, 'WordPress Playground opened.' );
+				showStatus( root, 'WordPress preview opened.' );
 			} else {
 				if ( playgroundWindow ) {
 					playgroundWindow.close();
@@ -324,7 +304,6 @@
 			}
 		} catch ( error ) {
 			setReport( root, { success: false, error: { message: error.message } } );
-			setPreviewLink( root, null );
 			if ( playgroundWindow ) {
 				playgroundWindow.close();
 			}
@@ -379,7 +358,7 @@
 				return;
 			}
 
-			showStatus( root, isCurrentSiteImport ? 'Importing to this site...' : 'Opening WordPress Playground...' );
+			showStatus( root, isCurrentSiteImport ? 'Importing to this site...' : 'Preparing WordPress preview...' );
 			submit.disabled = true;
 
 			try {
@@ -401,12 +380,11 @@
 				} );
 				const report = await response.json();
 				setReport( root, report );
-				setPreviewLink( root, report );
 				if ( response.ok && isCurrentSiteImport && report.success ) {
 					showStatus( root, 'Import complete.' );
 				} else if ( response.ok && report.success && previewUrl( report ) ) {
 					openPreview( report, playgroundWindow );
-					showStatus( root, 'WordPress Playground opened.' );
+					showStatus( root, 'WordPress preview opened.' );
 				} else if ( response.ok && previewUrl( report ) ) {
 					openPreview( report, playgroundWindow );
 					showStatus( root, 'Preview opened.' );
@@ -423,7 +401,6 @@
 				}
 			} catch ( error ) {
 				setReport( root, { success: false, error: { message: error.message } } );
-				setPreviewLink( root, null );
 				if ( playgroundWindow ) {
 					playgroundWindow.close();
 				}
