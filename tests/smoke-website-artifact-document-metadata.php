@@ -211,6 +211,7 @@ if ( ! is_wp_error( $result ) ) {
 	$finding_packets   = json_decode( $read( $result['finding_packets_path'] ?? '' ), true );
 	$page_ids  = array_values( $result['pages'] ?? array() );
 	$page_id   = (int) ( $page_ids[0] ?? 0 );
+	$progress_events = isset( $result['progress_events'] ) && is_array( $result['progress_events'] ) ? $result['progress_events'] : array();
 	$page      = $page_id > 0 ? get_post( $page_id ) : null;
 	$content   = $page instanceof WP_Post ? $page->post_content : '';
 	$documents = array();
@@ -245,6 +246,10 @@ if ( ! is_wp_error( $result ) ) {
 	$assert( 'ssi-smoke-run-001' === ( $report['import_run_id'] ?? '' ), 'report-includes-import-run-id' );
 	$assert( 'sha256:ember-rye-smoke' === ( $report['source_artifact']['hash'] ?? '' ), 'report-includes-source-artifact-hash' );
 	$assert( 'static-site-importer/source-of-truth-manifest/v1' === ( $report['source_of_truth']['schema'] ?? '' ), 'report-includes-source-of-truth-schema' );
+	$assert( 'wp-codebox/live-progress-event/v1' === ( $progress_events[0]['schema'] ?? '' ), 'progress-event-uses-canonical-schema' );
+	$assert( 'ssi.materialization.completed' === ( $progress_events[0]['phase'] ?? '' ), 'progress-event-materialization-phase' );
+	$assert( 100 === (int) ( $progress_events[0]['progress']['percent'] ?? 0 ), 'progress-event-materialization-complete-percent' );
+	$assert( 'ssi.saved.completed' === ( $progress_events[2]['phase'] ?? '' ), 'progress-event-saved-state' );
 	$assert( 'ssi-smoke-run-001' === ( $manifest['import_run_id'] ?? '' ), 'manifest-includes-import-run-id' );
 	$assert( 'sha256:ember-rye-smoke' === ( $manifest['artifact']['hash'] ?? '' ), 'manifest-includes-source-artifact-hash' );
 	$assert( 'index.html' === ( $manifest['desired']['pages'][0]['source_path'] ?? '' ), 'manifest-includes-desired-page-source' );

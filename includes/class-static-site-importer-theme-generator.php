@@ -323,6 +323,80 @@ class Static_Site_Importer_Theme_Generator {
 			'pages'                           => $page_ids,
 			'quality'                         => $quality,
 			'source_documents'                => self::$conversion_report['source_documents'],
+			'progress_events'                 => self::import_progress_events( $import_run_id, $theme_slug, $page_ids, $writes, $quality, $validation_result, $external_report_path ),
+		);
+	}
+
+	/**
+	 * Build the canonical progress timeline returned to host chat/Codebox callers.
+	 *
+	 * @param string              $import_run_id Import run id.
+	 * @param string              $theme_slug    Theme slug.
+	 * @param array<string,int>   $page_ids      Materialized page IDs.
+	 * @param array<string,string> $writes        Theme file writes.
+	 * @param array<string,mixed>  $quality       Quality summary.
+	 * @param array<string,mixed>  $validation    Validation result.
+	 * @param string              $report_path   External report path.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function import_progress_events( string $import_run_id, string $theme_slug, array $page_ids, array $writes, array $quality, array $validation, string $report_path ): array {
+		$now               = gmdate( 'c' );
+		$page_count        = count( $page_ids );
+		$file_count        = count( $writes );
+		$diagnostic_count  = isset( $validation['diagnostics'] ) && is_array( $validation['diagnostics'] ) ? count( $validation['diagnostics'] ) : 0;
+		$quality_passed    = empty( $quality['fail_import'] );
+		$review_pending    = ! $quality_passed || $diagnostic_count > 0;
+		$common            = array(
+			'schema'    => 'wp-codebox/live-progress-event/v1',
+			'run_id'    => $import_run_id,
+			'source_schema' => 'static-site-importer/materialization-progress/v1',
+			'timestamp' => $now,
+		);
+
+		return array(
+			array_merge(
+				$common,
+				array(
+					'phase'    => 'ssi.materialization.completed',
+					'status'   => 'succeeded',
+					'label'    => 'Materialized WordPress content',
+					'progress' => array(
+						'current'   => $page_count,
+						'completed' => $page_count,
+						'total'     => $page_count,
+						'percent'   => 100,
+						'unit'      => 'pages',
+					),
+					'detail'   => array(
+						'theme_slug' => $theme_slug,
+						'file_count' => $file_count,
+					),
+				)
+			),
+			array_merge(
+				$common,
+				array(
+					'phase'       => 'ssi.validation.completed',
+					'status'      => $quality_passed ? 'succeeded' : 'failed',
+					'label'       => $quality_passed ? 'Validation passed' : 'Validation needs review',
+					'diagnostics' => array(
+						'count' => $diagnostic_count,
+					),
+				)
+			),
+			array_merge(
+				$common,
+				array(
+					'phase'     => $review_pending ? 'ssi.review.pending' : 'ssi.saved.completed',
+					'status'    => $review_pending ? 'running' : 'succeeded',
+					'label'     => $review_pending ? 'Review pending' : 'Saved to WordPress',
+					'artifacts' => array_filter(
+						array(
+							'import_report' => '' !== $report_path ? array( 'path' => $report_path, 'kind' => 'json' ) : null,
+						)
+					),
+				)
+			),
 		);
 	}
 
