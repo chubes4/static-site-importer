@@ -188,6 +188,7 @@
 			status.hidden = false;
 		}
 		if ( progress ) {
+			progress.hidden = false;
 			progress.textContent = message;
 		}
 	};
@@ -268,30 +269,87 @@
 		} );
 	};
 
-	const bindUploadTrigger = function ( root ) {
-		const trigger = root.querySelector( '[data-static-site-importer-upload-trigger]' );
-		const sourceType = root.querySelector( '[data-static-site-importer-source-type]' );
-		if ( ! trigger || ! sourceType ) {
+	const clickInput = function ( root, triggerSelector, inputSelector ) {
+		const trigger = root.querySelector( triggerSelector );
+		const input = root.querySelector( inputSelector );
+		if ( ! trigger || ! input ) {
 			return;
 		}
 
 		trigger.addEventListener( 'click', function () {
-			const selector = sourceType.value === 'folder' ? '[data-static-site-importer-source-directory]' : '[data-static-site-importer-source-files]';
-			const input = root.querySelector( selector );
-			if ( input ) {
-				input.click();
-			}
+			input.click();
 		} );
+	};
+
+	const bindUploadTriggers = function ( root ) {
+		clickInput( root, '[data-static-site-importer-upload-files]', '[data-static-site-importer-source-files]' );
+		clickInput( root, '[data-static-site-importer-upload-folder]', '[data-static-site-importer-source-directory]' );
+		clickInput( root, '[data-static-site-importer-upload-figma]', '[data-static-site-importer-source-figma-file]' );
+	};
+
+	const submitFigmaFile = async function ( root, file ) {
+		const restUrl = root.getAttribute( 'data-static-site-importer-figma-rest-url' );
+		const nonce = root.getAttribute( 'data-static-site-importer-nonce' );
+		const isCurrentSiteImport = root.getAttribute( 'data-static-site-importer-apply-to-current-site' ) === '1';
+		const playgroundWindow = isCurrentSiteImport ? null : window.open( 'about:blank', '_blank', 'noopener,noreferrer' );
+		const formData = new FormData();
+		formData.append( 'figma_file', file );
+		formData.append( 'apply_to_current_site', isCurrentSiteImport ? '1' : '0' );
+		formData.append( 'activate', isCurrentSiteImport ? '1' : '0' );
+		formData.append( 'overwrite', isCurrentSiteImport ? '1' : '0' );
+
+		showStatus( root, isCurrentSiteImport ? 'Importing Figma file to this site...' : 'Preparing Figma file for WordPress Playground...' );
+
+		try {
+			const response = await fetch( restUrl, {
+				method: 'POST',
+				headers: {
+					'X-WP-Nonce': nonce,
+				},
+				body: formData,
+			} );
+			const report = await response.json();
+			setReport( root, report );
+			setPreviewLink( root, report );
+			if ( response.ok && isCurrentSiteImport && report.success ) {
+				showStatus( root, 'Figma import complete.' );
+			} else if ( response.ok && report.success && previewUrl( report ) ) {
+				openPreview( report, playgroundWindow );
+				showStatus( root, 'WordPress Playground opened.' );
+			} else {
+				if ( playgroundWindow ) {
+					playgroundWindow.close();
+				}
+				showStatus( root, response.ok ? 'Figma import request complete.' : 'Figma import request failed.' );
+			}
+		} catch ( error ) {
+			setReport( root, { success: false, error: { message: error.message } } );
+			setPreviewLink( root, null );
+			if ( playgroundWindow ) {
+				playgroundWindow.close();
+			}
+			showStatus( root, 'Figma import request failed.' );
+		}
 	};
 
 	roots.forEach( function ( root ) {
 		bindDropzone( root );
-		bindUploadTrigger( root );
+		bindUploadTriggers( root );
 		root.querySelectorAll( '[data-static-site-importer-source-files], [data-static-site-importer-source-directory]' ).forEach( function ( input ) {
 			input.addEventListener( 'change', function () {
 				setDroppedFiles( root, [] );
 			} );
 		} );
+
+		const figmaInput = root.querySelector( '[data-static-site-importer-source-figma-file]' );
+		if ( figmaInput ) {
+			figmaInput.addEventListener( 'change', function () {
+				const file = figmaInput.files && figmaInput.files.length ? figmaInput.files[ 0 ] : null;
+				if ( file ) {
+					submitFigmaFile( root, file );
+				}
+			} );
+		}
 
 		const submit = root.querySelector( '[data-static-site-importer-submit]' );
 		if ( ! submit ) {

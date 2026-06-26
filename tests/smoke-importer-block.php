@@ -291,13 +291,23 @@ if ( ! class_exists( 'WP_Error' ) ) {
 if ( ! class_exists( 'WP_REST_Request' ) ) {
 	class WP_REST_Request {
 		private array $params;
+		private array $files;
 
-		public function __construct( array $params ) {
+		public function __construct( array $params, array $files = array() ) {
 			$this->params = $params;
+			$this->files  = $files;
 		}
 
 		public function get_json_params(): array {
 			return $this->params;
+		}
+
+		public function get_params(): array {
+			return $this->params;
+		}
+
+		public function get_file_params(): array {
+			return $this->files;
 		}
 
 		public function get_param( string $name ) {
@@ -474,6 +484,7 @@ $html = static_site_importer_render_block(
 
 $assert( str_contains( $html, 'data-static-site-importer' ), 'render-has-root-hook' );
 $assert( str_contains( $html, 'data-static-site-importer-rest-url="https://example.test/wp-json/static-site-importer/v1/imports"' ), 'render-exposes-import-rest-route' );
+$assert( str_contains( $html, 'data-static-site-importer-figma-rest-url="https://example.test/wp-json/static-site-importer/v1/import-figma-file"' ), 'render-exposes-figma-file-rest-route' );
 $assert( str_contains( $html, 'data-static-site-importer-provider="privateprovider"' ), 'render-sanitizes-provider' );
 $assert( str_contains( $html, 'data-static-site-importer-apply-to-current-site="1"' ), 'render-exposes-current-site-apply-flag' );
 $assert( str_contains( $html, 'data-static-site-importer-open-in-playground="0"' ), 'render-exposes-open-in-playground-flag' );
@@ -484,27 +495,30 @@ $assert( str_contains( $html, 'Drop website source' ), 'render-has-decoupled-dro
 $assert( str_contains( $html, 'Drag a folder, ZIP, or static site files here.' ), 'render-has-upload-dropzone-copy' );
 $assert( str_contains( $html, 'data-static-site-importer-dropzone' ), 'render-has-upload-dropzone-hook' );
 $assert( str_contains( $html, 'Choose website source' ), 'render-has-decoupled-source-picker-label' );
-$assert( str_contains( $html, 'data-static-site-importer-source-type' ), 'render-has-source-type-dropdown-hook' );
-$assert( str_contains( $html, '<select' ), 'render-has-source-type-dropdown' );
-$assert( str_contains( $html, 'data-static-site-importer-upload-trigger' ), 'render-has-single-upload-trigger-hook' );
-$assert( str_contains( $html, 'Upload source' ), 'render-has-single-visible-upload-affordance' );
-$assert( str_contains( $html, 'Files or ZIP' ), 'render-preserves-file-zip-upload-choice' );
-$assert( ! str_contains( $html, 'FIG' ), 'render-omits-fig-upload-choice' );
+$assert( ! str_contains( $html, 'data-static-site-importer-source-type' ), 'render-omits-source-type-dropdown-hook' );
+$assert( ! str_contains( $html, '<select' ), 'render-omits-source-type-dropdown' );
+$assert( str_contains( $html, 'data-static-site-importer-upload-files' ), 'render-has-files-upload-button-hook' );
+$assert( str_contains( $html, 'data-static-site-importer-upload-folder' ), 'render-has-folder-upload-button-hook' );
+$assert( str_contains( $html, 'data-static-site-importer-upload-figma' ), 'render-has-figma-upload-button-hook' );
+$assert( str_contains( $html, 'File(s)' ), 'render-has-files-visible-upload-affordance' );
+$assert( str_contains( $html, 'Figma' ), 'render-has-figma-upload-choice' );
 $assert( str_contains( $html, 'Folder' ), 'render-preserves-folder-upload-choice' );
 $assert( str_contains( $html, 'data-static-site-importer-source-directory' ), 'render-preserves-directory-upload-hook' );
+$assert( str_contains( $html, 'data-static-site-importer-source-figma-file' ), 'render-has-separate-figma-upload-hook' );
 $assert( str_contains( $html, 'webkitdirectory' ), 'render-preserves-directory-picker' );
 $assert( str_contains( $html, 'hidden data-static-site-importer-source-files' ) || str_contains( $html, 'data-static-site-importer-source-files hidden' ), 'render-hides-file-input-behind-trigger' );
 $assert( str_contains( $html, 'hidden data-static-site-importer-source-directory' ) || str_contains( $html, 'data-static-site-importer-source-directory hidden' ), 'render-hides-directory-input-behind-trigger' );
+$assert( str_contains( $html, 'hidden data-static-site-importer-source-figma-file' ) || str_contains( $html, 'data-static-site-importer-source-figma-file hidden' ), 'render-hides-figma-input-behind-trigger' );
 $assert( ! str_contains( $html, '<details class="ssi-importer__upload-picker"' ), 'render-omits-upload-expander' );
 $assert( ! str_contains( $html, '<summary class="ssi-importer__upload-button"' ), 'render-omits-upload-summary-button' );
 $assert( ! str_contains( $html, 'Upload Figma file' ), 'render-omits-separate-figma-upload-label' );
-$assert( ! str_contains( $html, 'data-static-site-importer-source-figma-file' ), 'render-omits-separate-figma-upload-hook' );
-$assert( ! str_contains( $html, '.fig' ), 'render-omits-fig-from-combined-upload-accept' );
+$assert( str_contains( $html, 'accept=".fig" hidden data-static-site-importer-source-figma-file' ) || str_contains( $html, 'accept=".fig" data-static-site-importer-source-figma-file hidden' ), 'render-accepts-fig-only-on-dedicated-input' );
 $assert( ! str_contains( $html, 'data-static-site-importer-source-archive' ), 'render-omits-separate-zip-upload-hook' );
 $assert( str_contains( $html, '.zip,application/zip' ), 'render-accepts-zip-in-combined-upload' );
 $assert( str_contains( $html, 'data-static-site-importer-source-html' ), 'render-has-html-input-hook' );
 $assert( str_contains( $html, '<summary class="ssi-importer__label">Paste HTML</summary>' ), 'render-collapses-paste-html-by-default' );
 $assert( str_contains( $html, 'data-static-site-importer-submit' ), 'render-has-submit-hook' );
+$assert( str_contains( $html, 'data-static-site-importer-progress' ), 'render-has-progress-hook' );
 $assert( str_contains( $html, 'data-static-site-importer-preview-link' ), 'render-has-preview-link-hook' );
 $assert( str_contains( $html, 'data-static-site-importer-report' ), 'render-has-report-hook' );
 $assert( ! str_contains( $html, 'Import status' ), 'render-omits-import-status-section-copy' );
@@ -521,16 +535,17 @@ $view_js = file_get_contents( dirname( __DIR__ ) . '/blocks/importer/view.js' );
 $assert( is_string( $view_js ), 'view-js-readable' );
 $assert( str_contains( $view_js, 'webkitRelativePath' ), 'view-preserves-directory-relative-paths' );
 $assert( str_contains( $view_js, 'data-static-site-importer-source-directory' ), 'view-reads-directory-upload-input' );
-$assert( str_contains( $view_js, 'data-static-site-importer-source-type' ), 'view-reads-source-type-dropdown' );
-$assert( str_contains( $view_js, 'data-static-site-importer-upload-trigger' ), 'view-binds-single-upload-trigger' );
-$assert( str_contains( $view_js, "sourceType.value === 'folder'" ), 'view-routes-upload-trigger-from-dropdown' );
+$assert( ! str_contains( $view_js, 'data-static-site-importer-source-type' ), 'view-omits-source-type-dropdown' );
+$assert( str_contains( $view_js, 'data-static-site-importer-upload-files' ), 'view-binds-files-upload-button' );
+$assert( str_contains( $view_js, 'data-static-site-importer-upload-folder' ), 'view-binds-folder-upload-button' );
+$assert( str_contains( $view_js, 'data-static-site-importer-upload-figma' ), 'view-binds-figma-upload-button' );
 $assert( str_contains( $view_js, 'input.click()' ), 'view-opens-selected-hidden-input' );
 $assert( str_contains( $view_js, 'webkitGetAsEntry' ), 'view-supports-dropped-directory-entries' );
 $assert( str_contains( $view_js, 'archive: await buildArchive( uploadInputs, root )' ), 'view-sends-zip-from-combined-upload-as-archive-payload' );
-$assert( ! str_contains( $view_js, 'figma_file' ), 'view-does-not-send-figma-source-shape-from-block' );
+$assert( str_contains( $view_js, "formData.append( 'figma_file', file )" ), 'view-sends-figma-file-as-multipart-upload' );
 $assert( ! str_contains( $view_js, 'buildFigmaFile' ), 'view-does-not-build-figma-file-payload' );
 $assert( str_contains( $view_js, '/\\.zip$/i' ), 'view-excludes-zip-files-from-generic-static-upload' );
-$assert( ! str_contains( $view_js, 'data-static-site-importer-source-figma-file' ), 'view-omits-separate-figma-file-input' );
+$assert( str_contains( $view_js, 'data-static-site-importer-source-figma-file' ), 'view-reads-separate-figma-file-input' );
 $assert( str_contains( $view_js, 'shouldIncludeSiteFile' ), 'view-skips-known-non-site-upload-files-before-reading' );
 $assert( ! str_contains( $view_js, 'CurrentRuntime' ), 'view-does-not-reference-current-runtime-mode' );
 $assert( ! str_contains( $view_js, 'generate_in_current_runtime' ), 'view-does-not-send-current-runtime-flag' );
@@ -813,7 +828,6 @@ if ( class_exists( 'ZipArchive' ) ) {
 			)
 		)
 	);
-	@unlink( $fig_path );
 	$assert( ! is_wp_error( $fig_upload_response ), 'rest-fig-upload-playground-does-not-error', is_wp_error( $fig_upload_response ) ? $fig_upload_response->get_error_code() . ': ' . $fig_upload_response->get_error_message() : '' );
 	if ( is_wp_error( $fig_upload_response ) ) {
 		$fig_upload_response = array();
@@ -827,6 +841,34 @@ if ( class_exists( 'ZipArchive' ) ) {
 	$fig_upload_blueprint_json = rawurldecode( substr( (string) ( $fig_upload_response['preview']['playground']['blueprint_url'] ?? '' ), strlen( 'https://playground.wordpress.net/#' ) ) );
 	$assert( str_contains( $fig_upload_blueprint_json, 'Synthetic FIG Upload' ), 'rest-fig-upload-blueprint-contains-transformed-artifact' );
 	$assert( ! str_contains( $fig_upload_blueprint_json, 'content_base64' ), 'rest-fig-upload-blueprint-does-not-carry-raw-fig-source' );
+
+	$fig_multipart_response = static_site_importer_rest_import_figma_file(
+		new WP_REST_Request(
+			array(
+				'apply_to_current_site' => false,
+			),
+			array(
+				'figma_file' => array(
+					'name'     => 'design.fig',
+					'type'     => 'application/octet-stream',
+					'tmp_name' => $fig_path,
+					'error'    => 0,
+					'size'     => filesize( $fig_path ),
+				),
+			)
+		)
+	);
+	@unlink( $fig_path );
+	$assert( ! is_wp_error( $fig_multipart_response ), 'rest-fig-multipart-playground-does-not-error', is_wp_error( $fig_multipart_response ) ? $fig_multipart_response->get_error_code() . ': ' . $fig_multipart_response->get_error_message() : '' );
+	if ( is_wp_error( $fig_multipart_response ) ) {
+		$fig_multipart_response = array();
+	}
+	$assert( true === ( $fig_multipart_response['success'] ?? null ), 'rest-fig-multipart-playground-succeeds' );
+	$assert( 'playground' === ( $fig_multipart_response['mode'] ?? '' ), 'rest-fig-multipart-uses-playground-mode' );
+	$assert( str_starts_with( $fig_multipart_response['preview']['url'] ?? '', 'https://playground.wordpress.net/#' ), 'rest-fig-multipart-returns-direct-playground-blueprint-url' );
+	$fig_multipart_blueprint_json = rawurldecode( substr( (string) ( $fig_multipart_response['preview']['playground']['blueprint_url'] ?? '' ), strlen( 'https://playground.wordpress.net/#' ) ) );
+	$assert( str_contains( $fig_multipart_blueprint_json, 'Synthetic FIG Upload' ), 'rest-fig-multipart-blueprint-contains-transformed-artifact' );
+	$assert( ! str_contains( $fig_multipart_blueprint_json, 'content_base64' ), 'rest-fig-multipart-blueprint-does-not-carry-raw-fig-source' );
 }
 
 $blueprint = json_decode( file_get_contents( dirname( __DIR__ ) . '/docs/playground/blueprint.json' ), true );

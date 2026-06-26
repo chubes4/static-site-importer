@@ -41,6 +41,16 @@ function static_site_importer_register_rest_routes(): void {
 			),
 		)
 	);
+
+	register_rest_route(
+		'static-site-importer/v1',
+		'/import-figma-file',
+		array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => 'static_site_importer_rest_import_figma_file',
+			'permission_callback' => 'static_site_importer_rest_manage_permission',
+		)
+	);
 }
 
 /**
@@ -116,6 +126,60 @@ function static_site_importer_rest_import_figma( WP_REST_Request $request ) {
  */
 function static_site_importer_rest_create_figma_playground_preview( array $artifact, array $input ) {
 	return static_site_importer_rest_create_playground_open( $artifact, $input, 'figma' );
+}
+
+/**
+ * Import a multipart .fig upload from the block UI.
+ *
+ * @param WP_REST_Request $request REST request.
+ * @return WP_REST_Response|WP_Error
+ */
+function static_site_importer_rest_import_figma_file( WP_REST_Request $request ) {
+	$files = $request->get_file_params();
+	$file  = isset( $files['figma_file'] ) && is_array( $files['figma_file'] ) ? $files['figma_file'] : array();
+	$name  = isset( $file['name'] ) ? (string) $file['name'] : '';
+	$tmp   = isset( $file['tmp_name'] ) ? (string) $file['tmp_name'] : '';
+
+	if ( '' === $name || '' === $tmp || ! empty( $file['error'] ) ) {
+		return new WP_Error( 'static_site_importer_figma_file_missing', __( 'Upload a Figma .fig file to start.', 'static-site-importer' ), array( 'status' => 400 ) );
+	}
+
+	$input = static_site_importer_rest_import_args( $request->get_params() );
+	if ( empty( $input['slug'] ) ) {
+		$input['slug'] = sanitize_title( preg_replace( '/\.fig$/i', '', $name ) );
+	}
+	if ( empty( $input['name'] ) ) {
+		$input['name'] = preg_replace( '/\.fig$/i', '', $name );
+	}
+
+	$artifact = Static_Site_Importer_Figma_Import::website_artifact_from_figma_upload( $tmp, $name, $input );
+	if ( is_wp_error( $artifact ) ) {
+		return $artifact;
+	}
+
+	$input['artifact'] = $artifact;
+
+	if ( static_site_importer_rest_should_apply_to_current_site( $request->get_params() ) ) {
+		$input['activate']  = ! empty( $request->get_param( 'activate' ) );
+		$input['overwrite'] = ! empty( $request->get_param( 'overwrite' ) );
+		$result             = static_site_importer_rest_execute_import_ability( 'static-site-importer/import-website-artifact', $input, 'static_site_importer_ability_import_website_artifact' );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		return rest_ensure_response( $result );
+	}
+
+	$input['activate']  = true;
+	$input['overwrite'] = true;
+	$result             = static_site_importer_rest_create_playground_open( $artifact, $input, 'figma_file' );
+	if ( is_wp_error( $result ) ) {
+		return $result;
+	}
+
+	$result['mode'] = 'playground';
+
+	return rest_ensure_response( $result );
 }
 
 /**
