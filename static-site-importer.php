@@ -80,6 +80,72 @@ add_action( 'rest_api_init', 'static_site_importer_register_rest_routes' );
 
 if ( defined( 'WP_CLI' ) && WP_CLI && class_exists( 'WP_CLI' ) ) {
 	WP_CLI::add_command(
+		'static-site-importer import-theme',
+		static function ( array $args, array $assoc_args ): void {
+			$entry = isset( $args[0] ) ? (string) $args[0] : '';
+			if ( '' === $entry || ! is_readable( $entry ) || ! is_file( $entry ) ) {
+				WP_CLI::error( 'Provide a readable source HTML file.' );
+			}
+
+			$root = realpath( dirname( $entry ) );
+			if ( false === $root ) {
+				WP_CLI::error( 'Could not resolve the source directory.' );
+			}
+
+			$files    = array();
+			$iterator = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ) );
+			foreach ( $iterator as $file ) {
+				if ( ! $file instanceof SplFileInfo || ! $file->isFile() || ! $file->isReadable() ) {
+					continue;
+				}
+
+				$path     = $file->getPathname();
+				$relative = ltrim( str_replace( '\\', '/', substr( $path, strlen( $root ) ) ), '/' );
+				if ( '' === $relative ) {
+					continue;
+				}
+
+				$content = file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- CLI reads operator-provided source files.
+				if ( false === $content ) {
+					WP_CLI::error( sprintf( 'Could not read source file: %s', $path ) );
+				}
+
+				$files[] = array(
+					'path'           => $relative,
+					'content_base64' => base64_encode( $content ),
+				);
+			}
+
+			$entry_realpath = realpath( $entry );
+			$entrypoint     = false !== $entry_realpath ? ltrim( str_replace( '\\', '/', substr( $entry_realpath, strlen( $root ) ) ), '/' ) : basename( $entry );
+			$input          = array(
+				'artifact'                     => array(
+					'schema'     => Static_Site_Importer_Transformer_Adapter::WEBSITE_ARTIFACT_SCHEMA,
+					'entrypoint' => $entrypoint,
+					'files'      => $files,
+				),
+				'slug'                         => isset( $assoc_args['slug'] ) ? (string) $assoc_args['slug'] : '',
+				'name'                         => isset( $assoc_args['name'] ) ? (string) $assoc_args['name'] : '',
+				'activate'                     => isset( $assoc_args['activate'] ),
+				'overwrite'                    => isset( $assoc_args['overwrite'] ),
+				'fail_on_quality'              => isset( $assoc_args['fail-on-quality'] ),
+				'allow_missing_woocommerce'    => isset( $assoc_args['allow-missing-woocommerce'] ),
+				'materialize_dependencies'     => ! isset( $assoc_args['skip-dependency-materialization'] ),
+				'report'                       => isset( $assoc_args['report'] ) ? (string) $assoc_args['report'] : '',
+				'asset_materialization_policy' => isset( $assoc_args['asset-materialization-policy'] ) ? (string) $assoc_args['asset-materialization-policy'] : '',
+			);
+
+			$result = static_site_importer_ability_import_website_artifact( $input );
+			if ( empty( $result['success'] ) ) {
+				$error = isset( $result['error'] ) && is_array( $result['error'] ) ? $result['error'] : array();
+				WP_CLI::error( (string) ( $error['message'] ?? 'Static site import failed.' ) );
+			}
+
+			WP_CLI::success( sprintf( 'Imported %s.', (string) ( $result['result']['theme_slug'] ?? $input['slug'] ) ) );
+		}
+	);
+
+	WP_CLI::add_command(
 		'static-site-importer validate-in-codebox',
 		static function ( array $args, array $assoc_args ): void {
 			unset( $args );
