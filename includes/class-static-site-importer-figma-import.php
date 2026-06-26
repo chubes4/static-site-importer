@@ -243,6 +243,18 @@ class Static_Site_Importer_Figma_Import {
 	}
 
 	/**
+	 * Transform a server-side uploaded .fig temp file into a website artifact.
+	 *
+	 * @param string              $path  Uploaded temp file path.
+	 * @param string              $name  Original uploaded file name.
+	 * @param array<string,mixed> $input Full request input.
+	 * @return array<string,mixed>|WP_Error
+	 */
+	public static function website_artifact_from_figma_upload( string $path, string $name, array $input ) {
+		return self::website_artifact_from_figma_file_path( $path, $name, $input );
+	}
+
+	/**
 	 * Convert the current Figma plugin artifact bundle into a website artifact.
 	 *
 	 * @param array<string,mixed> $bundle Figma plugin artifact bundle.
@@ -289,14 +301,7 @@ class Static_Site_Importer_Figma_Import {
 	 * @return array<string,mixed>|WP_Error
 	 */
 	private static function website_artifact_from_figma_file( array $figma_file, array $input ) {
-		if ( ! function_exists( 'blocks_engine_figma_transformer_transform_file' ) ) {
-			return new WP_Error( 'static_site_importer_figma_transformer_unavailable', 'Blocks Engine Figma transformer is not available.', array( 'status' => 501 ) );
-		}
-
 		$name = isset( $figma_file['name'] ) ? (string) $figma_file['name'] : '';
-		if ( ! preg_match( '/\.fig$/i', $name ) ) {
-			return new WP_Error( 'static_site_importer_figma_file_type_invalid', 'Figma file uploads must use a .fig file.', array( 'status' => 400 ) );
-		}
 
 		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- Decodes uploaded .fig payload content.
 		$content = isset( $figma_file['content_base64'] ) ? base64_decode( (string) $figma_file['content_base64'], true ) : false;
@@ -311,12 +316,36 @@ class Static_Site_Importer_Figma_Import {
 		}
 
 		try {
-			$transform = blocks_engine_figma_transformer_transform_file( $tmp, self::transform_options( $input ) );
+			return self::website_artifact_from_figma_file_path( $tmp, $name, $input );
 		} finally {
 			if ( file_exists( $tmp ) ) {
 				wp_delete_file( $tmp );
 			}
 		}
+	}
+
+	/**
+	 * Transform a local .fig file path into a website artifact.
+	 *
+	 * @param string              $path  Local .fig file path.
+	 * @param string              $name  Original file name.
+	 * @param array<string,mixed> $input Full request input.
+	 * @return array<string,mixed>|WP_Error
+	 */
+	private static function website_artifact_from_figma_file_path( string $path, string $name, array $input ) {
+		if ( ! function_exists( 'blocks_engine_figma_transformer_transform_file' ) ) {
+			return new WP_Error( 'static_site_importer_figma_transformer_unavailable', 'Blocks Engine Figma transformer is not available.', array( 'status' => 501 ) );
+		}
+
+		if ( ! preg_match( '/\.fig$/i', $name ) ) {
+			return new WP_Error( 'static_site_importer_figma_file_type_invalid', 'Figma file uploads must use a .fig file.', array( 'status' => 400 ) );
+		}
+
+		if ( '' === $path || ! is_readable( $path ) ) {
+			return new WP_Error( 'static_site_importer_figma_file_unreadable', 'Uploaded .fig file could not be read.', array( 'status' => 400 ) );
+		}
+
+		$transform = blocks_engine_figma_transformer_transform_file( $path, self::transform_options( $input ) );
 
 		return self::website_artifact_from_transform( $transform, $input );
 	}
