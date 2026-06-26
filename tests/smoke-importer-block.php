@@ -519,7 +519,7 @@ $assert( str_contains( $html, 'data-static-site-importer-source-html' ), 'render
 $assert( str_contains( $html, '<summary class="ssi-importer__label">Paste HTML</summary>' ), 'render-collapses-paste-html-by-default' );
 $assert( str_contains( $html, 'data-static-site-importer-submit' ), 'render-has-submit-hook' );
 $assert( str_contains( $html, 'data-static-site-importer-progress' ), 'render-has-progress-hook' );
-$assert( str_contains( $html, 'data-static-site-importer-preview-link' ), 'render-has-preview-link-hook' );
+$assert( ! str_contains( $html, 'data-static-site-importer-preview-link' ), 'render-omits-redundant-preview-link-hook' );
 $assert( str_contains( $html, 'data-static-site-importer-report' ), 'render-has-report-hook' );
 $assert( ! str_contains( $html, 'Import status' ), 'render-omits-import-status-section-copy' );
 $assert( str_contains( $html, 'Import your site' ), 'render-uses-custom-title' );
@@ -555,9 +555,10 @@ $assert( str_contains( $view_js, 'activate: isCurrentSiteImport' ), 'view-activa
 $assert( str_contains( $view_js, 'overwrite: isCurrentSiteImport' ), 'view-overwrites-only-current-site-imports' );
 $assert( str_contains( $view_js, "window.open( 'about:blank'" ), 'view-opens-playground-window-from-click' );
 $assert( str_contains( $view_js, 'openPreview( report, playgroundWindow )' ), 'view-navigates-opened-window-to-playground-url' );
+$assert( ! str_contains( $view_js, 'playground.blueprint_url' ), 'view-does-not-open-playground-blueprint-before-preview-is-ready' );
 $generic_preview_message = implode( ' ', array( 'no', 'preview', 'provider', 'is', 'configured' ) );
 $assert( ! str_contains( $view_js, $generic_preview_message ), 'view-does-not-reference-generic-preview-message' );
-$assert( str_contains( $view_js, 'Open WordPress preview' ) || str_contains( $html, 'Open WordPress preview' ), 'view-or-render-has-preview-link-label' );
+$assert( ! str_contains( $view_js, 'Open WordPress preview' ) && ! str_contains( $html, 'Open WordPress preview' ), 'view-and-render-omit-redundant-preview-link-label' );
 
 WP_Codebox_Abilities::$next_session = array(
 	'success'         => true,

@@ -75,7 +75,6 @@ function static_site_importer_render_block( array $attributes = array() ): strin
 
 		<section class="ssi-importer__report" aria-live="polite" hidden data-static-site-importer-status>
 			<p hidden data-static-site-importer-progress></p>
-			<p hidden data-static-site-importer-preview-link-wrap><a href="#" target="_blank" rel="noopener noreferrer" data-static-site-importer-preview-link><?php esc_html_e( 'Open WordPress preview', 'static-site-importer' ); ?></a></p>
 			<textarea rows="10" readonly hidden data-static-site-importer-report></textarea>
 		</section>
 	</div>
