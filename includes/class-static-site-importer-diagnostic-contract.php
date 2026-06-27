@@ -181,7 +181,7 @@ class Static_Site_Importer_Diagnostic_Contract {
 			if ( ! is_array( $row ) ) {
 				continue;
 			}
-			if ( self::is_report_only_diagnostic( $row ) ) {
+			if ( self::is_report_only_diagnostic( $row ) || self::is_count_only_diagnostic( $row ) ) {
 				continue;
 			}
 
@@ -214,7 +214,7 @@ class Static_Site_Importer_Diagnostic_Contract {
 			$diagnostic['loss_class']       = Static_Site_Importer_Diagnostic_Loss_Classes::classify( array_merge( $row, $diagnostic ) );
 			$diagnostic['diagnostic_class'] = $diagnostic['loss_class'];
 
-			foreach ( array( 'message', 'reason', 'excerpt', 'source_html_preview', 'emitted_block_preview', 'html_excerpt', 'block_name', 'block_path', 'script_path', 'element', 'tag_name', 'tag', 'src', 'href', 'expected', 'observed', 'suggested_primitive' ) as $field ) {
+			foreach ( array( 'message', 'reason', 'excerpt', 'source_snippet', 'source_html_preview', 'emitted_block_preview', 'observed_output', 'html_excerpt', 'block_name', 'block_path', 'script_path', 'element', 'tag_name', 'tag', 'src', 'href', 'expected', 'observed', 'suggested_primitive' ) as $field ) {
 				$value = self::first_scalar( $row, array( $field ), '' );
 				if ( '' !== $value ) {
 					$diagnostic[ $field ] = $value;
@@ -402,7 +402,7 @@ class Static_Site_Importer_Diagnostic_Contract {
 	}
 
 	/**
-	 * Remove duplicate diagnostics by id/type/source/selector/code.
+	 * Remove duplicate diagnostics by stable source context and reason.
 	 *
 	 * @param array<int,array<string,mixed>> $diagnostics Diagnostics.
 	 * @return array<int,array<string,mixed>>
@@ -411,16 +411,53 @@ class Static_Site_Importer_Diagnostic_Contract {
 		$seen   = array();
 		$unique = array();
 		foreach ( $diagnostics as $diagnostic ) {
-			$key = implode( '|', array_map( 'strval', array( $diagnostic['id'] ?? '', $diagnostic['type'] ?? '', $diagnostic['source_path'] ?? '', $diagnostic['selector'] ?? '', $diagnostic['code'] ?? '' ) ) );
+			$key = self::diagnostic_dedupe_key( $diagnostic );
 			if ( isset( $seen[ $key ] ) ) {
+				$unique[ $seen[ $key ] ] = self::merge_diagnostic_context( $unique[ $seen[ $key ] ], $diagnostic );
 				continue;
 			}
 
-			$seen[ $key ] = true;
+			$seen[ $key ] = count( $unique );
 			$unique[]     = $diagnostic;
 		}
 
 		return $unique;
+	}
+
+	/**
+	 * Build a dedupe key that can collapse SSI and Blocks Engine echoes of the same finding.
+	 *
+	 * @param array<string,mixed> $diagnostic Diagnostic row.
+	 * @return string
+	 */
+	private static function diagnostic_dedupe_key( array $diagnostic ): string {
+		$source_path = isset( $diagnostic['source_path'] ) && is_scalar( $diagnostic['source_path'] ) ? (string) $diagnostic['source_path'] : '';
+		$selector    = isset( $diagnostic['selector'] ) && is_scalar( $diagnostic['selector'] ) ? (string) $diagnostic['selector'] : '';
+		$reason      = self::first_scalar( $diagnostic, array( 'reason_code', 'code', 'reason' ), '' );
+		$loss_class  = isset( $diagnostic['loss_class'] ) && is_scalar( $diagnostic['loss_class'] ) ? (string) $diagnostic['loss_class'] : '';
+
+		if ( '' !== $source_path && '' !== $selector && '' !== $reason ) {
+			return implode( '|', array( 'context', $source_path, $selector, sanitize_key( $reason ), $loss_class ) );
+		}
+
+		return implode( '|', array_map( 'strval', array( 'identity', $diagnostic['id'] ?? '', $diagnostic['type'] ?? '', $source_path, $selector, $diagnostic['code'] ?? '' ) ) );
+	}
+
+	/**
+	 * Merge duplicate diagnostics without discarding source evidence from either producer.
+	 *
+	 * @param array<string,mixed> $primary   First diagnostic row.
+	 * @param array<string,mixed> $duplicate Duplicate diagnostic row.
+	 * @return array<string,mixed>
+	 */
+	private static function merge_diagnostic_context( array $primary, array $duplicate ): array {
+		foreach ( $duplicate as $field => $value ) {
+			if ( ! array_key_exists( $field, $primary ) || '' === $primary[ $field ] || null === $primary[ $field ] || array() === $primary[ $field ] ) {
+				$primary[ $field ] = $value;
+			}
+		}
+
+		return $primary;
 	}
 
 	/**
@@ -486,6 +523,45 @@ class Static_Site_Importer_Diagnostic_Contract {
 		$constraints = strtolower( self::first_scalar( $row, array( 'constraints', 'constraint' ), '' ) );
 
 		return in_array( $constraints, array( 'report_only', 'report-only' ), true );
+	}
+
+	/**
+	 * Check whether a diagnostic is only a count/index placeholder.
+	 *
+	 * @param array<string,mixed> $row Source row.
+	 * @return bool
+	 */
+	private static function is_count_only_diagnostic( array $row ): bool {
+		$type   = sanitize_key( self::first_scalar( $row, array( 'type', 'kind', 'code' ), '' ) );
+		$reason = self::first_scalar( $row, array( 'reason_code', 'reason', 'error_code', 'message' ), '' );
+
+		if ( ! self::is_placeholder_scalar( $type ) && ! in_array( $type, array( 'diagnostic', 'import_diagnostic', 'static_site_fixture_diagnostic', 'static_site_importer_diagnostic' ), true ) ) {
+			return false;
+		}
+
+		if ( '' !== $reason && ! self::is_placeholder_scalar( $reason ) ) {
+			return false;
+		}
+
+		foreach ( array( 'selector', 'source_snippet', 'source_html_preview', 'emitted_block_preview', 'observed_output', 'html_excerpt', 'excerpt', 'script_path', 'src', 'href', 'expected', 'observed' ) as $field ) {
+			if ( isset( $row[ $field ] ) && is_scalar( $row[ $field ] ) && ! self::is_placeholder_scalar( (string) $row[ $field ] ) ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Check whether a scalar is a placeholder rather than source evidence.
+	 *
+	 * @param string $value Value.
+	 * @return bool
+	 */
+	private static function is_placeholder_scalar( string $value ): bool {
+		$value = trim( strtolower( $value ) );
+
+		return '' === $value || '(none)' === $value || 'none' === $value || self::is_numeric_only_string( $value );
 	}
 
 	/**
