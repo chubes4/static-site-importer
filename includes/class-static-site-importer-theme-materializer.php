@@ -916,7 +916,62 @@ class Static_Site_Importer_Theme_Materializer {
 			$data['styles']['color'] = $design_tokens['styles'];
 		}
 
+		$body_font_family = self::body_font_family_from_css( $css );
+		if ( null !== $body_font_family ) {
+			$data['styles']['typography']['fontFamily'] = $body_font_family;
+		}
+
 		return wp_json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) . "\n";
+	}
+
+	/**
+	 * Extract a safe body font-family declaration from source CSS.
+	 *
+	 * @param string $css Source CSS.
+	 * @return string|null
+	 */
+	private static function body_font_family_from_css( string $css ): ?string {
+		$css = trim( (string) preg_replace( '/\/\*.*?\*\//s', '', $css ) );
+		if ( '' === $css || ! preg_match_all( '/([^{}]+)\{([^{}]*)\}/', $css, $rule_matches, PREG_SET_ORDER ) ) {
+			return null;
+		}
+
+		foreach ( $rule_matches as $rule_match ) {
+			$selectors = array_map( 'trim', explode( ',', strtolower( $rule_match[1] ) ) );
+			if ( ! in_array( 'body', $selectors, true ) ) {
+				continue;
+			}
+
+			if ( ! preg_match( '/(?:^|;)\s*font-family\s*:\s*([^;{}]+)/i', $rule_match[2], $property_match ) ) {
+				continue;
+			}
+
+			$value = trim( preg_replace( '/\s*!important\s*$/i', '', $property_match[1] ) );
+			if ( self::is_safe_font_family_value( $value ) ) {
+				return $value;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Check whether a CSS font-family value is safe to expose in theme.json.
+	 *
+	 * @param string $value CSS font-family value.
+	 * @return bool
+	 */
+	private static function is_safe_font_family_value( string $value ): bool {
+		$value = trim( $value );
+		if ( '' === $value || strlen( $value ) > 300 ) {
+			return false;
+		}
+
+		if ( preg_match( '/[<>;{}]/', $value ) || preg_match( '/\b(?:expression|url|import)\s*\(/i', $value ) ) {
+			return false;
+		}
+
+		return (bool) preg_match( '/^[A-Za-z0-9_\-\s,"\'().]+$/', $value );
 	}
 
 	/**

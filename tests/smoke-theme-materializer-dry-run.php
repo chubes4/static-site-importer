@@ -44,6 +44,18 @@ if ( ! function_exists( 'is_wp_error' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_json_encode' ) ) {
+	function wp_json_encode( mixed $value, int $flags = 0, int $depth = 512 ): string|false {
+		return json_encode( $value, $flags, $depth );
+	}
+}
+
+if ( ! function_exists( 'sanitize_key' ) ) {
+	function sanitize_key( string $key ): string {
+		return strtolower( preg_replace( '/[^a-zA-Z0-9_\-]/', '', $key ) ?? '' );
+	}
+}
+
 require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-theme-materializer.php';
 
 $failures   = array();
@@ -121,6 +133,33 @@ $assert( 'ephemeral' === ( $ephemeral['assets']['images/tmp.svg']['source_role']
 $assert( false === ( $ephemeral['assets']['images/tmp.svg']['keep_source'] ?? true ), 'ephemeral-source-can-opt-out-of-retention' );
 $assert( true === ( $ephemeral['assets']['images/tmp.svg']['deletion_allowed'] ?? false ), 'ephemeral-source-allows-deletion-semantics' );
 $assert( array() === ( $ephemeral['diagnostics'] ?? array() ), 'ephemeral-source-does-not-warn' );
+
+$theme_writes = Static_Site_Importer_Theme_Materializer::base_theme_writes(
+	$theme_dir,
+	'imported-theme',
+	'Imported Theme',
+	'html, body { margin: 0; } body { font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important; color: #111; }',
+	false,
+	false
+);
+$theme_json   = json_decode( $theme_writes[ $theme_dir . '/theme.json' ] ?? '', true );
+$assert( is_array( $theme_json ), 'generated-theme-json-decodes' );
+$assert(
+	'"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' === ( $theme_json['styles']['typography']['fontFamily'] ?? '' ),
+	'body-font-family-is-materialized-in-theme-json',
+	(string) ( $theme_json['styles']['typography']['fontFamily'] ?? '' )
+);
+
+$unsafe_theme_writes = Static_Site_Importer_Theme_Materializer::base_theme_writes(
+	$theme_dir,
+	'imported-theme',
+	'Imported Theme',
+	'body { font-family: url("https://example.test/font"); }',
+	false,
+	false
+);
+$unsafe_theme_json   = json_decode( $unsafe_theme_writes[ $theme_dir . '/theme.json' ] ?? '', true );
+$assert( ! isset( $unsafe_theme_json['styles']['typography']['fontFamily'] ), 'unsafe-body-font-family-is-not-materialized' );
 
 if ( $failures ) {
 	fwrite( STDERR, implode( "\n", $failures ) . "\n" );
