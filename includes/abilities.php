@@ -371,8 +371,18 @@ if ( ! function_exists( 'static_site_importer_ability_error' ) ) {
 	 */
 	function static_site_importer_ability_error( string $code, string $message, $data = null ): array {
 		$import_report_summary = is_array( $data ) && isset( $data['import_report_summary'] ) && is_array( $data['import_report_summary'] ) ? $data['import_report_summary'] : static_site_importer_failure_report_summary( $code, $message );
+		$diagnostics           = static_site_importer_error_diagnostics( $code, $message, $data, $import_report_summary );
+		$fixture_diagnostics   = class_exists( 'Static_Site_Importer_Diagnostic_Contract' ) ? Static_Site_Importer_Diagnostic_Contract::build(
+			array(
+				'success'                  => false,
+				'status'                   => 'failed',
+				'diagnostics'              => $diagnostics,
+				'import_validation_result' => is_array( $data ) && isset( $data['import_validation_result'] ) && is_array( $data['import_validation_result'] ) ? $data['import_validation_result'] : array(),
+				'import_report'            => is_array( $data ) && isset( $data['import_report'] ) && is_array( $data['import_report'] ) ? $data['import_report'] : array(),
+			)
+		) : array( 'diagnostics' => $diagnostics );
 
-		return array(
+		$payload = array(
 			'success'               => false,
 			'error'                 => array(
 				'code'    => $code,
@@ -380,6 +390,57 @@ if ( ! function_exists( 'static_site_importer_ability_error' ) ) {
 				'data'    => $data,
 			),
 			'import_report_summary' => $import_report_summary,
+			'diagnostics'           => $diagnostics,
+			'errors'                => $diagnostics,
+			'fixture_diagnostics'   => $fixture_diagnostics,
+		);
+
+		if ( is_array( $data ) && isset( $data['import_validation_result'] ) && is_array( $data['import_validation_result'] ) ) {
+			$payload['import_validation_result'] = $data['import_validation_result'];
+		}
+		if ( is_array( $data ) && isset( $data['finding_packets'] ) && is_array( $data['finding_packets'] ) ) {
+			$payload['finding_packets'] = $data['finding_packets'];
+		}
+
+		return $payload;
+	}
+}
+
+if ( ! function_exists( 'static_site_importer_error_diagnostics' ) ) {
+	/**
+	 * Promote nested validation diagnostics to top-level ability fields.
+	 *
+	 * @param string              $code                  Error code.
+	 * @param string              $message               Error message.
+	 * @param mixed               $data                  Optional error data.
+	 * @param array<string,mixed> $import_report_summary Import report summary.
+	 * @return array<int,array<string,mixed>>
+	 */
+	function static_site_importer_error_diagnostics( string $code, string $message, $data, array $import_report_summary ): array {
+		$candidates = array(
+			is_array( $data ) && isset( $data['import_validation_result']['diagnostics'] ) && is_array( $data['import_validation_result']['diagnostics'] ) ? $data['import_validation_result']['diagnostics'] : array(),
+			isset( $import_report_summary['diagnostics'] ) && is_array( $import_report_summary['diagnostics'] ) ? $import_report_summary['diagnostics'] : array(),
+		);
+
+		foreach ( $candidates as $candidate ) {
+			$diagnostics = array_values( array_filter( $candidate, 'is_array' ) );
+			if ( ! empty( $diagnostics ) ) {
+				return $diagnostics;
+			}
+		}
+
+		return array(
+			array(
+				'type'        => 'validation_error',
+				'kind'        => 'validation_error',
+				'severity'    => 'error',
+				'code'        => $code,
+				'reason_code' => $code,
+				'reason'      => $code,
+				'message'     => $message,
+				'stage'       => 'validation',
+				'owner'       => 'static-site-importer',
+			)
 		);
 	}
 }

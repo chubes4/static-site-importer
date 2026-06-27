@@ -207,6 +207,11 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( '<iframe', $packet['source']['snippet'] ?? '' );
 		$this->assertStringContainsString( '<!-- wp:html -->', $packet['observed']['output'] ?? '' );
 		$this->assertStringContainsString( 'without fallback', $packet['expected']['outcome'] ?? '' );
+
+		$validation_diagnostic = $report['import_validation_result']['diagnostics'][0] ?? array();
+		$this->assertStringContainsString( '<iframe', $validation_diagnostic['source_snippet'] ?? '' );
+		$this->assertStringContainsString( '<!-- wp:html -->', $validation_diagnostic['observed_output'] ?? '' );
+		$this->assertSame( 'core/html', $validation_diagnostic['observed_block_name'] ?? '' );
 	}
 
 	/**

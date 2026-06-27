@@ -109,6 +109,21 @@ Static_Site_Importer_Report_Diagnostics::record_blocks_engine_result( $fail_repo
 $fail_quality = Static_Site_Importer_Report_Diagnostics::finalize_report( $fail_report, array( 'fail_on_quality' => true ) );
 $assert( true === ( $fail_quality['fail_import'] ?? false ), 'fail-on-quality-fails' );
 
+$context_report                  = Static_Site_Importer_Report_Diagnostics::new_conversion_report( 'index.html' );
+$context_report['diagnostics'][] = array(
+	'type'                  => 'core_html_block',
+	'source'                => 'generated:posts/page-home.post_content',
+	'source_html_preview'   => '<iframe id="map"></iframe>',
+	'emitted_block_preview' => '<!-- wp:html --><iframe id="map"></iframe><!-- /wp:html -->',
+	'block_name'            => 'core/html',
+	'reason'                => 'generated_document_contains_core_html',
+);
+Static_Site_Importer_Report_Diagnostics::finalize_report( $context_report, array() );
+$context_diagnostic = $context_report['import_validation_result']['diagnostics'][0] ?? array();
+$assert( '<iframe id="map"></iframe>' === ( $context_diagnostic['source_snippet'] ?? '' ), 'validation-diagnostic-source-snippet-alias' );
+$assert( '<!-- wp:html --><iframe id="map"></iframe><!-- /wp:html -->' === ( $context_diagnostic['observed_output'] ?? '' ), 'validation-diagnostic-observed-output-alias' );
+$assert( 'core/html' === ( $context_diagnostic['observed_block_name'] ?? '' ), 'validation-diagnostic-observed-block-name-alias' );
+
 if ( $failures ) {
 	fwrite( STDERR, implode( "\n", $failures ) . "\n" );
 	exit( 1 );

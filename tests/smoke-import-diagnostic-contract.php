@@ -20,7 +20,26 @@ if ( ! function_exists( 'sanitize_key' ) ) {
 	}
 }
 
+if ( ! function_exists( 'doing_action' ) ) {
+	function doing_action( $hook_name = null ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.Found
+		return false;
+	}
+}
+
+if ( ! function_exists( 'did_action' ) ) {
+	function did_action( $hook_name ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.Found
+		return false;
+	}
+}
+
+if ( ! function_exists( 'add_action' ) ) {
+	function add_action( $hook_name, $callback ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.Found
+		return true;
+	}
+}
+
 require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-diagnostic-contract.php';
+require_once dirname( __DIR__ ) . '/includes/abilities.php';
 
 $failures   = array();
 $assertions = 0;
@@ -101,6 +120,40 @@ $assert( 'blocks-engine' === ( $diagnostics['by_repair_bucket']['runtime_target_
 $assert( '#canvas' === ( $diagnostics['runtime_dependency_target_gaps'][0]['selector'] ?? '' ), 'runtime-target-selector' );
 $assert( 'header nav' === ( $diagnostics['by_repair_bucket']['semantic_parity'][0]['selector'] ?? '' ), 'semantic-selector' );
 $assert( array() === ( $diagnostics['artifact_refs'] ?? null ), 'no-runtime-artifact-requirement' );
+
+$quality_gate_error = static_site_importer_ability_error(
+	'static_site_importer_quality_gate_failed',
+	'Import failed quality gates; materialization was not completed.',
+	array(
+		'import_validation_result' => array(
+			'diagnostics' => array(
+				array(
+					'id'                  => 'diag-001-core-html',
+					'type'                => 'core_html_block',
+					'kind'                => 'core_html_block',
+					'severity'            => 'warning',
+					'reason_code'         => 'generated_document_contains_core_html',
+					'reason'              => 'generated_document_contains_core_html',
+					'source_path'         => 'posts/page-home.post_content',
+					'selector'            => 'iframe#map',
+					'source_html_preview' => '<iframe id="map"></iframe>',
+					'observed_output'     => '<!-- wp:html --><iframe id="map"></iframe><!-- /wp:html -->',
+					'observed_block_name' => 'core/html',
+				)
+			),
+		),
+		'quality'                  => array(
+			'core_html_block_count' => 1,
+			'failure_reasons'      => array( 'core_html_block' ),
+		),
+	)
+);
+
+$assert( 'core_html_block' === ( $quality_gate_error['diagnostics'][0]['type'] ?? '' ), 'ability-error-promotes-validation-diagnostic-type' );
+$assert( 'iframe#map' === ( $quality_gate_error['diagnostics'][0]['selector'] ?? '' ), 'ability-error-promotes-validation-selector' );
+$assert( is_array( $quality_gate_error['errors'][0] ?? null ), 'ability-error-errors-are-structured' );
+$assert( 'core_html_block' === ( $quality_gate_error['errors'][0]['kind'] ?? '' ), 'ability-error-prevents-numeric-generic-errors' );
+$assert( 'fallback_block' === ( $quality_gate_error['fixture_diagnostics']['diagnostics'][0]['repair_bucket'] ?? '' ), 'ability-error-fixture-diagnostics-classified' );
 
 if ( $failures ) {
 	fwrite( STDERR, implode( "\n", $failures ) . "\n" );

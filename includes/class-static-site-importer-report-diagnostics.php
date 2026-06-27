@@ -2105,8 +2105,11 @@ class Static_Site_Importer_Report_Diagnostics {
 			'selector',
 			'script_path',
 			'excerpt',
+			'source_snippet',
 			'source_html_preview',
+			'observed_output',
 			'emitted_block_preview',
+			'observed_block_name',
 			'block_name',
 			'block_path',
 			'engine',
@@ -2121,6 +2124,7 @@ class Static_Site_Importer_Report_Diagnostics {
 
 		$compact = array();
 		foreach ( array_slice( $diagnostics, 0, 50 ) as $diagnostic ) {
+			$diagnostic = self::with_matrix_diagnostic_aliases( $diagnostic );
 			$row = array();
 			foreach ( $fields as $field ) {
 				if ( ! array_key_exists( $field, $diagnostic ) || null === $diagnostic[ $field ] || '' === $diagnostic[ $field ] || array() === $diagnostic[ $field ] ) {
@@ -2136,6 +2140,31 @@ class Static_Site_Importer_Report_Diagnostics {
 		}
 
 		return $compact;
+	}
+
+	/**
+	 * Add generic aliases consumed by fixture-matrix grouping without changing source ownership.
+	 *
+	 * @param array<string,mixed> $diagnostic Normalized diagnostic.
+	 * @return array<string,mixed>
+	 */
+	private static function with_matrix_diagnostic_aliases( array $diagnostic ): array {
+		if ( empty( $diagnostic['source_snippet'] ) ) {
+			foreach ( array( 'source_html_preview', 'html_excerpt', 'excerpt' ) as $field ) {
+				if ( isset( $diagnostic[ $field ] ) && is_scalar( $diagnostic[ $field ] ) && '' !== trim( (string) $diagnostic[ $field ] ) ) {
+					$diagnostic['source_snippet'] = (string) $diagnostic[ $field ];
+					break;
+				}
+			}
+		}
+		if ( empty( $diagnostic['observed_output'] ) && isset( $diagnostic['emitted_block_preview'] ) && is_scalar( $diagnostic['emitted_block_preview'] ) ) {
+			$diagnostic['observed_output'] = (string) $diagnostic['emitted_block_preview'];
+		}
+		if ( empty( $diagnostic['observed_block_name'] ) && isset( $diagnostic['block_name'] ) && is_scalar( $diagnostic['block_name'] ) ) {
+			$diagnostic['observed_block_name'] = (string) $diagnostic['block_name'];
+		}
+
+		return $diagnostic;
 	}
 
 	/**
