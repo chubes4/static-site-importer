@@ -117,6 +117,11 @@ $assert( ! isset( $diagnostics['diagnostic_summary']['type']['website_artifact_m
 $assert( ! isset( $diagnostics['diagnostic_summary']['type']['document_metadata_routed'] ), 'report-only-metadata-note-excluded' );
 $assert( 'static-site-importer' === ( $diagnostics['by_repair_bucket']['dropped_images'][0]['parser_owner'] ?? '' ), 'dropped-images-owner' );
 $assert( 'blocks-engine' === ( $diagnostics['by_repair_bucket']['runtime_target_gap'][0]['parser_owner'] ?? '' ), 'runtime-target-owner' );
+$assert( 'unsupported_loss' === ( $diagnostics['by_repair_bucket']['dropped_images'][0]['loss_class'] ?? '' ), 'dropped-images-loss-class' );
+$assert( 'importer_materialization_bug' === ( $diagnostics['by_repair_bucket']['invalid_block_content'][0]['loss_class'] ?? '' ), 'invalid-block-loss-class' );
+$assert( 'editable_approximation' === ( $diagnostics['by_repair_bucket']['semantic_parity'][0]['loss_class'] ?? '' ), 'semantic-parity-loss-class' );
+$assert( 1 === ( $diagnostics['loss_class_summary']['unsupported_loss'] ?? 0 ), 'loss-class-summary-unsupported' );
+$assert( 2 === ( $diagnostics['loss_class_summary']['importer_materialization_bug'] ?? 0 ), 'loss-class-summary-importer' );
 $assert( '#canvas' === ( $diagnostics['runtime_dependency_target_gaps'][0]['selector'] ?? '' ), 'runtime-target-selector' );
 $assert( 'header nav' === ( $diagnostics['by_repair_bucket']['semantic_parity'][0]['selector'] ?? '' ), 'semantic-selector' );
 $assert( array() === ( $diagnostics['artifact_refs'] ?? null ), 'no-runtime-artifact-requirement' );
@@ -154,6 +159,7 @@ $assert( 'iframe#map' === ( $quality_gate_error['diagnostics'][0]['selector'] ??
 $assert( is_array( $quality_gate_error['errors'][0] ?? null ), 'ability-error-errors-are-structured' );
 $assert( 'core_html_block' === ( $quality_gate_error['errors'][0]['kind'] ?? '' ), 'ability-error-prevents-numeric-generic-errors' );
 $assert( 'fallback_block' === ( $quality_gate_error['fixture_diagnostics']['diagnostics'][0]['repair_bucket'] ?? '' ), 'ability-error-fixture-diagnostics-classified' );
+$assert( 'editable_approximation' === ( $quality_gate_error['fixture_diagnostics']['diagnostics'][0]['loss_class'] ?? '' ), 'ability-error-fixture-loss-classified' );
 
 if ( $failures ) {
 	fwrite( STDERR, implode( "\n", $failures ) . "\n" );
