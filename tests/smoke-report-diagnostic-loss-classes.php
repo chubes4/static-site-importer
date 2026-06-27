@@ -64,6 +64,42 @@ $assert( 'editable_approximation' === ( $report['import_validation_result']['dia
 $assert( 'editable_approximation' === ( $report['finding_packets']['packets'][0]['loss_class'] ?? '' ), 'finding-packet-loss-class' );
 $assert( 'editable_approximation' === ( $report['finding_packets']['packets'][0]['routing']['loss_class'] ?? '' ), 'finding-packet-routing-loss-class' );
 
+$runtime_only_report                  = Static_Site_Importer_Report_Diagnostics::new_conversion_report( 'website/index.html' );
+$runtime_only_report['diagnostics'][] = array(
+	'type'        => 'interaction_candidate',
+	'source_path' => 'website/index.html',
+	'selector'    => '.map iframe',
+);
+$runtime_only_report['quality']['interaction_candidate_count'] = 1;
+$runtime_only_quality = Static_Site_Importer_Report_Diagnostics::finalize_report( $runtime_only_report, array() );
+$assert( true === ( $runtime_only_quality['pass'] ?? false ), 'preserved-runtime-island-does-not-fail-quality' );
+$assert( array() === ( $runtime_only_quality['failure_reasons'] ?? null ), 'preserved-runtime-island-not-failure-reason' );
+
+$cleanup_report                  = Static_Site_Importer_Report_Diagnostics::new_conversion_report( 'website/index.html' );
+$cleanup_report['diagnostics'][] = array(
+	'type'        => 'static_site_fixture_diagnostic',
+	'reason'      => '2',
+	'source_path' => 'website/index.html',
+);
+$cleanup_report['diagnostics'][] = array(
+	'type'                => 'core_html_block',
+	'source_path'         => 'posts/page-home.post_content',
+	'selector'            => 'iframe#map',
+	'reason_code'         => 'generated_document_contains_core_html',
+	'source_html_preview' => '<iframe id="map"></iframe>',
+);
+$cleanup_report['diagnostics'][] = array(
+	'type'                  => 'unsupported_html_fallback',
+	'source_path'           => 'posts/page-home.post_content',
+	'selector'              => 'iframe#map',
+	'reason_code'           => 'generated_document_contains_core_html',
+	'emitted_block_preview' => '<!-- wp:html --><iframe id="map"></iframe><!-- /wp:html -->',
+);
+Static_Site_Importer_Report_Diagnostics::finalize_report( $cleanup_report, array() );
+$assert( 1 === count( $cleanup_report['diagnostics'] ?? array() ), 'report-drops-count-only-and-dedupes' );
+$assert( '<iframe id="map"></iframe>' === ( $cleanup_report['import_validation_result']['diagnostics'][0]['source_snippet'] ?? '' ), 'report-preserves-source-snippet' );
+$assert( '<!-- wp:html --><iframe id="map"></iframe><!-- /wp:html -->' === ( $cleanup_report['import_validation_result']['diagnostics'][0]['observed_output'] ?? '' ), 'report-merges-observed-output' );
+
 if ( $failures ) {
 	fwrite( STDERR, implode( "\n", $failures ) . "\n" );
 	exit( 1 );

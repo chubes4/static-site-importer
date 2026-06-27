@@ -38,13 +38,16 @@ class Static_Site_Importer_Diagnostic_Loss_Classes {
 		$reason      = sanitize_key( self::scalar( $diagnostic, array( 'reason_code', 'reason', 'error_code' ) ) );
 		$stage       = sanitize_key( self::scalar( $diagnostic, array( 'stage' ) ) );
 		$block_name  = self::scalar( $diagnostic, array( 'block_name', 'observed_block_name' ) );
-		$haystack    = strtolower( implode( ' ', array( $type, $category, $repair, $reason, $stage, $block_name ) ) );
+		$element     = self::scalar( $diagnostic, array( 'element', 'tag_name', 'tag' ) );
+		$selector    = self::scalar( $diagnostic, array( 'selector', 'target_selector', 'runtime_target_selector' ) );
+		$haystack    = strtolower( implode( ' ', array( $type, $category, $repair, $reason, $stage, $block_name, $element, $selector ) ) );
 
 		if (
 			self::contains_any(
 				$haystack,
 				array( 'runtime_dependency_vendor_telemetry_script', 'interaction_candidate', 'runtime_island', 'preserved_runtime' )
 			)
+			|| self::is_preserved_runtime_element( $element, $selector )
 		) {
 			return self::PRESERVED_RUNTIME_ISLAND;
 		}
@@ -174,5 +177,21 @@ class Static_Site_Importer_Diagnostic_Loss_Classes {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Determine whether a fallback row preserves a runtime-only element.
+	 *
+	 * @param string $element  Element or tag field.
+	 * @param string $selector Selector field.
+	 * @return bool
+	 */
+	private static function is_preserved_runtime_element( string $element, string $selector ): bool {
+		$element = strtolower( trim( $element ) );
+		if ( in_array( $element, array( 'canvas', 'script' ), true ) ) {
+			return true;
+		}
+
+		return 1 === preg_match( '/^(?:canvas|script)(?:$|[\s.#:[>+~])/', strtolower( trim( $selector ) ) );
 	}
 }
