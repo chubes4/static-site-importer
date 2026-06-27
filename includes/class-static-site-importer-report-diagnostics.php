@@ -15,6 +15,9 @@ if ( ! class_exists( 'Static_Site_Importer_Transformer_Adapter' ) ) {
 if ( ! class_exists( 'Static_Site_Importer_Product_Handoff_Contract' ) ) {
 	require_once __DIR__ . '/class-static-site-importer-product-handoff-contract.php';
 }
+if ( ! class_exists( 'Static_Site_Importer_Diagnostic_Loss_Classes' ) ) {
+	require_once __DIR__ . '/class-static-site-importer-diagnostic-loss-classes.php';
+}
 
 /**
  * Builds SSI import reports and normalizes diagnostics for repair loops.
@@ -559,6 +562,7 @@ class Static_Site_Importer_Report_Diagnostics {
 			'semantic_parity'                       => self::compact_semantic_parity_summary( $report ),
 			'diagnostic_count'                      => count( $diagnostics ),
 			'diagnostic_summary'                    => self::compact_import_report_diagnostic_summary( $diagnostics ),
+			'loss_class_summary'                    => Static_Site_Importer_Diagnostic_Loss_Classes::counts( $diagnostics ),
 			'warning_summaries'                     => self::compact_import_report_diagnostic_summaries_by_severity( $diagnostics, 'warning' ),
 			'error_summaries'                       => self::compact_import_report_diagnostic_summaries_by_severity( $diagnostics, 'error' ),
 			'diagnostics'                           => self::compact_import_report_diagnostics( $diagnostics ),
@@ -930,11 +934,14 @@ class Static_Site_Importer_Report_Diagnostics {
 			'type'                 => $type,
 			'severity'             => $severity,
 			'category'             => isset( $diagnostic['category'] ) && is_scalar( $diagnostic['category'] ) ? (string) $diagnostic['category'] : self::diagnostic_category( $type ),
+			'loss_class'           => isset( $diagnostic['loss_class'] ) && is_scalar( $diagnostic['loss_class'] ) ? (string) $diagnostic['loss_class'] : Static_Site_Importer_Diagnostic_Loss_Classes::classify( $diagnostic ),
+			'diagnostic_class'     => isset( $diagnostic['diagnostic_class'] ) && is_scalar( $diagnostic['diagnostic_class'] ) ? (string) $diagnostic['diagnostic_class'] : Static_Site_Importer_Diagnostic_Loss_Classes::classify( $diagnostic ),
 			'owner'                => self::finding_owner( $diagnostic ),
 			'routing'              => array(
 				'component'              => self::finding_owner( $diagnostic ),
 				'stage'                  => isset( $diagnostic['stage'] ) && is_scalar( $diagnostic['stage'] ) ? (string) $diagnostic['stage'] : 'import',
 				'suggested_repair_class' => isset( $diagnostic['suggested_repair_class'] ) && is_scalar( $diagnostic['suggested_repair_class'] ) ? (string) $diagnostic['suggested_repair_class'] : self::diagnostic_repair_class( $type ),
+				'loss_class'             => isset( $diagnostic['loss_class'] ) && is_scalar( $diagnostic['loss_class'] ) ? (string) $diagnostic['loss_class'] : Static_Site_Importer_Diagnostic_Loss_Classes::classify( $diagnostic ),
 			),
 			'provenance'           => self::validation_provenance( $report ),
 			'reproduction_context' => array_merge(
@@ -1713,6 +1720,8 @@ class Static_Site_Importer_Report_Diagnostics {
 				'suggested_repair_class' => self::diagnostic_repair_class( $type ),
 				'source_path'            => $source_path,
 			);
+			$machine['loss_class']       = Static_Site_Importer_Diagnostic_Loss_Classes::classify( array_merge( $diagnostic, $machine ) );
+			$machine['diagnostic_class'] = $machine['loss_class'];
 
 			$selector = isset( $diagnostic['selector'] ) && is_scalar( $diagnostic['selector'] ) ? trim( (string) $diagnostic['selector'] ) : '';
 			if ( '' !== $selector ) {
@@ -2009,6 +2018,7 @@ class Static_Site_Importer_Report_Diagnostics {
 			'warning' => 0,
 			'notice'  => 0,
 			'info'    => 0,
+			'loss_class' => Static_Site_Importer_Diagnostic_Loss_Classes::counts( $diagnostics ),
 		);
 
 		foreach ( $diagnostics as $diagnostic ) {
@@ -2042,6 +2052,7 @@ class Static_Site_Importer_Report_Diagnostics {
 			$summaries[] = array(
 				'id'      => isset( $diagnostic['id'] ) && is_scalar( $diagnostic['id'] ) ? (string) $diagnostic['id'] : '',
 				'type'    => isset( $diagnostic['type'] ) && is_scalar( $diagnostic['type'] ) ? (string) $diagnostic['type'] : 'static_site_importer_diagnostic',
+				'loss_class' => isset( $diagnostic['loss_class'] ) && is_scalar( $diagnostic['loss_class'] ) ? (string) $diagnostic['loss_class'] : Static_Site_Importer_Diagnostic_Loss_Classes::classify( $diagnostic ),
 				'source'  => self::diagnostic_summary_source( $diagnostic ),
 				'message' => self::diagnostic_summary_message( $diagnostic ),
 			);
@@ -2098,6 +2109,8 @@ class Static_Site_Importer_Report_Diagnostics {
 			'type',
 			'severity',
 			'category',
+			'loss_class',
+			'diagnostic_class',
 			'reason_code',
 			'suggested_repair_class',
 			'source_path',

@@ -9,6 +9,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+if ( ! class_exists( 'Static_Site_Importer_Diagnostic_Loss_Classes' ) ) {
+	require_once __DIR__ . '/class-static-site-importer-diagnostic-loss-classes.php';
+}
+
 /**
  * Normalizes importer-owned diagnostics for validation and repair loops.
  */
@@ -52,7 +56,9 @@ class Static_Site_Importer_Diagnostic_Contract {
 			'import_report_quality_counts'   => $quality_counts,
 			'diagnostic_summary'             => self::diagnostic_summary( $diagnostics ),
 			'diagnostics'                    => $diagnostics,
+			'loss_class_summary'             => Static_Site_Importer_Diagnostic_Loss_Classes::counts( $diagnostics ),
 			'by_repair_bucket'               => self::diagnostics_by_field( $diagnostics, 'repair_bucket' ),
+			'by_loss_class'                  => self::diagnostics_by_field( $diagnostics, 'loss_class' ),
 			'by_parser_owner'                => self::diagnostics_by_field( $diagnostics, 'parser_owner' ),
 			'by_category'                    => self::diagnostics_by_field( $diagnostics, 'category' ),
 			'top_parser_buckets'             => self::top_parser_buckets( $diagnostics ),
@@ -205,6 +211,8 @@ class Static_Site_Importer_Diagnostic_Contract {
 				'runtime_target_selector' => self::first_scalar( $row, array( 'runtime_target_selector', 'target_selector', 'target', 'selector' ), '' ),
 				'missing_asset_path'      => self::missing_asset_path( $row ),
 			);
+			$diagnostic['loss_class']       = Static_Site_Importer_Diagnostic_Loss_Classes::classify( array_merge( $row, $diagnostic ) );
+			$diagnostic['diagnostic_class'] = $diagnostic['loss_class'];
 
 			foreach ( array( 'message', 'reason', 'excerpt', 'source_html_preview', 'emitted_block_preview', 'html_excerpt', 'block_name', 'block_path', 'script_path', 'element', 'tag_name', 'tag', 'src', 'href', 'expected', 'observed', 'suggested_primitive' ) as $field ) {
 				$value = self::first_scalar( $row, array( $field ), '' );
@@ -271,6 +279,7 @@ class Static_Site_Importer_Diagnostic_Contract {
 			'total'         => count( $diagnostics ),
 			'severity'      => array(),
 			'category'      => array(),
+			'loss_class'    => Static_Site_Importer_Diagnostic_Loss_Classes::counts( $diagnostics ),
 			'type'          => array(),
 			'parser_owner'  => array(),
 			'repair_bucket' => array(),
