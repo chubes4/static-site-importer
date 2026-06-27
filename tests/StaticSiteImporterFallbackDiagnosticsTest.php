@@ -327,7 +327,9 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 	 * Codebox validation output exposes importer diagnostics for repair grouping.
 	 */
 	public function test_codebox_validation_result_includes_importer_diagnostics(): void {
-		$provider = static function (): array {
+		$provider = static function ( array $args = array(), array $request = array() ): array {
+			unset( $args );
+
 			$import_report = array(
 				'quality'                  => array(
 					'fallback_count'                        => 1,
@@ -402,9 +404,10 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 				),
 			);
 
-			return array(
+			$result = array(
 				'success'       => false,
 				'status'        => 'failed',
+				'request'       => $request,
 				'import_report' => $import_report,
 				'artifacts'     => array(
 					'import_report' => array(
@@ -413,6 +416,10 @@ class StaticSiteImporterFallbackDiagnosticsTest extends WP_UnitTestCase {
 					),
 				),
 			);
+
+			$result['fixture_diagnostics'] = Static_Site_Importer_Diagnostic_Contract::build( $result );
+
+			return $result;
 		};
 
 		$result = $provider(

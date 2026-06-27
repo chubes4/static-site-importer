@@ -398,15 +398,34 @@ class Static_Site_Importer_Diagnostic_Contract {
 	 * @return array<string,mixed>
 	 */
 	private static function artifact_refs( array $artifacts, array $import_report ): array {
-		$refs = $artifacts;
+		$refs = self::sanitize_artifact_refs( $artifacts );
 		if ( isset( $import_report['import_validation_result']['artifacts'] ) && is_array( $import_report['import_validation_result']['artifacts'] ) ) {
-			$refs['import_validation_artifacts'] = $import_report['import_validation_result']['artifacts'];
+			$refs['import_validation_artifacts'] = self::sanitize_artifact_refs( $import_report['import_validation_result']['artifacts'] );
 		}
 		if ( isset( $import_report['visual_parity_artifacts'] ) && is_array( $import_report['visual_parity_artifacts'] ) ) {
-			$refs['visual_parity_artifacts'] = $import_report['visual_parity_artifacts'];
+			$refs['visual_parity_artifacts'] = self::sanitize_artifact_refs( $import_report['visual_parity_artifacts'] );
 		}
 
 		return $refs;
+	}
+
+	/**
+	 * Remove local-only filesystem paths from reviewer-facing artifact refs.
+	 *
+	 * @param array<string,mixed> $refs Artifact refs.
+	 * @return array<string,mixed>
+	 */
+	private static function sanitize_artifact_refs( array $refs ): array {
+		$sanitized = array();
+		foreach ( $refs as $key => $value ) {
+			if ( in_array( $key, array( 'path', 'full_path', 'local_path' ), true ) ) {
+				continue;
+			}
+
+			$sanitized[ $key ] = is_array( $value ) ? self::sanitize_artifact_refs( $value ) : $value;
+		}
+
+		return $sanitized;
 	}
 
 	/**
