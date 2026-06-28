@@ -9,6 +9,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+if ( ! class_exists( 'Static_Site_Importer_Site_Identity' ) ) {
+	require_once __DIR__ . '/class-static-site-importer-site-identity.php';
+}
+
 /**
  * Creates, updates, and describes WordPress pages from source pages.
  */
@@ -239,9 +243,9 @@ class Static_Site_Importer_Page_Materializer {
 			return 'Home';
 		}
 
-		$title = preg_replace( '/\s+(?:\x{2014}|-)\s+.+$/u', '', $page->document()->title() );
-		if ( '' !== trim( (string) $title ) ) {
-			return trim( (string) $title );
+		$title = Static_Site_Importer_Site_Identity::strip_title_suffix( $page->document()->title() );
+		if ( '' !== trim( $title ) ) {
+			return trim( $title );
 		}
 
 		return ucwords( str_replace( '-', ' ', self::page_slug( $filename, $page ) ) );

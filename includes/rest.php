@@ -9,6 +9,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+if ( ! class_exists( 'Static_Site_Importer_Site_Identity' ) ) {
+	require_once __DIR__ . '/class-static-site-importer-site-identity.php';
+}
+
 /**
  * Register Static Site Importer REST routes.
  *
@@ -471,18 +475,28 @@ function static_site_importer_rest_should_apply_to_current_site( array $params )
 function static_site_importer_rest_open_in_playground( array $source, array $input ) {
 	$input['activate']  = true;
 	$input['overwrite'] = true;
-	if ( empty( $input['slug'] ) ) {
-		$input['slug'] = 'generated-wordpress-website';
-	}
-	if ( empty( $input['name'] ) ) {
-		$input['name'] = __( 'Generated WordPress Website', 'static-site-importer' );
-	}
 
 	$artifact = static_site_importer_rest_source_artifact( $source );
 	if ( is_wp_error( $artifact ) ) {
 		return $artifact;
 	}
 	$input['artifact'] = $artifact;
+
+	$identity = Static_Site_Importer_Site_Identity::resolve(
+		array(
+			'site_title' => isset( $input['site_title'] ) ? (string) $input['site_title'] : '',
+			'name'       => isset( $input['name'] ) ? (string) $input['name'] : '',
+			'slug'       => isset( $input['slug'] ) ? (string) $input['slug'] : '',
+			'artifact'   => $artifact,
+			'url'        => isset( $source['url'] ) ? (string) $source['url'] : '',
+		)
+	);
+	if ( empty( $input['name'] ) ) {
+		$input['name'] = $identity['name'];
+	}
+	if ( empty( $input['slug'] ) ) {
+		$input['slug'] = $identity['slug'];
+	}
 
 	$result = static_site_importer_rest_create_playground_open( $artifact, $input, isset( $source['figma_file'] ) ? 'figma_file' : 'upload' );
 	if ( is_wp_error( $result ) ) {

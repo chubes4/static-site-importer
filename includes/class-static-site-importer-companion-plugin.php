@@ -31,6 +31,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+if ( ! class_exists( 'Static_Site_Importer_Site_Identity' ) ) {
+	require_once __DIR__ . '/class-static-site-importer-site-identity.php';
+}
+
 /**
  * Scaffolds a one-per-site companion plugin from a generated block payload.
  */
@@ -174,13 +178,30 @@ class Static_Site_Importer_Companion_Plugin {
 	/**
 	 * Human-readable site name for plugin headers.
 	 *
+	 * The display name follows the shared site-identity priority (site_name ->
+	 * name -> site_title) so the companion plugin header matches the theme name
+	 * derived from the same source. A payload that carries only a slug keeps the
+	 * slug as its display name rather than the generic identity constant.
+	 *
 	 * @param array<string,mixed> $payload   Generated companion-plugin payload.
 	 * @param string              $site_slug Sanitized site slug.
 	 * @return string
 	 */
 	private static function site_name( array $payload, string $site_slug ): string {
-		$raw = isset( $payload['site_name'] ) && is_scalar( $payload['site_name'] ) ? trim( (string) $payload['site_name'] ) : '';
-		return '' !== $raw ? $raw : $site_slug;
+		$identity = Static_Site_Importer_Site_Identity::resolve(
+			array(
+				'site_title' => isset( $payload['site_name'] ) && is_scalar( $payload['site_name'] ) ? (string) $payload['site_name'] : '',
+				'name'       => isset( $payload['name'] ) && is_scalar( $payload['name'] ) ? (string) $payload['name'] : '',
+				'title'      => isset( $payload['site_title'] ) && is_scalar( $payload['site_title'] ) ? (string) $payload['site_title'] : '',
+			)
+		);
+
+		$name = $identity['name'];
+		if ( Static_Site_Importer_Site_Identity::DEFAULT_NAME === $name || Static_Site_Importer_Site_Identity::default_name() === $name ) {
+			return $site_slug;
+		}
+
+		return $name;
 	}
 
 	/**

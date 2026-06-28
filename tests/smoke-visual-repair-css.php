@@ -373,9 +373,7 @@ $assert( $target_route_page instanceof Static_Site_Importer_Source_Page && 'home
 $assert( $target_route_page instanceof Static_Site_Importer_Source_Page && '1' === $target_route_page->metadata_value( 'entrypoint' ), 'materialization-plan-target-root-route-preserves-entrypoint' );
 $assert( $target_route_page instanceof Static_Site_Importer_Source_Page && str_contains( $target_route_page->body(), 'Nested home' ), 'materialization-plan-target-route-page-body-is-preserved' );
 
-$site_title_from_artifact = new ReflectionMethod( Static_Site_Importer_Theme_Generator::class, 'site_title_from_website_artifact' );
-$site_title               = $site_title_from_artifact->invoke(
-	null,
+$site_title = Static_Site_Importer_Site_Identity::title_from_website_artifact(
 	array(
 		'entrypoint' => 'website/nested/index.html',
 		'files'      => array(

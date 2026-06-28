@@ -748,10 +748,32 @@ $assert( 'https://github.com/Automattic/static-site-importer/releases/latest/dow
 $assert( str_contains( (string) $playground_blueprint_code, 'static_site_importer_ability_import_website_artifact' ), 'rest-playground-open-blueprint-runs-import-ability' );
 $assert( str_contains( (string) $playground_blueprint_code, "'activate' => true" ), 'rest-playground-open-blueprint-activates-generated-site' );
 $assert( str_contains( (string) $playground_blueprint_code, "'overwrite' => true" ), 'rest-playground-open-blueprint-overwrites-generated-site' );
+// Sourceless HTML (no <title>, no URL) still falls back to the generic identity constant.
 $assert( str_contains( (string) $playground_blueprint_code, "'slug' => 'generated-wordpress-website'" ), 'rest-playground-open-blueprint-uses-non-legacy-generated-theme-slug' );
 $assert( str_contains( (string) $playground_blueprint_code, "'name' => 'Generated WordPress Website'" ), 'rest-playground-open-blueprint-uses-generated-theme-name' );
 $assert( ! str_contains( (string) $playground_blueprint_code, 'imported-website-artifact' ), 'rest-playground-open-blueprint-omits-legacy-theme-slug' );
 $assert( ! str_contains( (string) $playground_blueprint_code, 'Codebox' ), 'rest-playground-open-blueprint-does-not-introduce-codebox' );
+
+// A real source document title now names the generated theme/site via the
+// site-identity primitive instead of collapsing to the generic constant.
+Static_Site_Importer_Theme_Generator::$last_args = array();
+$titled_playground_response = static_site_importer_rest_create_import(
+	new WP_REST_Request(
+		array(
+			'apply_to_current_site' => false,
+			'open_in_playground'    => true,
+			'source'                => array(
+				'html' => '<!doctype html><html><head><title>Maya &amp; Devon &#8212; Home</title></head><body><main>Generate</main></body></html>',
+			),
+		)
+	)
+);
+$titled_blueprint_json = rawurldecode( substr( (string) ( $titled_playground_response['preview']['playground']['blueprint_url'] ?? '' ), strlen( 'https://playground.wordpress.net/#' ) ) );
+$titled_blueprint      = json_decode( $titled_blueprint_json, true );
+$titled_blueprint_code = wp_json_encode( is_array( $titled_blueprint ) ? $titled_blueprint : array() );
+$assert( str_contains( (string) $titled_blueprint_code, "'name' => 'Maya & Devon'" ), 'rest-playground-open-derives-name-from-source-document-title' );
+$assert( str_contains( (string) $titled_blueprint_code, "'slug' => 'maya-devon'" ), 'rest-playground-open-derives-slug-from-source-document-title' );
+$assert( ! str_contains( (string) $titled_blueprint_code, 'generated-wordpress-website' ), 'rest-playground-open-titled-source-omits-generic-constant' );
 
 $figma_upload_artifact = Static_Site_Importer_Figma_Import::website_artifact_from_input(
 	array(
