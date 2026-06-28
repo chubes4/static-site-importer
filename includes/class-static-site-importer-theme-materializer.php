@@ -809,7 +809,6 @@ class Static_Site_Importer_Theme_Materializer {
 	private static function functions_php( string $theme_slug, array $scripts = array(), array $stylesheets = array() ): string {
 		$style_handle     = sanitize_key( $theme_slug ) . '-style';
 		$editor_handle    = sanitize_key( $theme_slug ) . '-editor-style';
-		$script_handle    = sanitize_key( $theme_slug ) . '-site';
 		$script_lines     = '';
 		$stylesheet_lines = '';
 		$stylesheet_deps  = array();
@@ -874,9 +873,6 @@ class Static_Site_Importer_Theme_Materializer {
 			"add_action( 'wp_enqueue_scripts', static function (): void {\n" .
 			$stylesheet_lines .
 			"\twp_enqueue_style( '" . $style_handle . "', get_stylesheet_uri(), " . $stylesheet_dependencies . ", wp_get_theme()->get( 'Version' ) );\n" .
-			"\tif ( file_exists( get_template_directory() . '/assets/site.js' ) ) {\n" .
-			"\t\twp_enqueue_script( '" . $script_handle . "', get_template_directory_uri() . '/assets/site.js', array(), wp_get_theme()->get( 'Version' ), true );\n" .
-			"\t}\n" .
 			$script_lines .
 			"} );\n\n" .
 			"add_action( 'enqueue_block_editor_assets', static function (): void {\n" .

@@ -567,14 +567,24 @@ class Static_Site_Importer_Report_Diagnostics {
 		$source = 'companion_plugins.dependencies.' . $slug;
 
 		if ( ! empty( $row['active'] ) ) {
-			$report['diagnostics'][] = array(
-				'code'        => 'companion_plugin_present',
-				'severity'    => 'info',
-				'source'      => $source,
-				'message'     => sprintf( 'Companion plugin %s is active; generated blocks are available theme-independently.', $slug ),
-				'slug'        => $slug,
-				'block_names' => $row['block_names'] ?? array(),
+			$island_handles = isset( $row['island_handles'] ) && is_array( $row['island_handles'] ) ? $row['island_handles'] : array();
+			$present        = array(
+				'code'           => 'companion_plugin_present',
+				'severity'       => 'info',
+				'source'         => $source,
+				'message'        => sprintf( 'Companion plugin %s is active; generated blocks are available theme-independently.', $slug ),
+				'slug'           => $slug,
+				'block_names'    => $row['block_names'] ?? array(),
+				'island_handles' => $island_handles,
 			);
+			// Preserved island JS that rides the active companion plugin is
+			// carried theme-independently; flag the runtime-carried signal the
+			// honest gate looks for so this JS is not counted as lost.
+			if ( ! empty( $island_handles ) ) {
+				$present['runtime_carried'] = true;
+				$present['message']         = sprintf( 'Companion plugin %s is active; generated blocks and preserved island JS are carried theme-independently.', $slug );
+			}
+			$report['diagnostics'][] = $present;
 			return;
 		}
 

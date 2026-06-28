@@ -181,9 +181,11 @@ class Static_Site_Importer_Theme_Generator {
 			$writes[ $theme_dir . '/templates/page-' . $slug . '.html' ] = Static_Site_Importer_Theme_Materializer::content_template( '', $has_header_part, $has_footer_part );
 		}
 
-		if ( '' !== trim( $materialized['js'] ) ) {
-			$writes[ $theme_dir . '/assets/site.js' ] = $materialized['js'];
-		}
+		// Preserved island JS is theme-independent: it rides the generated
+		// companion plugin (scoped, enqueued from the plugin), never the theme.
+		// The theme deliberately no longer materializes an `assets/site.js`
+		// blob — that anti-pattern dies on theme switch. Legitimate per-asset
+		// site scripts still ride the theme via $materialized['scripts'].
 
 		self::analyze_generated_theme_block_documents( $writes, $theme_dir );
 		self::$conversion_report['theme_slug'] = $theme_slug;
