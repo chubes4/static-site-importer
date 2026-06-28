@@ -111,10 +111,11 @@ class Static_Site_Importer_Companion_Plugin {
 			'plugin_file'    => $main_file,
 			'mu_plugin'      => $mu_plugin,
 			'block_names'    => $block_names,
-			// Handles of preserved island scripts the plugin carries + enqueues
-			// scoped. Exposed so the gate/diagnostics can account for preserved
-			// island JS as companion-plugin-carried (theme-independent) rather
-			// than theme-coupled.
+			// Handles of every preserved island script the plugin carries +
+			// enqueues, both block-scoped (render_block) and site-wide
+			// (wp_enqueue_scripts). Exposed so the gate/diagnostics can account
+			// for preserved island JS as companion-plugin-carried
+			// (theme-independent) rather than theme-coupled.
 			'island_handles' => array_map(
 				static fn ( array $island ): string => (string) $island['handle'],
 				$preserved
@@ -333,7 +334,7 @@ class Static_Site_Importer_Companion_Plugin {
 	 *
 	 * @param array<string,mixed> $payload   Generated companion-plugin payload.
 	 * @param string              $block_namespace Plugin block namespace.
-	 * @return array<int,array<string,string>>
+	 * @return array<int,array<string,mixed>>
 	 */
 	private static function preserved_js( array $payload, string $block_namespace ): array {
 		$entries = isset( $payload['preserved_js'] ) && is_array( $payload['preserved_js'] ) ? $payload['preserved_js'] : array();
@@ -356,13 +357,28 @@ class Static_Site_Importer_Companion_Plugin {
 			$relative     = '' !== $relative_raw ? $relative_raw : 'islands/' . $handle . '.js';
 			$block        = isset( $entry['block'] ) && is_scalar( $entry['block'] ) ? (string) $entry['block'] : '';
 
+			// Scope decides the enqueue seam: a block-scoped island rides
+			// render_block and fires only when its owning block renders; a
+			// site-wide island rides a plugin-wide wp_enqueue_scripts hook so
+			// free-standing behavior JS survives a theme switch. The producer
+			// emits scope === 'site' (with no `block` key) for the latter; a
+			// non-empty `block` with no declared scope stays block-scoped.
+			$scope_raw = isset( $entry['scope'] ) && is_scalar( $entry['scope'] ) ? (string) $entry['scope'] : '';
+			$scope     = 'site' === $scope_raw ? 'site' : ( '' !== $block ? 'block' : 'site' );
+
+			// Deterministic enqueue order for site-wide islands; falls back to
+			// the payload order when the producer omits an explicit order.
+			$order = isset( $entry['order'] ) && is_numeric( $entry['order'] ) ? (int) $entry['order'] : $index;
+
 			$islands[] = array(
 				'handle'       => $handle,
 				'relative_src' => $relative,
 				'content'      => $content,
-				// Scope: enqueue only when this block renders. Empty block means
-				// the island is unscoped, but slice 1 only emits scoped islands.
+				// Owning block name for block-scoped islands; empty for site-wide.
 				'block'        => $block,
+				// 'block' => render_block-scoped; 'site' => wp_enqueue_scripts.
+				'scope'        => $scope,
+				'order'        => $order,
 			);
 		}
 
@@ -376,7 +392,7 @@ class Static_Site_Importer_Companion_Plugin {
 	 * @param string                          $block_namespace Block namespace.
 	 * @param string                          $site_name       Human-readable site name.
 	 * @param array<int,array<string,mixed>>  $block_specs     PHP-only block registration specs.
-	 * @param array<int,array<string,string>> $preserved       Preserved island descriptors.
+	 * @param array<int,array<string,mixed>>  $preserved       Preserved island descriptors.
 	 * @return string
 	 */
 	private static function main_plugin_file(
@@ -468,16 +484,21 @@ class Static_Site_Importer_Companion_Plugin {
 		$lines[] = sprintf( "add_action( 'init', '%s_register_blocks' );", $fn_prefix );
 		$lines[] = '';
 		$lines[] = '/**';
-		$lines[] = ' * Preserved island scripts, scoped to the block they belong to.';
+		$lines[] = ' * Preserved island scripts carried by this companion plugin.';
 		$lines[] = ' *';
-		$lines[] = ' * @return array<int,array<string,string>>';
+		$lines[] = " * Each entry declares a scope: 'block' islands ride render_block and";
+		$lines[] = " * enqueue only when their owning block renders; 'site' islands ride a";
+		$lines[] = ' * plugin-wide wp_enqueue_scripts hook so free-standing behavior JS is';
+		$lines[] = ' * enqueued once per request, independent of the active theme.';
+		$lines[] = ' *';
+		$lines[] = ' * @return array<int,array<string,mixed>>';
 		$lines[] = ' */';
 		$lines[] = sprintf( 'function %s_islands() {', $fn_prefix );
 		$lines[] = "\treturn " . $islands_php . ';';
 		$lines[] = '}';
 		$lines[] = '';
 		$lines[] = '/**';
-		$lines[] = ' * Enqueue preserved island JS only when its owning block renders.';
+		$lines[] = ' * Enqueue a block-scoped island only when its owning block renders.';
 		$lines[] = ' *';
 		$lines[] = ' * @param string              $content Rendered block HTML.';
 		$lines[] = ' * @param array<string,mixed> $block   Parsed block.';
@@ -490,15 +511,48 @@ class Static_Site_Importer_Companion_Plugin {
 		$lines[] = "\t}";
 		$lines[] = '';
 		$lines[] = sprintf( "\tforeach ( %s_islands() as \$island ) {", $fn_prefix );
-		$lines[] = "\t\tif ( ( \$island['block'] ?? '' ) !== \$name || '' === ( \$island['src'] ?? '' ) ) {";
+		$lines[] = "\t\tif ( 'block' !== ( \$island['scope'] ?? '' ) || ( \$island['block'] ?? '' ) !== \$name || '' === ( \$island['src'] ?? '' ) ) {";
 		$lines[] = "\t\t\tcontinue;";
 		$lines[] = "\t\t}";
-		$lines[] = sprintf( "\t\twp_enqueue_script( \$island['handle'], %s_URL . \$island['src'], array(), '1.0.0', true );", strtoupper( $fn_prefix ) );
+		$lines[] = sprintf( "\t\twp_enqueue_script( \$island['handle'], %s_URL . \$island['src'], array(), '1.0.0', true );", $const_prefix );
 		$lines[] = "\t}";
 		$lines[] = '';
 		$lines[] = "\treturn \$content;";
 		$lines[] = '}';
 		$lines[] = sprintf( "add_filter( 'render_block', '%s_enqueue_islands', 10, 2 );", $fn_prefix );
+		$lines[] = '';
+		$lines[] = '/**';
+		$lines[] = ' * Enqueue every site-wide island once per request, in declared order.';
+		$lines[] = ' *';
+		$lines[] = ' * Site-wide islands are theme-independent: they ride this plugin-wide';
+		$lines[] = ' * wp_enqueue_scripts hook rather than render_block, so free-standing';
+		$lines[] = ' * behavior JS survives a theme switch instead of being dropped.';
+		$lines[] = ' */';
+		$lines[] = sprintf( 'function %s_enqueue_site_islands() {', $fn_prefix );
+		$lines[] = "\tif ( ! function_exists( 'wp_enqueue_script' ) ) {";
+		$lines[] = "\t\treturn;";
+		$lines[] = "\t}";
+		$lines[] = '';
+		$lines[] = "\t\$site_islands = array();";
+		$lines[] = sprintf( "\tforeach ( %s_islands() as \$island ) {", $fn_prefix );
+		$lines[] = "\t\tif ( 'site' !== ( \$island['scope'] ?? '' ) || '' === ( \$island['src'] ?? '' ) ) {";
+		$lines[] = "\t\t\tcontinue;";
+		$lines[] = "\t\t}";
+		$lines[] = "\t\t\$site_islands[] = \$island;";
+		$lines[] = "\t}";
+		$lines[] = '';
+		$lines[] = "\tusort(";
+		$lines[] = "\t\t\$site_islands,";
+		$lines[] = "\t\tstatic function ( \$a, \$b ) {";
+		$lines[] = "\t\t\treturn (int) ( \$a['order'] ?? 0 ) <=> (int) ( \$b['order'] ?? 0 );";
+		$lines[] = "\t\t}";
+		$lines[] = "\t);";
+		$lines[] = '';
+		$lines[] = "\tforeach ( \$site_islands as \$island ) {";
+		$lines[] = sprintf( "\t\twp_enqueue_script( \$island['handle'], %s_URL . \$island['src'], array(), '1.0.0', true );", $const_prefix );
+		$lines[] = "\t}";
+		$lines[] = '}';
+		$lines[] = sprintf( "add_action( 'wp_enqueue_scripts', '%s_enqueue_site_islands' );", $fn_prefix );
 		$lines[] = '';
 
 		return implode( "\n", $lines );
@@ -538,7 +592,7 @@ class Static_Site_Importer_Companion_Plugin {
 	/**
 	 * Export island descriptors as a PHP array literal for the generated file.
 	 *
-	 * @param array<int,array<string,string>> $preserved Preserved island descriptors.
+	 * @param array<int,array<string,mixed>> $preserved Preserved island descriptors.
 	 * @return string
 	 */
 	private static function export_islands_php( array $preserved ): string {
@@ -549,10 +603,12 @@ class Static_Site_Importer_Companion_Plugin {
 		$rows = array();
 		foreach ( $preserved as $island ) {
 			$rows[] = sprintf(
-				"\t\tarray( 'handle' => '%s', 'src' => '%s', 'block' => '%s' ),",
+				"\t\tarray( 'handle' => '%s', 'src' => '%s', 'block' => '%s', 'scope' => '%s', 'order' => %d ),",
 				self::php_single_quote( $island['handle'] ),
 				self::php_single_quote( $island['relative_src'] ),
-				self::php_single_quote( $island['block'] )
+				self::php_single_quote( $island['block'] ),
+				self::php_single_quote( (string) $island['scope'] ),
+				(int) $island['order']
 			);
 		}
 

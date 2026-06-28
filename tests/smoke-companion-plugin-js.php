@@ -75,10 +75,12 @@ $assert     = static function ( bool $condition, string $label, string $detail =
 	}
 };
 
-// Unique island marker so we can prove the same JS is NOT duplicated into the
-// theme. Generic; no fixture-specific strings.
-$island_body = 'window.__ssiIslandMarker=function(){return 42;};';
-$payload     = array(
+// Unique island markers so we can prove the same JS is NOT duplicated into the
+// theme. Generic; no fixture-specific strings. One marker rides a block-scoped
+// island (render_block), the other rides a site-wide island (wp_enqueue_scripts).
+$island_body      = 'window.__ssiIslandMarker=function(){return 42;};';
+$site_island_body = 'window.__ssiSiteIslandMarker=function(){return 7;};';
+$payload          = array(
 	'schema'       => Static_Site_Importer_Companion_Plugin::PAYLOAD_SCHEMA,
 	'site_slug'    => 'Example Site',
 	'site_name'    => 'Example Site',
@@ -93,10 +95,21 @@ $payload     = array(
 		),
 	),
 	'preserved_js' => array(
+		// Block-scoped island: enqueued only when its owning block renders.
 		array(
 			'handle'  => 'hero-island',
 			'content' => $island_body,
 			'block'   => 'ssi-example-site/custom-hero',
+		),
+		// Site-wide island: matches the pinned producer contract verbatim —
+		// scope === 'site', no `block` key. Rides wp_enqueue_scripts so it
+		// survives a theme switch.
+		array(
+			'handle'  => 'site-island',
+			'content' => $site_island_body,
+			'src'     => 'islands/site-island.js',
+			'scope'   => 'site',
+			'order'   => 0,
 		),
 	),
 );
@@ -107,7 +120,8 @@ $descriptor = Static_Site_Importer_Companion_Plugin::scaffold( $payload );
 $assert( is_array( $descriptor ), 'scaffold-returns-descriptor', is_array( $descriptor ) ? '' : 'WP_Error returned' );
 
 if ( is_array( $descriptor ) ) {
-	$assert( array( 'hero-island' ) === ( $descriptor['island_handles'] ?? null ), 'descriptor-exposes-island-handles' );
+	// Both block-scoped and site-wide handles are companion-carried.
+	$assert( array( 'hero-island', 'site-island' ) === ( $descriptor['island_handles'] ?? null ), 'descriptor-exposes-island-handles' );
 
 	$files = $descriptor['files'];
 	$main  = $files['ssi-example-site/ssi-example-site.php'] ?? '';
@@ -115,13 +129,25 @@ if ( is_array( $descriptor ) ) {
 	$assert( str_contains( $main, 'wp_enqueue_script' ), 'companion-enqueues-island-js' );
 	$assert( str_contains( $main, "'block' => 'ssi-example-site/custom-hero'" ), 'companion-island-bound-to-block' );
 
+	// Block-scoped island carries scope 'block'; site-wide carries scope 'site'.
+	$assert( str_contains( $main, "'scope' => 'block'" ), 'companion-block-island-carries-block-scope' );
+	$assert( str_contains( $main, "'scope' => 'site'" ), 'companion-site-island-carries-site-scope' );
+
+	// Site-wide islands ride a plugin-wide wp_enqueue_scripts hook so the JS is
+	// enqueued once per request, theme-independently.
+	$assert( str_contains( $main, "add_action( 'wp_enqueue_scripts'" ), 'companion-hooks-site-islands-to-wp-enqueue-scripts' );
+	$assert( str_contains( $main, "'handle' => 'site-island'" ), 'companion-enqueues-site-wide-handle' );
+	$assert( str_contains( $main, "'src' => 'islands/site-island.js'" ), 'companion-site-island-bound-to-src' );
+
 	$island_files = array_filter(
 		$files,
 		static fn ( string $content, string $path ): bool => str_contains( $path, '/islands/' ) && str_ends_with( $path, '.js' ),
 		ARRAY_FILTER_USE_BOTH
 	);
-	$assert( 1 === count( $island_files ), 'companion-emits-one-island-js-file' );
+	// Both islands write their .js file regardless of scope.
+	$assert( 2 === count( $island_files ), 'companion-emits-island-js-file-per-island' );
 	$assert( in_array( $island_body, array_values( $island_files ), true ), 'companion-island-file-carries-js-body' );
+	$assert( in_array( $site_island_body, array_values( $island_files ), true ), 'companion-site-island-file-carries-js-body' );
 }
 
 // 2. Theme decoupling: the generated theme functions.php no longer enqueues a
@@ -149,9 +175,11 @@ $functions_php = $writes[ $theme_dir . '/functions.php' ] ?? '';
 $assert( '' !== $functions_php, 'theme-functions-php-generated' );
 $assert( ! str_contains( $functions_php, 'site.js' ), 'theme-no-longer-enqueues-site-js' );
 $assert( ! str_contains( $functions_php, $island_body ), 'theme-does-not-carry-preserved-island-js' );
+$assert( ! str_contains( $functions_php, $site_island_body ), 'theme-does-not-carry-site-wide-island-js' );
 $assert( ! isset( $writes[ $theme_dir . '/assets/site.js' ] ), 'theme-writes-omit-site-js-asset' );
 $write_blob = implode( "\n", array_values( $writes ) );
 $assert( ! str_contains( $write_blob, $island_body ), 'no-theme-write-carries-preserved-island-js' );
+$assert( ! str_contains( $write_blob, $site_island_body ), 'no-theme-write-carries-site-wide-island-js' );
 // Theme path otherwise intact: legitimate per-asset scripts still enqueue.
 $assert( str_contains( $functions_php, $legit_asset ), 'theme-still-enqueues-legitimate-asset-scripts' );
 
@@ -165,7 +193,7 @@ if ( ! function_exists( 'is_plugin_active' ) ) {
 
 $dependency = Static_Site_Importer_Entity_Materializer_Registry::companion_plugin_dependency( $payload );
 $row        = Static_Site_Importer_Entity_Materializer_Registry::companion_dependency_row( $dependency, false );
-$assert( array( 'hero-island' ) === ( $row['island_handles'] ?? null ), 'dependency-row-carries-island-handles' );
+$assert( array( 'hero-island', 'site-island' ) === ( $row['island_handles'] ?? null ), 'dependency-row-carries-island-handles' );
 
 // Active companion: present diagnostic flags JS as runtime-carried theme-independently.
 $GLOBALS['ssi_companion_js_active'] = true;
@@ -173,10 +201,10 @@ $report                            = Static_Site_Importer_Report_Diagnostics::ne
 Static_Site_Importer_Report_Diagnostics::record_companion_plugin_dependency( $report, $dependency, false );
 $present = array_values( array_filter( $report['diagnostics'] ?? array(), static fn ( array $d ): bool => 'companion_plugin_present' === ( $d['code'] ?? '' ) ) );
 $assert( 1 === count( $present ), 'present-diagnostic-emitted-when-active' );
-$assert( array( 'hero-island' ) === ( $present[0]['island_handles'] ?? null ), 'present-diagnostic-carries-island-handles' );
+$assert( array( 'hero-island', 'site-island' ) === ( $present[0]['island_handles'] ?? null ), 'present-diagnostic-carries-island-handles' );
 $assert( true === ( $present[0]['runtime_carried'] ?? false ), 'present-diagnostic-flags-runtime-carried' );
 $stored = $report['companion_plugins']['dependencies']['ssi-example-site']['island_handles'] ?? null;
-$assert( array( 'hero-island' ) === $stored, 'report-stores-companion-island-handles' );
+$assert( array( 'hero-island', 'site-island' ) === $stored, 'report-stores-companion-island-handles' );
 
 if ( $failures ) {
 	fwrite( STDERR, implode( "\n", $failures ) . "\n" );

@@ -236,6 +236,50 @@ if ( is_array( $render_variants ) ) {
 	$assert( ! str_contains( $variant_main, 'file:./custom-render.php' ), 'php-args-drop-upstream-render-key' );
 }
 
+// Site-wide preserved JS (no `block`, scope === 'site') rides a plugin-wide
+// wp_enqueue_scripts hook so free-standing behavior JS survives a theme switch,
+// while block-scoped islands stay on the render_block path.
+$site_island = Static_Site_Importer_Companion_Plugin::scaffold(
+	array(
+		'schema'       => Static_Site_Importer_Companion_Plugin::PAYLOAD_SCHEMA,
+		'site_slug'    => 'Site Wide',
+		'site_name'    => 'Site Wide',
+		'blocks'       => array(
+			array(
+				'name'       => 'Custom Hero',
+				'block_json' => array(
+					'title'    => 'Custom Hero',
+					'category' => 'design',
+				),
+			),
+		),
+		'preserved_js' => array(
+			array(
+				'handle'  => 'behavior',
+				'content' => 'window.__ssiBehavior=function(){};',
+				'src'     => 'islands/behavior.js',
+				'scope'   => 'site',
+				'order'   => 0,
+			),
+		),
+	)
+);
+$assert( is_array( $site_island ), 'site-island-scaffold-returns-descriptor', is_array( $site_island ) ? '' : 'WP_Error returned' );
+
+if ( is_array( $site_island ) ) {
+	$site_main = $site_island['files']['ssi-site-wide/ssi-site-wide.php'] ?? '';
+	// Site-wide islands are enqueued once per request via wp_enqueue_scripts.
+	$assert( str_contains( $site_main, "add_action( 'wp_enqueue_scripts'" ), 'site-island-hooks-wp-enqueue-scripts' );
+	$assert( str_contains( $site_main, "'scope' => 'site'" ), 'site-island-carries-site-scope' );
+	$assert( str_contains( $site_main, "'handle' => 'behavior'" ), 'site-island-enqueues-handle' );
+	// render_block path stays intact for any block-scoped islands.
+	$assert( str_contains( $site_main, "add_filter( 'render_block'" ), 'site-island-keeps-render-block-path' );
+	// The site-wide island .js file is still written regardless of scope.
+	$assert( isset( $site_island['files']['ssi-site-wide/islands/behavior.js'] ), 'site-island-writes-js-file' );
+	// Gate counts the site-wide handle as companion-carried.
+	$assert( in_array( 'behavior', $site_island['island_handles'] ?? array(), true ), 'site-island-handle-in-descriptor' );
+}
+
 // mu-plugin variant materializes a root loader stub.
 $mu_descriptor = Static_Site_Importer_Companion_Plugin::scaffold( array_merge( $payload, array( 'mu_plugin' => true ) ) );
 $assert( is_array( $mu_descriptor ) && true === $mu_descriptor['mu_plugin'], 'scaffold-honors-mu-plugin-option' );
