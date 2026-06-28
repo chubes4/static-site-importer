@@ -90,15 +90,23 @@ class Static_Site_Importer_Companion_Plugin {
 		);
 
 		$descriptor = array(
-			'schema'      => self::PAYLOAD_SCHEMA,
-			'slug'        => $plugin_slug,
-			'namespace'   => $block_namespace,
-			'site_slug'   => $site_slug,
-			'plugin_file' => $main_file,
-			'mu_plugin'   => $mu_plugin,
-			'block_names' => $block_names,
-			'loader_file' => '',
-			'files'       => $files,
+			'schema'         => self::PAYLOAD_SCHEMA,
+			'slug'           => $plugin_slug,
+			'namespace'      => $block_namespace,
+			'site_slug'      => $site_slug,
+			'plugin_file'    => $main_file,
+			'mu_plugin'      => $mu_plugin,
+			'block_names'    => $block_names,
+			// Handles of preserved island scripts the plugin carries + enqueues
+			// scoped. Exposed so the gate/diagnostics can account for preserved
+			// island JS as companion-plugin-carried (theme-independent) rather
+			// than theme-coupled.
+			'island_handles' => array_map(
+				static fn ( array $island ): string => (string) $island['handle'],
+				$preserved
+			),
+			'loader_file'    => '',
+			'files'          => $files,
 		);
 
 		if ( $mu_plugin ) {

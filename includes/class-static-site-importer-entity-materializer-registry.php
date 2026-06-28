@@ -367,23 +367,31 @@ class Static_Site_Importer_Entity_Materializer_Registry {
 	public static function companion_dependency_row( array $dependency, bool $waived ): array {
 		$active = self::companion_plugin_available( $dependency );
 
-		$block_names = array();
-		$payload     = isset( $dependency['payload'] ) && is_array( $dependency['payload'] ) ? $dependency['payload'] : array();
-		$scaffold    = empty( $payload ) ? null : Static_Site_Importer_Companion_Plugin::scaffold( $payload );
+		$block_names    = array();
+		$island_handles = array();
+		$payload        = isset( $dependency['payload'] ) && is_array( $dependency['payload'] ) ? $dependency['payload'] : array();
+		$scaffold       = empty( $payload ) ? null : Static_Site_Importer_Companion_Plugin::scaffold( $payload );
 		if ( is_array( $scaffold ) && isset( $scaffold['block_names'] ) && is_array( $scaffold['block_names'] ) ) {
 			$block_names = array_values( array_map( 'strval', $scaffold['block_names'] ) );
 		}
+		if ( is_array( $scaffold ) && isset( $scaffold['island_handles'] ) && is_array( $scaffold['island_handles'] ) ) {
+			$island_handles = array_values( array_map( 'strval', $scaffold['island_handles'] ) );
+		}
 
 		return array(
-			'type'        => 'companion_plugin',
-			'source'      => 'generated',
-			'slug'        => (string) ( $dependency['slug'] ?? '' ),
-			'plugin_file' => (string) ( $dependency['plugin_file'] ?? '' ),
-			'mu_plugin'   => ! empty( $dependency['mu_plugin'] ),
-			'required'    => true,
-			'active'      => $active,
-			'waived'      => $waived,
-			'block_names' => $block_names,
+			'type'           => 'companion_plugin',
+			'source'         => 'generated',
+			'slug'           => (string) ( $dependency['slug'] ?? '' ),
+			'plugin_file'    => (string) ( $dependency['plugin_file'] ?? '' ),
+			'mu_plugin'      => ! empty( $dependency['mu_plugin'] ),
+			'required'       => true,
+			'active'         => $active,
+			'waived'         => $waived,
+			'block_names'    => $block_names,
+			// Preserved island JS handles this companion carries + enqueues
+			// scoped; lets the gate/diagnostics treat preserved island JS as
+			// companion-plugin-carried instead of theme-coupled.
+			'island_handles' => $island_handles,
 		);
 	}
 
