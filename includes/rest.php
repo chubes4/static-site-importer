@@ -498,14 +498,87 @@ function static_site_importer_rest_open_in_playground( array $source, array $inp
 		$input['slug'] = $identity['slug'];
 	}
 
-	$result = static_site_importer_rest_create_playground_open( $artifact, $input, isset( $source['figma_file'] ) ? 'figma_file' : 'upload' );
-	if ( is_wp_error( $result ) ) {
-		return $result;
+	$preview_source = isset( $source['figma_file'] ) ? 'figma_file' : 'upload';
+
+	return static_site_importer_import_website_artifact_with_disposition(
+		$artifact,
+		$input,
+		array(
+			'source'         => $source,
+			'mode'           => 'playground',
+			'preview_source' => $preview_source,
+		)
+	);
+}
+
+/**
+ * Run a normalized website artifact through the consumer-defined import disposition.
+ *
+ * This is the shared seam used by both the REST import endpoint and direct
+ * server-side callers (for example, a generator that produces an artifact
+ * in-process). By the time execution reaches this function the artifact and
+ * import args are already normalized, so a consumer decides only *what happens
+ * to the import* — not how the artifact is built.
+ *
+ * Consumers register on the {@see 'static_site_importer_import_disposition'}
+ * filter: return null to defer (to other consumers, then the built-in preview),
+ * or return a response array / WP_Error to claim the import and define its
+ * outcome. A claiming consumer owns any persistence it performs and the preview
+ * it returns; it may call {@see static_site_importer_build_playground_preview()}
+ * to reuse the built-in, non-destructive Playground preview.
+ *
+ * @param array<string,mixed> $artifact Normalized website artifact ({ schema, entrypoint, files }).
+ * @param array<string,mixed> $input    Normalized import args (artifact, name, slug, activate, overwrite, ...).
+ * @param array<string,mixed> $context  Optional context: { source, params, mode, preview_source }.
+ * @return array<string,mixed>|WP_Error
+ */
+function static_site_importer_import_website_artifact_with_disposition( array $artifact, array $input = array(), array $context = array() ) {
+	/**
+	 * Filter what happens to a normalized website-artifact import.
+	 *
+	 * Static Site Importer stays generic: it normalizes the artifact and then
+	 * lets a consumer (a product/bridge layer) define the import's disposition.
+	 * Return null to defer to the built-in Playground preview; return a response
+	 * array or WP_Error to claim the import.
+	 *
+	 * @param array<string,mixed>|WP_Error|null $disposition Null to defer; array/WP_Error to claim.
+	 * @param array<string,mixed>               $artifact    Normalized website artifact.
+	 * @param array<string,mixed>               $input       Normalized import args.
+	 * @param array<string,mixed>               $context     { source, params, mode, preview_source }.
+	 */
+	$disposition = apply_filters( 'static_site_importer_import_disposition', null, $artifact, $input, $context );
+	if ( null !== $disposition ) {
+		return $disposition;
 	}
 
-	$result['mode'] = 'playground';
+	$preview_source = isset( $context['preview_source'] ) ? (string) $context['preview_source'] : 'upload';
+	$result         = static_site_importer_build_playground_preview( $artifact, $input, $preview_source );
+	if ( is_array( $result ) ) {
+		$result['mode'] = 'playground';
+	}
 
 	return $result;
+}
+
+/**
+ * Build a non-destructive, self-contained Playground preview for a website artifact.
+ *
+ * Stable, consumer-facing wrapper around the built-in Playground preview builder.
+ * Disposition handlers that persist an artifact elsewhere (for example, into a
+ * host product's project store) can call this to return a working preview URL
+ * without reaching into REST-internal helpers.
+ *
+ * @param array<string,mixed> $artifact Normalized website artifact.
+ * @param array<string,mixed> $input    Normalized import args.
+ * @param string              $source   Preview source label.
+ * @return array<string,mixed>|WP_Error
+ */
+function static_site_importer_build_playground_preview( array $artifact, array $input = array(), string $source = 'consumer' ) {
+	if ( ! isset( $input['artifact'] ) ) {
+		$input['artifact'] = $artifact;
+	}
+
+	return static_site_importer_rest_create_playground_open( $artifact, $input, $source );
 }
 
 /**
