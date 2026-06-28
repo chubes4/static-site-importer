@@ -30,6 +30,11 @@ const importFixture = skipImport ? fixture : prepareImportFixture( fixture );
 
 const steps = [
   {
+    name: 'Site identity smoke',
+    command: 'php',
+    args: [ path.join( repoRoot, 'tests/smoke-site-identity.php' ) ],
+  },
+  {
     name: 'Transformer adapter smoke',
     command: 'php',
     args: [ path.join( repoRoot, 'tests/smoke-transformer-adapter.php' ) ],

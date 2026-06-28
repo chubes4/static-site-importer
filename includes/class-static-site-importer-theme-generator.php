@@ -15,6 +15,10 @@ if ( ! class_exists( 'Static_Site_Importer_Transformer_Adapter' ) ) {
 	require_once __DIR__ . '/class-static-site-importer-transformer-adapter.php';
 }
 
+if ( ! class_exists( 'Static_Site_Importer_Site_Identity' ) ) {
+	require_once __DIR__ . '/class-static-site-importer-site-identity.php';
+}
+
 /**
  * Generates a block theme from a static HTML document.
  */
@@ -52,11 +56,29 @@ class Static_Site_Importer_Theme_Generator {
 		if ( ! class_exists( 'Static_Site_Importer_Transformer_Adapter' ) ) {
 			return new WP_Error( 'static_site_importer_missing_transformer_adapter', 'Static Site Importer transformer adapter is required to import a website artifact.' );
 		}
+		// site_title (blogname) intentionally stays restricted to an explicit arg
+		// or a real extracted document title; it never falls back to the host or
+		// generic constant the way the theme name/slug do.
 		if ( empty( $args['site_title'] ) ) {
-			$site_title = self::site_title_from_website_artifact( $artifact );
+			$site_title = Static_Site_Importer_Site_Identity::title_from_website_artifact( $artifact );
 			if ( '' !== $site_title ) {
 				$args['site_title'] = $site_title;
 			}
+		}
+		$identity = Static_Site_Importer_Site_Identity::resolve(
+			array(
+				'site_title' => isset( $args['site_title'] ) ? (string) $args['site_title'] : '',
+				'name'       => isset( $args['name'] ) ? (string) $args['name'] : '',
+				'slug'       => isset( $args['slug'] ) ? (string) $args['slug'] : '',
+				'artifact'   => $artifact,
+				'url'        => isset( $args['url'] ) ? (string) $args['url'] : '',
+			)
+		);
+		if ( empty( $args['name'] ) ) {
+			$args['name'] = $identity['name'];
+		}
+		if ( empty( $args['slug'] ) ) {
+			$args['slug'] = $identity['slug'];
 		}
 		if ( empty( $args['source_artifact_reference'] ) ) {
 			$args['source_artifact_reference'] = self::source_artifact_reference_from_artifact( $artifact, $args );
@@ -88,12 +110,16 @@ class Static_Site_Importer_Theme_Generator {
 	 */
 	private static function import_compiled_website_artifact( array $compiled, array $args = array() ) {
 		$artifacts    = isset( $compiled['artifacts'] ) && is_array( $compiled['artifacts'] ) ? $compiled['artifacts'] : array();
-		$theme_name   = isset( $args['name'] ) && '' !== trim( (string) $args['name'] ) ? sanitize_text_field( (string) $args['name'] ) : 'Imported Website Artifact';
-		$theme_slug   = isset( $args['slug'] ) && '' !== trim( (string) $args['slug'] ) ? sanitize_title( (string) $args['slug'] ) : sanitize_title( $theme_name );
+		$identity     = Static_Site_Importer_Site_Identity::resolve(
+			array(
+				'site_title' => isset( $args['site_title'] ) ? (string) $args['site_title'] : '',
+				'name'       => isset( $args['name'] ) ? (string) $args['name'] : '',
+				'slug'       => isset( $args['slug'] ) ? (string) $args['slug'] : '',
+			)
+		);
+		$theme_name   = $identity['name'];
+		$theme_slug   = $identity['slug'];
 		$site_title   = isset( $args['site_title'] ) && '' !== trim( (string) $args['site_title'] ) ? sanitize_text_field( (string) $args['site_title'] ) : '';
-		if ( '' === $theme_slug ) {
-			$theme_slug = 'imported-website-artifact';
-		}
 
 		$theme_root = get_theme_root();
 		$theme_dir  = trailingslashit( $theme_root ) . $theme_slug;
@@ -1415,37 +1441,6 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return $refs;
-	}
-
-	/**
-	 * Infer a WordPress site title from the source artifact entrypoint.
-	 *
-	 * @param array<string,mixed> $artifact Website artifact bundle.
-	 * @return string
-	 */
-	private static function site_title_from_website_artifact( array $artifact ): string {
-		$entrypoint = isset( $artifact['entrypoint'] ) && is_scalar( $artifact['entrypoint'] ) ? self::normalize_route_path( (string) $artifact['entrypoint'] ) : '';
-		$files      = isset( $artifact['files'] ) && is_array( $artifact['files'] ) ? $artifact['files'] : array();
-		foreach ( $files as $file ) {
-			if ( ! is_array( $file ) ) {
-				continue;
-			}
-			$path = isset( $file['path'] ) && is_scalar( $file['path'] ) ? self::normalize_route_path( (string) $file['path'] ) : '';
-			if ( '' === $path || ( '' !== $entrypoint && $path !== $entrypoint ) ) {
-				continue;
-			}
-			$content = isset( $file['content'] ) && is_scalar( $file['content'] ) ? (string) $file['content'] : '';
-			if ( '' === trim( $content ) || ! preg_match( '/<title[^>]*>(.*?)<\/title>/is', $content, $matches ) ) {
-				continue;
-			}
-
-			$title = function_exists( 'wp_strip_all_tags' ) ? wp_strip_all_tags( (string) $matches[1] ) : preg_replace( '/<[^>]*>/', '', (string) $matches[1] );
-			$title = html_entity_decode( trim( $title ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-			$title = preg_split( '/\s+(?:\||\x{2014}|\x{2013}|-)\s+/u', $title )[0] ?? $title;
-			return function_exists( 'sanitize_text_field' ) ? sanitize_text_field( trim( $title ) ) : trim( preg_replace( '/<[^>]*>/', '', $title ) );
-		}
-
-		return '';
 	}
 
 	/**
