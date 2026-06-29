@@ -9,6 +9,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+if ( ! class_exists( 'Static_Site_Importer_Bundle_Data_Source' ) ) {
+	require_once __DIR__ . '/class-static-site-importer-bundle-data-source.php';
+}
+
 /**
  * Keeps SSI workflows insulated from transformer package implementation details.
  */
@@ -73,8 +77,11 @@ class Static_Site_Importer_Transformer_Adapter {
 			$materialization_plan = isset( $source_reports['materialization_plan'] ) && is_array( $source_reports['materialization_plan'] ) ? $source_reports['materialization_plan'] : array();
 		}
 		$products  = $this->merge_product_manifests(
-			$this->products_manifest_from_transformer_reports( $result, $materialization_plan ),
-			$this->products_manifest_from_raw_artifact_html( $artifact )
+			$this->products_manifest_from_artifact_data_files( $artifact ),
+			$this->merge_product_manifests(
+				$this->products_manifest_from_transformer_reports( $result, $materialization_plan ),
+				$this->products_manifest_from_raw_artifact_html( $artifact )
+			)
 		);
 		$artifacts = isset( $compiled['artifacts'] ) && is_array( $compiled['artifacts'] ) ? $compiled['artifacts'] : array();
 		$blocks    = isset( $artifacts['blocks'] ) && is_array( $artifacts['blocks'] ) ? $artifacts['blocks'] : array();
@@ -278,6 +285,29 @@ class Static_Site_Importer_Transformer_Adapter {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Extract commerce products from static bundle data files.
+	 *
+	 * Bundles often render their catalog client-side from a static `.js`/`.json`
+	 * data file, so the rendered HTML imports empty. This reads those data files
+	 * directly (without executing JavaScript), recognizing product-shaped arrays
+	 * by data shape, and is the preferred product source ahead of DOM detection.
+	 *
+	 * @param array<string,mixed> $artifact Website artifact bundle.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function products_manifest_from_artifact_data_files( array $artifact ): array {
+		$products = array();
+		foreach ( Static_Site_Importer_Bundle_Data_Source::product_rows_from_artifact( $artifact ) as $row ) {
+			$product = $this->normalize_product_report_row( $row );
+			if ( ! empty( $product ) ) {
+				$products[] = $product;
+			}
+		}
+
+		return $this->merge_product_manifests( array(), $products );
 	}
 
 	/**
