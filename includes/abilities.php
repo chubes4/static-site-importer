@@ -358,10 +358,76 @@ if ( ! function_exists( 'static_site_importer_ability_import_website_artifact' )
 			return static_site_importer_ability_error( (string) $result->get_error_code(), $result->get_error_message(), $result->get_error_data() );
 		}
 
+		return static_site_importer_ability_import_success( is_array( $result ) ? $result : array(), $input );
+	}
+}
+
+if ( ! function_exists( 'static_site_importer_ability_import_success' ) ) {
+	/**
+	 * Build the success envelope for a completed website artifact import.
+	 *
+	 * Mirrors the failure envelope (`static_site_importer_ability_error`) so consumers
+	 * can read the same `static-site-importer/import-diagnostics/v1` contract whether an
+	 * import succeeded or failed: warnings, quality counts, blocks-engine conversion stats,
+	 * semantic parity, and runtime-dependency gaps are all surfaced on success too.
+	 *
+	 * @param array<string,mixed> $result Import result from Static_Site_Importer_Theme_Generator::import_website_artifact().
+	 * @param array<string,mixed> $input  Original ability input.
+	 * @return array<string,mixed>
+	 */
+	function static_site_importer_ability_import_success( array $result, array $input ): array {
+		$contract = static_site_importer_success_diagnostics_contract( $result );
+
+		/**
+		 * Fires after a website artifact import completes successfully, once the
+		 * import-diagnostics contract has been built. Consumers can read the contract
+		 * without reconstructing it from the raw result.
+		 *
+		 * @param array<string,mixed> $contract The static-site-importer/import-diagnostics/v1 contract.
+		 * @param array<string,mixed> $result   The raw import result.
+		 * @param array<string,mixed> $input    The original ability input.
+		 */
+		do_action( 'static_site_importer_import_completed', $contract, $result, $input );
+
 		return array(
-			'success' => true,
-			'result'  => $result,
+			'success'             => true,
+			'result'              => $result,
+			'diagnostics'         => isset( $contract['diagnostics'] ) && is_array( $contract['diagnostics'] ) ? $contract['diagnostics'] : array(),
+			'fixture_diagnostics' => $contract,
 		);
+	}
+}
+
+if ( ! function_exists( 'static_site_importer_success_diagnostics_contract' ) ) {
+	/**
+	 * Build the import-diagnostics contract from a successful import result.
+	 *
+	 * Maps the success result shape returned by
+	 * Static_Site_Importer_Theme_Generator::import_website_artifact() into the keys the
+	 * diagnostic contract reads. Fields the contract needs but the result does not carry
+	 * are mapped from what the import returns rather than fabricated.
+	 *
+	 * @param array<string,mixed> $result Import result.
+	 * @return array<string,mixed>
+	 */
+	function static_site_importer_success_diagnostics_contract( array $result ): array {
+		$import_validation_result = isset( $result['import_validation_result'] ) && is_array( $result['import_validation_result'] ) ? $result['import_validation_result'] : array();
+		$quality                  = isset( $result['quality'] ) && is_array( $result['quality'] ) ? $result['quality'] : array();
+		$validation_diagnostics   = isset( $import_validation_result['diagnostics'] ) && is_array( $import_validation_result['diagnostics'] ) ? $import_validation_result['diagnostics'] : array();
+
+		$contract_input = array(
+			'success'                  => true,
+			'status'                   => isset( $result['import_report_summary']['status'] ) && is_scalar( $result['import_report_summary']['status'] ) ? (string) $result['import_report_summary']['status'] : 'completed',
+			'slug'                     => isset( $result['theme_slug'] ) ? (string) $result['theme_slug'] : '',
+			'name'                     => isset( $result['theme_name'] ) ? (string) $result['theme_name'] : '',
+			'import_validation_result' => $import_validation_result,
+			'import_report'            => array(
+				'quality'     => $quality,
+				'diagnostics' => $validation_diagnostics,
+			),
+		);
+
+		return class_exists( 'Static_Site_Importer_Diagnostic_Contract' ) ? Static_Site_Importer_Diagnostic_Contract::build( $contract_input ) : array( 'diagnostics' => $validation_diagnostics );
 	}
 }
 
