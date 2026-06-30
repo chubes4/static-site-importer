@@ -418,6 +418,39 @@ test('keeps native_conversion findings acceptable without a runtime-carried sign
   assert.equal(result.fixtures[0].status, 'passed');
 });
 
+test('classifies script fallbacks and semantic parity without generic unsupported loss', () => {
+  const matrix = createFixtureMatrix({ fixture_root: fixtureRoot, id: 'script-semantic-classification-test' });
+  const result = normalizeFixtureMatrixResult({
+    matrix,
+    results: [
+      {
+        fixture_id: 'simple-site',
+        status: 'failed',
+        diagnostics: [
+          {
+            kind: 'html_script_fallback',
+            source_path: 'website/index.html',
+            selector: 'script:nth-of-type(1)',
+            message: 'Script HTML requires runtime behavior and was preserved as scoped safe fallback metadata.',
+          },
+          {
+            kind: 'html_semantic_parity_navigation_item_count_mismatch',
+            source_path: 'website/index.html',
+            selector: 'nav:nth-of-type(1)',
+            message: 'Source navigation item count differs from generated core navigation items.',
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(result.findings[0].loss_class, 'preserved_runtime_island');
+  assert.equal(result.findings[0].loss_acceptance, 'unacceptable');
+  assert.equal(result.findings[1].loss_class, 'editable_approximation');
+  assert.equal(result.findings[1].loss_acceptance, 'acceptable');
+  assert.equal(result.summary.unacceptable_loss_classes.unsupported_loss, undefined);
+});
+
 test('classifies fixtures from the per-fixture manifest as the sole source of truth', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'ssi-fixture-manifest-'));
   const shop = path.join(root, 'spring-shop');
@@ -780,6 +813,39 @@ test('collects SSI finding packet source and observed context from fixture artif
   assert.equal(finding.observed_output, '<!-- wp:html /-->');
 });
 
+test('propagates accepted runtime preservation across duplicate script diagnostics during intake', () => {
+  const outputDirectory = mkdtempSync(path.join(tmpdir(), 'ssi-runtime-preservation-intake-'));
+  const matrix = createFixtureMatrix({ fixture_root: fixtureRoot, id: 'runtime-preservation-intake-test' });
+  const codeboxOutput = {
+    fixture_id: 'simple-site',
+    status: 'failed',
+    diagnostics: [
+      {
+        type: 'unsupported_html_fallback',
+        kind: 'unsupported_html_fallback',
+        reason_code: 'script_requires_runtime',
+        source_path: 'website/index.html',
+        selector: 'script:nth-of-type(1)',
+        loss_class: 'preserved_runtime_island',
+        repair_mode: 'accepted-runtime-preservation',
+        acceptability: 'acceptable_preservation',
+      },
+      {
+        code: 'html_script_fallback',
+        reason: 'script_requires_runtime',
+        tag: 'script',
+        selector: 'script:nth-of-type(1)',
+      },
+    ],
+  };
+
+  const result = collectFixtureMatrixRunResults({ matrix, outputDirectory, codeboxOutput });
+  assert.equal(result.summary.unacceptable_finding_count, 0);
+  assert.equal(result.summary.acceptable_finding_count, 2);
+  assert.equal(result.summary.succeeded, 1);
+  assert.equal(result.findings.every((finding) => finding.loss_acceptance === 'acceptable'), true);
+});
+
 test('materializes generated artifact roots into matrix-compatible fixtures', () => {
   const sourceRoot = mkdtempSync(path.join(tmpdir(), 'ssi-generated-artifacts-'));
   const fixtureOutput = mkdtempSync(path.join(tmpdir(), 'ssi-generated-fixtures-'));
@@ -1033,6 +1099,9 @@ test('CLI --no-visual-parity disables visual steps and records a safe WP Codebox
     env: {
       ...process.env,
       HOMEBOY_WP_CODEBOX_RECIPE_HELPER: '',
+      HOMEBOY_WP_CODEBOX_BIN: '',
+      SSI_FIXTURE_MATRIX_WP_CODEBOX_BIN: '',
+      WP_CODEBOX_BIN: '',
     },
   });
 

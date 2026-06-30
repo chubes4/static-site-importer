@@ -45,7 +45,7 @@ class Static_Site_Importer_Diagnostic_Loss_Classes {
 		if (
 			self::contains_any(
 				$haystack,
-				array( 'runtime_dependency_vendor_telemetry_script', 'interaction_candidate', 'runtime_island', 'runtimeisland', 'preserved_runtime', 'preservedasaboundedruntimeisland' )
+				array( 'runtime_dependency_vendor_telemetry_script', 'interaction_candidate', 'runtime_island', 'preserved_runtime' )
 			)
 			|| self::is_preserved_runtime_element( $element, $selector )
 		) {
@@ -101,6 +101,7 @@ class Static_Site_Importer_Diagnostic_Loss_Classes {
 					'semantic_parity',
 					'navigation_',
 					'landmark_',
+					'preservedasaboundedruntimeisland',
 				)
 			)
 		) {

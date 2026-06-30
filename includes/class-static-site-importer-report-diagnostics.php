@@ -210,6 +210,8 @@ class Static_Site_Importer_Report_Diagnostics {
 			self::record_conversion_report_quality_metadata( $report, $conversion_report );
 		}
 
+		self::mark_materialized_script_fallbacks_carried( $report, $site );
+
 		$runtime_dependency_parity = isset( $compiled['runtime_dependency_parity'] ) && is_array( $compiled['runtime_dependency_parity'] ) ? $compiled['runtime_dependency_parity'] : array();
 		if ( ! empty( $runtime_dependency_parity ) ) {
 			$report['blocks_engine']['runtime_dependency_parity'] = self::runtime_dependency_parity_payload( $runtime_dependency_parity );
@@ -461,6 +463,8 @@ class Static_Site_Importer_Report_Diagnostics {
 	 * @return array<string, mixed>
 	 */
 	public static function finalize_quality_report( array &$report, array $args ): array {
+		$materialization_plan = isset( $report['blocks_engine']['materialization_plan'] ) && is_array( $report['blocks_engine']['materialization_plan'] ) ? $report['blocks_engine']['materialization_plan'] : array();
+		self::mark_materialized_script_fallbacks_carried( $report, $materialization_plan );
 		self::normalize_import_diagnostics( $report );
 
 		$quality = $report['quality'];
@@ -1574,8 +1578,9 @@ class Static_Site_Importer_Report_Diagnostics {
 		$pages          = isset( $site['pages'] ) && is_array( $site['pages'] ) ? $site['pages'] : array();
 		$shared_regions = isset( $site['shared_regions'] ) && is_array( $site['shared_regions'] ) ? $site['shared_regions'] : array();
 		$theme_assets   = isset( $site['theme_assets'] ) && is_array( $site['theme_assets'] ) ? $site['theme_assets'] : array();
+		$assets         = isset( $site['assets'] ) && is_array( $site['assets'] ) ? $site['assets'] : array();
 
-		return array(
+		$payload = array(
 			'schema'              => (string) ( $site['schema'] ?? '' ),
 			'page_count'          => count( $pages ),
 			'pages'               => self::compiled_site_pages_report_payload( $pages ),
@@ -1587,6 +1592,48 @@ class Static_Site_Importer_Report_Diagnostics {
 			),
 			'provenance'          => isset( $site['provenance'] ) && is_array( $site['provenance'] ) ? $site['provenance'] : array(),
 		);
+
+		if ( ! empty( $assets ) ) {
+			$payload['assets'] = self::materialization_plan_assets_report_payload( $assets );
+		}
+
+		return $payload;
+	}
+
+	/**
+	 * Preserve compact materialization-plan asset metadata for downstream diagnostics.
+	 *
+	 * @param array<int,mixed> $assets Materialization-plan assets.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function materialization_plan_assets_report_payload( array $assets ): array {
+		$rows = array();
+		foreach ( $assets as $asset ) {
+			if ( ! is_array( $asset ) ) {
+				continue;
+			}
+
+			$row = array();
+			foreach ( array( 'source', 'path', 'target_path', 'kind', 'role', 'intent', 'media_type', 'mime_type', 'placement', 'source_path', 'selector', 'hash' ) as $field ) {
+				if ( isset( $asset[ $field ] ) && is_scalar( $asset[ $field ] ) && '' !== trim( (string) $asset[ $field ] ) ) {
+					$row[ $field ] = (string) $asset[ $field ];
+				}
+			}
+			foreach ( array( 'defer', 'async' ) as $field ) {
+				if ( array_key_exists( $field, $asset ) ) {
+					$row[ $field ] = (bool) $asset[ $field ];
+				}
+			}
+			if ( isset( $asset['bytes'] ) && is_numeric( $asset['bytes'] ) ) {
+				$row['bytes'] = (int) $asset['bytes'];
+			}
+
+			if ( ! empty( $row ) ) {
+				$rows[] = $row;
+			}
+		}
+
+		return $rows;
 	}
 
 	/**
@@ -1898,6 +1945,126 @@ class Static_Site_Importer_Report_Diagnostics {
 				$report['diagnostics'][] = $diagnostic;
 			}
 		}
+	}
+
+	/**
+	 * Mark script fallback diagnostics as carried when the materialization plan emits the matching script asset.
+	 *
+	 * @param array<string,mixed> $report Import report.
+	 * @param array<string,mixed> $site   Blocks Engine materialization plan.
+	 * @return void
+	 */
+	private static function mark_materialized_script_fallbacks_carried( array &$report, array $site ): void {
+		$script_assets = self::materialized_runtime_script_assets_by_selector( $site );
+		if ( empty( $script_assets ) || empty( $report['diagnostics'] ) || ! is_array( $report['diagnostics'] ) ) {
+			return;
+		}
+
+		foreach ( $report['diagnostics'] as &$diagnostic ) {
+			if ( ! is_array( $diagnostic ) || ! self::is_script_runtime_fallback_diagnostic( $diagnostic ) ) {
+				continue;
+			}
+
+			$source_path = self::first_scalar( $diagnostic, array( 'source_path', 'source', 'path' ) );
+			$selector    = self::first_scalar( $diagnostic, array( 'selector' ) );
+			$key         = self::materialized_runtime_script_asset_key( $source_path, $selector );
+			if ( '' === $key || ! isset( $script_assets[ $key ] ) ) {
+				continue;
+			}
+
+			$asset                                  = $script_assets[ $key ];
+			$diagnostic['runtime_carried']           = true;
+			$diagnostic['loss_class']                = Static_Site_Importer_Diagnostic_Loss_Classes::PRESERVED_RUNTIME_ISLAND;
+			$diagnostic['diagnostic_class']          = Static_Site_Importer_Diagnostic_Loss_Classes::PRESERVED_RUNTIME_ISLAND;
+			$diagnostic['materialized_runtime_asset'] = $asset;
+			if ( empty( $diagnostic['message'] ) ) {
+				$diagnostic['message'] = sprintf( 'Script fallback is carried by materialized theme asset %s.', (string) ( $asset['path'] ?? '' ) );
+			}
+		}
+		unset( $diagnostic );
+	}
+
+	/**
+	 * Index materialized executable script assets by source document and selector.
+	 *
+	 * @param array<string,mixed> $site Blocks Engine materialization plan.
+	 * @return array<string,array<string,string>>
+	 */
+	private static function materialized_runtime_script_assets_by_selector( array $site ): array {
+		if ( 'blocks-engine/php-transformer/materialization-plan/v1' !== (string) ( $site['schema'] ?? '' ) || empty( $site['assets'] ) || ! is_array( $site['assets'] ) ) {
+			return array();
+		}
+
+		$indexed = array();
+		foreach ( $site['assets'] as $asset ) {
+			if ( ! is_array( $asset ) ) {
+				continue;
+			}
+
+			$role   = self::first_scalar( $asset, array( 'role' ) );
+			$kind   = self::first_scalar( $asset, array( 'kind' ) );
+			$source = self::first_scalar( $asset, array( 'source' ) );
+			if ( 'script' !== $role || 'js' !== $kind || 'inline-script' !== $source ) {
+				continue;
+			}
+
+			$source_path = self::first_scalar( $asset, array( 'source_path' ) );
+			$selector    = self::first_scalar( $asset, array( 'selector' ) );
+			$key         = self::materialized_runtime_script_asset_key( $source_path, $selector );
+			if ( '' === $key ) {
+				continue;
+			}
+
+			$indexed[ $key ] = array_filter(
+				array(
+					'path'        => self::first_scalar( $asset, array( 'path', 'target_path' ) ),
+					'source_path' => $source_path,
+					'selector'    => $selector,
+					'role'        => $role,
+					'kind'        => $kind,
+					'source'      => $source,
+				),
+				static fn ( string $value ): bool => '' !== $value
+			);
+		}
+
+		return $indexed;
+	}
+
+	/**
+	 * Build a stable materialized script lookup key.
+	 *
+	 * @param string $source_path Source document path.
+	 * @param string $selector    Source element selector.
+	 * @return string
+	 */
+	private static function materialized_runtime_script_asset_key( string $source_path, string $selector ): string {
+		$source_path = trim( $source_path );
+		$selector    = trim( $selector );
+		if ( '' === $source_path || '' === $selector ) {
+			return '';
+		}
+
+		return $source_path . "\0" . $selector;
+	}
+
+	/**
+	 * Check whether a diagnostic describes a script fallback that needs carried runtime evidence.
+	 *
+	 * @param array<string,mixed> $diagnostic Diagnostic row.
+	 * @return bool
+	 */
+	private static function is_script_runtime_fallback_diagnostic( array $diagnostic ): bool {
+		$parts = array();
+		foreach ( array( 'diagnostic_code', 'kind', 'type', 'reason_code', 'reason', 'code', 'tag_name', 'tag', 'element', 'message' ) as $field ) {
+			if ( isset( $diagnostic[ $field ] ) && is_scalar( $diagnostic[ $field ] ) && '' !== trim( (string) $diagnostic[ $field ] ) ) {
+				$parts[] = (string) $diagnostic[ $field ];
+			}
+		}
+
+		$haystack = implode( ' ', $parts );
+
+		return (bool) preg_match( '/html[_\s-]+script[_\s-]+fallback|script[_\s-]+requires[_\s-]+runtime|\bscript\b/i', $haystack );
 	}
 
 	/**

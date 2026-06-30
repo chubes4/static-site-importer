@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 
 const require = createRequire(import.meta.url);
+const WP_CODEBOX_RECIPE_MAX_BUFFER = 64 * 1024 * 1024;
 
 function externalHelper() {
   const helperPath = process.env.HOMEBOY_WP_CODEBOX_RECIPE_HELPER;
@@ -39,7 +40,11 @@ export async function runWpCodeboxRecipe(options = {}) {
     '--artifacts', options.artifactsDir,
     '--json',
   ].filter(Boolean);
-  const result = spawnSync(base.command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const result = spawnSync(base.command, args, {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    maxBuffer: WP_CODEBOX_RECIPE_MAX_BUFFER,
+  });
   if (options.outputFile) {
     fs.writeFileSync(options.outputFile, result.stdout || '', 'utf8');
   }

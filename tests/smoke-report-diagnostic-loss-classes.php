@@ -111,6 +111,74 @@ $assert( 1 === count( $cleanup_report['diagnostics'] ?? array() ), 'report-drops
 $assert( '<iframe id="map"></iframe>' === ( $cleanup_report['import_validation_result']['diagnostics'][0]['source_snippet'] ?? '' ), 'report-preserves-source-snippet' );
 $assert( '<!-- wp:html --><iframe id="map"></iframe><!-- /wp:html -->' === ( $cleanup_report['import_validation_result']['diagnostics'][0]['observed_output'] ?? '' ), 'report-merges-observed-output' );
 
+$script_report = Static_Site_Importer_Report_Diagnostics::new_conversion_report( 'website/index.html' );
+Static_Site_Importer_Report_Diagnostics::record_blocks_engine_result(
+	$script_report,
+	array(
+		'artifacts'          => array(
+			'site' => array(
+				'schema' => 'blocks-engine/php-transformer/materialization-plan/v1',
+				'assets' => array(
+					array(
+						'source'      => 'inline-script',
+						'path'        => 'website/index.inline.js',
+						'kind'        => 'js',
+						'role'        => 'script',
+						'source_path' => 'website/index.html',
+						'selector'    => 'script:nth-of-type(1)',
+					),
+				),
+			),
+		),
+		'conversion_report' => array(
+			'fallback_diagnostics' => array(
+				array(
+					'diagnostic_code' => 'html_script_fallback',
+					'reason_code'     => 'script_requires_runtime',
+					'source_path'     => 'website/index.html',
+					'selector'        => 'script:nth-of-type(1)',
+				),
+			),
+		),
+	)
+);
+
+$assert( true === ( $script_report['diagnostics'][0]['runtime_carried'] ?? false ), 'materialized-script-fallback-runtime-carried' );
+$assert( 'website/index.inline.js' === ( $script_report['diagnostics'][0]['materialized_runtime_asset']['path'] ?? '' ), 'materialized-script-fallback-asset-path' );
+$assert( 'preserved_runtime_island' === ( $script_report['diagnostics'][0]['loss_class'] ?? '' ), 'materialized-script-fallback-loss-class' );
+
+$late_script_report = Static_Site_Importer_Report_Diagnostics::new_conversion_report( 'website/index.html' );
+Static_Site_Importer_Report_Diagnostics::record_blocks_engine_result(
+	$late_script_report,
+	array(
+		'artifacts' => array(
+			'site' => array(
+				'schema' => 'blocks-engine/php-transformer/materialization-plan/v1',
+				'assets' => array(
+					array(
+						'source'      => 'inline-script',
+						'path'        => 'website/index.inline.js',
+						'kind'        => 'js',
+						'role'        => 'script',
+						'source_path' => 'website/index.html',
+						'selector'    => 'script:nth-of-type(1)',
+					),
+				),
+			),
+		),
+	)
+);
+$late_script_report['diagnostics'][] = array(
+	'type'        => 'unsupported_html_fallback',
+	'reason'      => 'script_requires_runtime',
+	'source_path' => 'website/index.html',
+	'selector'    => 'script:nth-of-type(1)',
+);
+Static_Site_Importer_Report_Diagnostics::finalize_report( $late_script_report, array() );
+$assert( true === ( $late_script_report['diagnostics'][0]['runtime_carried'] ?? false ), 'late-materialized-script-fallback-runtime-carried' );
+$assert( 'website/index.inline.js' === ( $late_script_report['diagnostics'][0]['materialized_runtime_asset']['path'] ?? '' ), 'late-materialized-script-fallback-asset-path' );
+$assert( 'acceptable_preservation' === ( $late_script_report['import_validation_result']['diagnostics'][0]['acceptability'] ?? '' ), 'late-materialized-script-fallback-acceptability' );
+
 if ( $failures ) {
 	fwrite( STDERR, implode( "\n", $failures ) . "\n" );
 	exit( 1 );
