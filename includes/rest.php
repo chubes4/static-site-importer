@@ -13,6 +13,10 @@ if ( ! class_exists( 'Static_Site_Importer_Site_Identity' ) ) {
 	require_once __DIR__ . '/class-static-site-importer-site-identity.php';
 }
 
+if ( ! class_exists( 'Static_Site_Importer_URL_Import_Runtime' ) ) {
+	require_once __DIR__ . '/class-static-site-importer-url-import-runtime.php';
+}
+
 /**
  * Register Static Site Importer REST routes.
  *
@@ -529,9 +533,28 @@ function static_site_importer_rest_open_in_playground( array $source, array $inp
 	$input['activate']  = true;
 	$input['overwrite'] = true;
 
-	$artifact = static_site_importer_rest_source_artifact( $source );
-	if ( is_wp_error( $artifact ) ) {
-		return $artifact;
+	if ( static_site_importer_rest_is_url_only_source( $source ) ) {
+		$runtime = Static_Site_Importer_URL_Import_Runtime::website_artifact_from_url(
+			array(
+				'url' => (string) $source['url'],
+			)
+		);
+		if ( is_wp_error( $runtime ) ) {
+			return $runtime;
+		}
+
+		$artifact        = $runtime['artifact'];
+		$source_metadata = isset( $input['source_metadata'] ) && is_array( $input['source_metadata'] ) ? $input['source_metadata'] : array();
+		if ( isset( $runtime['source_metadata'] ) && is_array( $runtime['source_metadata'] ) ) {
+			$source_metadata = array_merge( $source_metadata, $runtime['source_metadata'] );
+		}
+		$source_metadata['url_import_provider'] = isset( $runtime['provider'] ) ? (string) $runtime['provider'] : 'public-url-fetcher';
+		$input['source_metadata']              = $source_metadata;
+	} else {
+		$artifact = static_site_importer_rest_source_artifact( $source );
+		if ( is_wp_error( $artifact ) ) {
+			return $artifact;
+		}
 	}
 	$input['artifact'] = $artifact;
 
@@ -661,7 +684,7 @@ function static_site_importer_rest_apply_to_current_site( array $source, array $
 	};
 
 	if ( ! isset( $source['figma_file'] ) && isset( $source['url'] ) && '' !== trim( (string) $source['url'] ) ) {
-		$input['url'] = esc_url_raw( (string) $source['url'] );
+		$input['url'] = esc_url_raw( Static_Site_Importer_URL_Fetcher::normalize_url( (string) $source['url'] ) );
 		if ( isset( $params['provider'] ) ) {
 			$input['provider'] = sanitize_key( (string) $params['provider'] );
 		}
@@ -1433,6 +1456,19 @@ function static_site_importer_rest_source_artifact( array $source ) {
 		return Static_Site_Importer_Figma_Import::website_artifact_from_input( array( 'source' => $source ) );
 	}
 
+	if ( static_site_importer_rest_is_url_only_source( $source ) ) {
+		$runtime = Static_Site_Importer_URL_Import_Runtime::website_artifact_from_url(
+			array(
+				'url' => (string) $source['url'],
+			)
+		);
+		if ( is_wp_error( $runtime ) ) {
+			return $runtime;
+		}
+
+		return $runtime['artifact'];
+	}
+
 	$files = array();
 
 	if ( isset( $source['html'] ) && '' !== trim( (string) $source['html'] ) ) {
@@ -1499,6 +1535,30 @@ function static_site_importer_rest_source_artifact( array $source ) {
 		'entrypoint' => static_site_importer_rest_entrypoint( $files ),
 		'files'      => $files,
 	);
+}
+
+/**
+ * Determine whether a source contains only a URL and no inline/uploaded artifact.
+ *
+ * @param array<string,mixed> $source Source payload.
+ * @return bool
+ */
+function static_site_importer_rest_is_url_only_source( array $source ): bool {
+	if ( ! isset( $source['url'] ) || '' === trim( (string) $source['url'] ) ) {
+		return false;
+	}
+
+	if ( isset( $source['html'] ) && '' !== trim( (string) $source['html'] ) ) {
+		return false;
+	}
+
+	foreach ( array( 'files', 'archive', 'figma_file' ) as $key ) {
+		if ( isset( $source[ $key ] ) && is_array( $source[ $key ] ) && ! empty( $source[ $key ] ) ) {
+			return false;
+		}
+	}
+
+	return true;
 }
 
 /**

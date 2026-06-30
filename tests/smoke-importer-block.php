@@ -177,6 +177,12 @@ if ( ! function_exists( 'add_action' ) ) {
 	}
 }
 
+if ( ! function_exists( 'do_action' ) ) {
+	function do_action( string $hook, mixed ...$args ): void {
+		unset( $hook, $args );
+	}
+}
+
 if ( ! function_exists( 'get_option' ) ) {
 	function get_option( string $name, $default = false ) {
 		if ( array_key_exists( $name, $GLOBALS['ssi_options'] ) ) {
@@ -753,6 +759,75 @@ $assert( str_contains( (string) $playground_blueprint_code, "'slug' => 'generate
 $assert( str_contains( (string) $playground_blueprint_code, "'name' => 'Generated WordPress Website'" ), 'rest-playground-open-blueprint-uses-generated-theme-name' );
 $assert( ! str_contains( (string) $playground_blueprint_code, 'imported-website-artifact' ), 'rest-playground-open-blueprint-omits-legacy-theme-slug' );
 $assert( ! str_contains( (string) $playground_blueprint_code, 'Codebox' ), 'rest-playground-open-blueprint-does-not-introduce-codebox' );
+
+$GLOBALS['ssi_last_url_provider_request'] = array();
+add_filter(
+	'static_site_importer_url_import_provider',
+	static function ( mixed $output, array $request ): mixed {
+		if ( 'https://facebook.com' !== ( $request['url'] ?? '' ) ) {
+			return $output;
+		}
+
+		$GLOBALS['ssi_last_url_provider_request'] = $request;
+
+		return array(
+			'provider'        => 'test-url-playground-provider',
+			'artifact'        => array(
+				'schema' => Static_Site_Importer_Transformer_Adapter::WEBSITE_ARTIFACT_SCHEMA,
+				'files'  => array(
+					array(
+						'path'    => 'website/index.html',
+						'content' => '<!doctype html><html><head><title>Facebook Fixture</title></head><body><main>Facebook Fixture</main></body></html>',
+					),
+				),
+			),
+			'source_metadata' => array(
+				'source_url' => $request['url'],
+			),
+		);
+	},
+	10,
+	2
+);
+
+$url_playground_response = static_site_importer_rest_create_import(
+	new WP_REST_Request(
+		array(
+			'apply_to_current_site' => false,
+			'open_in_playground'    => true,
+			'source'                => array(
+				'url' => 'facebook.com',
+			),
+		)
+	)
+);
+$assert( ! is_wp_error( $url_playground_response ), 'rest-playground-url-only-does-not-error', is_wp_error( $url_playground_response ) ? $url_playground_response->get_error_code() . ': ' . $url_playground_response->get_error_message() : '' );
+if ( is_wp_error( $url_playground_response ) ) {
+	$url_playground_response = array();
+}
+$assert( true === ( $url_playground_response['success'] ?? null ), 'rest-playground-url-only-succeeds' );
+$assert( 'https://facebook.com' === ( $GLOBALS['ssi_last_url_provider_request']['url'] ?? '' ), 'rest-playground-url-only-normalizes-bare-host' );
+$url_playground_blueprint_json = rawurldecode( substr( (string) ( $url_playground_response['preview']['playground']['blueprint_url'] ?? '' ), strlen( 'https://playground.wordpress.net/#' ) ) );
+$url_playground_blueprint      = json_decode( $url_playground_blueprint_json, true );
+$url_playground_import_code    = is_array( $url_playground_blueprint ) ? (string) ( $url_playground_blueprint['steps'][2]['code'] ?? '' ) : '';
+$assert( str_contains( $url_playground_blueprint_json, 'Facebook Fixture' ), 'rest-playground-url-only-blueprint-contains-fetched-artifact' );
+$assert( str_contains( $url_playground_import_code, "'source_url' => 'https://facebook.com'" ), 'rest-playground-url-only-blueprint-preserves-source-url' );
+$assert( str_contains( $url_playground_import_code, "'url_import_provider' => 'test-url-playground-provider'" ), 'rest-playground-url-only-blueprint-preserves-provider' );
+$assert( array() === Static_Site_Importer_Theme_Generator::$last_args, 'rest-playground-url-only-does-not-import-current-site' );
+
+Static_Site_Importer_Theme_Generator::$last_args = array();
+$current_site_url_response = static_site_importer_rest_create_import(
+	new WP_REST_Request(
+		array(
+			'apply_to_current_site' => true,
+			'source'                => array(
+				'url' => 'facebook.com',
+			),
+		)
+	)
+);
+$assert( ! is_wp_error( $current_site_url_response ), 'rest-current-site-url-only-does-not-error', is_wp_error( $current_site_url_response ) ? $current_site_url_response->get_error_code() . ': ' . $current_site_url_response->get_error_message() : '' );
+$assert( 'https://facebook.com' === ( Static_Site_Importer_Theme_Generator::$last_args['source_metadata']['source_url'] ?? '' ), 'rest-current-site-url-only-normalizes-bare-host' );
 
 // A real source document title now names the generated theme/site via the
 // site-identity primitive instead of collapsing to the generic constant.

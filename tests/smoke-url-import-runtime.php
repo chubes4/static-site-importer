@@ -160,7 +160,7 @@ add_filter(
 
 $result = Static_Site_Importer_URL_Import_Runtime::import_url(
 	array(
-		'url'             => 'https://private.example.test/',
+		'url'             => 'private.example.test/',
 		'slug'            => 'private-import',
 		'overwrite'       => true,
 		'source_metadata' => array( 'requested_by' => 'external-caller' ),
@@ -174,6 +174,24 @@ $assert( true === ( Static_Site_Importer_Theme_Generator::$last_args['overwrite'
 $assert( 'external-caller' === ( Static_Site_Importer_Theme_Generator::$last_args['source_metadata']['requested_by'] ?? '' ), 'caller-metadata-preserved' );
 $assert( 'private' === ( Static_Site_Importer_Theme_Generator::$last_args['source_metadata']['visibility'] ?? '' ), 'provider-metadata-merged' );
 $assert( 'test-private-runtime' === ( Static_Site_Importer_Theme_Generator::$last_args['source_metadata']['url_import_provider'] ?? '' ), 'provider-recorded' );
+
+$runtime_artifact = Static_Site_Importer_URL_Import_Runtime::website_artifact_from_url(
+	array(
+		'url' => 'facebook.com',
+	)
+);
+
+$assert( ! is_wp_error( $runtime_artifact ), 'runtime-artifact-succeeds-for-bare-host' );
+$assert( 'website/index.html' === ( $runtime_artifact['artifact']['files'][0]['path'] ?? '' ), 'runtime-artifact-returns-website-file' );
+$assert( 'https://facebook.com' === ( $runtime_artifact['source_metadata']['source_url'] ?? '' ), 'runtime-artifact-normalizes-bare-host-url' );
+
+$client_shell_html = '<!doctype html><html><head><title>App</title>' . str_repeat( '<script src="/app.js"></script>', 25 ) . '</head><body><div id="root"></div></body></html>' . str_repeat( ' ', 120000 );
+$client_shell_diagnostic = Static_Site_Importer_URL_Fetcher::html_source_diagnostic( $client_shell_html );
+$assert( 'client_rendered_app_shell' === ( $client_shell_diagnostic['type'] ?? '' ), 'client-rendered-shell-diagnostic-detected' );
+$assert( 'browser_rendered_capture_required' === ( $client_shell_diagnostic['repair_bucket'] ?? '' ), 'client-rendered-shell-repair-bucket' );
+
+$server_rendered_diagnostic = Static_Site_Importer_URL_Fetcher::html_source_diagnostic( '<!doctype html><html><head><title>Server</title></head><body><main><h1>Server rendered</h1><p>' . str_repeat( 'Useful page content. ', 80 ) . '</p></main><script src="/tracking.js"></script></body></html>' );
+$assert( array() === $server_rendered_diagnostic, 'server-rendered-html-not-flagged-as-client-shell' );
 
 $ability = static_site_importer_ability_import_url(
 	array(
