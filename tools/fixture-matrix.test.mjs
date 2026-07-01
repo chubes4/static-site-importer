@@ -55,6 +55,7 @@ import {
   writeFixtureMatrixArtifacts,
 } from '../lib/fixture-matrix.mjs';
 import { materializeGeneratedArtifactFixtures } from '../lib/artifact-intake.mjs';
+import { wpCodeboxBin } from './wp-codebox/recipe.mjs';
 
 const packageRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const fixtureRoot = path.join(packageRoot, 'tests', 'fixtures', 'fixture-matrix');
@@ -155,6 +156,17 @@ test('fixture-matrix rig requires env-backed WP Codebox editor and visual capabi
   assert.deepEqual(tool.env, ['HOMEBOY_WP_CODEBOX_BIN']);
   assert.ok(tool.capabilities.includes('wordpress.editor-validate-blocks'));
   assert.ok(tool.capabilities.includes('wordpress.visual-compare'));
+});
+
+test('fixture-matrix WP Codebox batch runner uses Homeboy declared binary', () => {
+  assert.equal(wpCodeboxBin({
+    HOMEBOY_WP_CODEBOX_BIN: '/runner/wp-codebox-current',
+    WP_CODEBOX_BIN: '/stale/wp-codebox',
+  }), '/runner/wp-codebox-current');
+  assert.equal(wpCodeboxBin({
+    SSI_FIXTURE_MATRIX_WP_CODEBOX_BIN: '/explicit/wp-codebox',
+    HOMEBOY_WP_CODEBOX_BIN: '/runner/wp-codebox-current',
+  }), '/explicit/wp-codebox');
 });
 
 test('builds WP Codebox recipe setup for SSI Composer dependency overrides', () => {
@@ -1048,6 +1060,7 @@ module.exports = { wpCodeboxBin, wpCodeboxCommand, runWpCodeboxRecipe };
   const previousImporterPath = process.env.SSI_FIXTURE_MATRIX_STATIC_SITE_IMPORTER_PATH;
   const previousRun = process.env.SSI_FIXTURE_MATRIX_RUN;
   const previousBatchSize = process.env.SSI_FIXTURE_MATRIX_BATCH_SIZE;
+  const previousVisualParityFullPage = process.env.SSI_FIXTURE_MATRIX_VISUAL_PARITY_FULL_PAGE;
   process.env.HOMEBOY_WP_CODEBOX_RECIPE_HELPER = helperPath;
 
   try {
@@ -1071,16 +1084,21 @@ module.exports = { wpCodeboxBin, wpCodeboxCommand, runWpCodeboxRecipe };
     assert.equal(failure.schema, 'homeboy/child-command-failure/v1');
     assert.equal(failure.exit_status, 17);
     assert.equal(failure.batch_id, 'batch-001');
+    const expectedCodeboxArtifactsDirectory = path.join(root, 'artifacts-wp-codebox-batch-001-artifacts');
     assert.deepEqual(failure.command.argv, [
       '/tmp/wp-codebox',
       'recipe-run',
       failure.artifact_refs.batch_recipe,
-      '--artifacts-dir', outputDirectory,
+      '--artifacts-dir', expectedCodeboxArtifactsDirectory,
       '--output', failure.artifact_refs.batch_output,
     ]);
     assert.equal(failure.stdout_tail, 'stdout line 1\nstdout line 2');
     assert.equal(failure.stderr_tail, 'stderr line 1\nstderr line 2');
-    assert.equal(failure.artifact_refs.artifacts_directory, outputDirectory);
+    assert.equal(failure.artifact_refs.artifacts_directory, expectedCodeboxArtifactsDirectory);
+    assert.equal(failure.artifact_refs.fixture_artifacts_directory, outputDirectory);
+    assert.equal(failure.artifact_refs.codebox_artifacts_directory, expectedCodeboxArtifactsDirectory);
+    assert.equal(path.dirname(expectedCodeboxArtifactsDirectory), path.dirname(outputDirectory));
+    assert.equal(expectedCodeboxArtifactsDirectory.startsWith(`${outputDirectory}${path.sep}`), false);
     assert.equal(failure.artifact_refs.output_file, failure.artifact_refs.batch_output);
     assert.ok(readFileSync(path.join(outputDirectory, 'cli-run.json'), 'utf8').includes('child_command_failures'));
 
@@ -1089,6 +1107,7 @@ module.exports = { wpCodeboxBin, wpCodeboxCommand, runWpCodeboxRecipe };
     process.env.SSI_FIXTURE_MATRIX_STATIC_SITE_IMPORTER_PATH = staticSiteImporter;
     process.env.SSI_FIXTURE_MATRIX_RUN = '1';
     process.env.SSI_FIXTURE_MATRIX_BATCH_SIZE = '1';
+    process.env.SSI_FIXTURE_MATRIX_VISUAL_PARITY_FULL_PAGE = '1';
     // A failing batch must NOT make the bench reject: rejecting makes the harness
     // discard the whole lane as an assertion_failure. Instead the bench returns
     // the aggregate with the failed fixture counted (so the
@@ -1099,7 +1118,13 @@ module.exports = { wpCodeboxBin, wpCodeboxCommand, runWpCodeboxRecipe };
     assert.equal(benchResult.metrics.passed_fixture_count, 0);
     assert.equal(benchResult.metrics.failed_fixture_count, 1);
     assert.equal(benchResult.metadata.child_command_failures[0].exit_status, 17);
-    assert.equal(benchResult.metadata.child_command_failures[0].artifact_refs.artifacts_directory, process.env.SSI_FIXTURE_MATRIX_OUTPUT_DIRECTORY);
+    assert.equal(
+      benchResult.metadata.child_command_failures[0].artifact_refs.artifacts_directory,
+      `${process.env.SSI_FIXTURE_MATRIX_OUTPUT_DIRECTORY}-wp-codebox-batch-001-artifacts`,
+    );
+    const benchBatchRecipe = JSON.parse(readFileSync(benchResult.metadata.child_command_failures[0].artifact_refs.batch_recipe, 'utf8'));
+    const benchVisualStep = benchBatchRecipe.workflow.steps.find((step) => step.command === 'wordpress.visual-compare');
+    assert.ok(benchVisualStep.args.includes('full-page=true'), 'bench env can opt visual parity back into full-page screenshots');
   } finally {
     if (previousHelper === undefined) {
       delete process.env.HOMEBOY_WP_CODEBOX_RECIPE_HELPER;
@@ -1111,6 +1136,7 @@ module.exports = { wpCodeboxBin, wpCodeboxCommand, runWpCodeboxRecipe };
     restoreEnv('SSI_FIXTURE_MATRIX_STATIC_SITE_IMPORTER_PATH', previousImporterPath);
     restoreEnv('SSI_FIXTURE_MATRIX_RUN', previousRun);
     restoreEnv('SSI_FIXTURE_MATRIX_BATCH_SIZE', previousBatchSize);
+    restoreEnv('SSI_FIXTURE_MATRIX_VISUAL_PARITY_FULL_PAGE', previousVisualParityFullPage);
   }
 });
 
@@ -2551,6 +2577,15 @@ test('recipe runs a wordpress.visual-compare visual-parity step after each impor
   assert.ok(visualStep.args.includes('block-external-requests=true'));
   assert.ok(visualStep.args.includes('threshold=0.05'));
 
+  const defaultThresholdRecipe = buildFixtureMatrixRecipe({
+    matrix,
+    artifactsDirectory: '/tmp/artifacts',
+    staticSiteImporterPath: '/tmp/static-site-importer',
+  });
+  const defaultThresholdVisualStep = defaultThresholdRecipe.workflow.steps[3];
+  assert.equal(defaultThresholdVisualStep.command, 'wordpress.visual-compare');
+  assert.ok(defaultThresholdVisualStep.args.includes('threshold=0'), 'visual parity defaults to exact pixel parity');
+
   const disabled = buildFixtureMatrixRecipe({
     matrix,
     artifactsDirectory: '/tmp/artifacts',
@@ -2833,6 +2868,72 @@ test('(fair) pre-overlap evidence falls back to the raw ratio for gating', () =>
   const diagnostics = collectVisualParityDiagnostics(payload, { threshold: 0.1, gate: true });
   assert.equal(diagnostics.length, 1);
   assert.ok(Math.abs(diagnostics[0].mismatch_ratio - 600000 / 2048000) < 1e-9);
+});
+
+test('visual-compare diagnostics retain bounded generic visual-explanation evidence', () => {
+  const payload = {
+    schema: 'wp-codebox/visual-compare/v1',
+    comparison: { mismatchPixels: 600000, totalPixels: 2048000, dimensionMismatch: false },
+    visual_explanation: {
+      schema: 'wp-codebox/visual-explanation/v1',
+      summary: { selector_diagnostic_count: 7, property_diagnostic_count: 1, layout_diagnostic_count: 1, capture_diagnostic_count: 1 },
+      selectors: Array.from({ length: 7 }, (_, index) => ({ selector: `.card-${index}`, reason: `selector mismatch ${index}` })),
+      properties: [{ selector: '.hero', property: 'font-size', source_value: '48px', target_value: '32px', reason: 'computed style differs' }],
+      layout: [{ selector: '.hero', source_rect: { width: 1280 }, target_rect: { width: 960 }, delta: { width: -320 } }],
+      capture: [{ phase: 'source', viewport: { width: 1280, height: 720 }, message: 'captured bounded viewport' }],
+    },
+  };
+
+  const diagnostics = collectVisualParityDiagnostics(payload, { threshold: 0.1, gate: true });
+  assert.equal(diagnostics.length, 1);
+  assert.equal(diagnostics[0].kind, VISUAL_PARITY_MISMATCH_KIND);
+  assert.equal(diagnostics[0].visual_explanation_summary.selector_diagnostic_count, 7);
+  assert.equal(diagnostics[0].visual_selector_diagnostics.length, 5, 'selector evidence is bounded');
+  assert.equal(diagnostics[0].visual_selector_diagnostics[0].selector, '.card-0');
+  assert.equal(diagnostics[0].visual_property_diagnostics[0].property, 'font-size');
+  assert.equal(diagnostics[0].visual_layout_diagnostics[0].selector, '.hero');
+  assert.equal(diagnostics[0].visual_capture_diagnostics[0].phase, 'source');
+
+  const matrix = createFixtureMatrix({ fixture_root: fixtureRoot, id: 'visual-explanation-finding-test' });
+  const result = normalizeFixtureMatrixResult({
+    matrix,
+    results: [{ fixture_id: 'simple-site', status: 'passed', diagnostics }],
+  });
+  const finding = result.findings.find((item) => item.kind === VISUAL_PARITY_MISMATCH_KIND);
+  assert.ok(finding, 'expected visual parity finding');
+  assert.equal(finding.loss_class, 'visual_parity_mismatch');
+  assert.equal(finding.repair_bucket, 'visual_parity_mismatch');
+  assert.equal(finding.visual_selector_diagnostics.length, 5);
+  assert.equal(finding.visual_property_diagnostics[0].property, 'font-size');
+});
+
+test('visual-explanation.json is merged into collected visual parity artifacts generically', () => {
+  const outputDirectory = mkdtempSync(path.join(tmpdir(), 'ssi-visual-explanation-artifact-'));
+  const matrix = createFixtureMatrix({ fixture_root: fixtureRoot, id: 'visual-explanation-artifact-test' });
+  const fixtureDirectory = path.join(outputDirectory, 'simple-site');
+  mkdirSync(fixtureDirectory, { recursive: true });
+  writeFileSync(path.join(fixtureDirectory, 'visual-compare.json'), JSON.stringify({
+    schema: 'wp-codebox/visual-compare/v1',
+    comparison: { mismatchPixels: 700000, totalPixels: 2048000, dimensionMismatch: false },
+  }));
+  writeFileSync(path.join(fixtureDirectory, 'visual-explanation.json'), JSON.stringify({
+    visual_explanation: {
+      schema: 'wp-codebox/visual-explanation/v1',
+      selector_diagnostic_count: 1,
+      property_diagnostic_count: 1,
+      selector_diagnostics: [{ selector: 'a.cta', reason: 'button alignment differs' }],
+      property_diagnostics: [{ selector: 'a.cta', property: 'background-color', source_value: '#000', target_value: '#111' }],
+    },
+  }));
+
+  const result = collectFixtureMatrixRunResults({ matrix, outputDirectory, visualParity: { threshold: 0.1, gate: true } });
+  const finding = result.findings.find((item) => item.kind === VISUAL_PARITY_MISMATCH_KIND);
+  assert.ok(finding, 'expected visual parity finding from collected files');
+  assert.equal(finding.loss_class, 'visual_parity_mismatch');
+  assert.equal(finding.visual_selector_diagnostics[0].selector, 'a.cta');
+  assert.equal(finding.visual_property_diagnostics[0].property, 'background-color');
+  assert.equal(result.fixtures[0].visual_parity_artifacts.visual_explanation.selector_diagnostics[0].selector, 'a.cta');
+  assert.equal(result.fixtures[0].visual_parity_artifacts.visual_explanation.property_diagnostics[0].property, 'background-color');
 });
 
 // #554: at lane scale (~30+ fixtures) the aggregate result used to retain each
