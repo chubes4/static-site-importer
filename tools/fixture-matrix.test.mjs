@@ -344,6 +344,36 @@ test('passes the gate when a preserved_runtime_island carries a runtime-carried 
   assert.equal(result.fixtures[0].status, 'passed');
 });
 
+test('passes the gate when a preserved_runtime_island is explicitly accepted runtime preservation', () => {
+  const matrix = createFixtureMatrix({ fixture_root: fixtureRoot, id: 'runtime-island-repair-mode-test' });
+  const result = normalizeFixtureMatrixResult({
+    matrix,
+    results: [
+      {
+        fixture_id: 'simple-site',
+        status: 'failed',
+        diagnostics: [
+          {
+            kind: 'core_html_block',
+            loss_class: 'preserved_runtime_island',
+            repair_mode: 'accepted-runtime-preservation',
+            source_path: 'posts/page-home.post_content',
+            selector: 'canvas#canvas',
+            message: 'Canvas markup preserved for runtime script access.',
+          },
+        ],
+      },
+    ],
+  });
+
+  const finding = result.findings[0];
+  assert.equal(finding.loss_class, 'preserved_runtime_island');
+  assert.equal(finding.loss_acceptance, 'acceptable');
+  assert.equal(finding.acceptable_loss, true);
+  assert.equal(result.summary.succeeded, 1);
+  assert.equal(result.summary.failed, 0);
+});
+
 test('normalizes the transformer-emitted runtime_island_preserved loss class to the canonical preserved_runtime_island', () => {
   // The php-transformer emits `runtime_island_preserved` (FallbackDiagnostic /
   // HtmlTransformer). The alias must deterministically canonicalize it without
@@ -2554,6 +2584,17 @@ test('explicit visual-parity source base can still target a served uploads path'
 
   const visualStep = recipe.workflow.steps[3];
   assert.ok(visualStep.args.includes('source-url=/wp-content/uploads/static-site-importer-fixture-matrix/simple-site/source/index.html'));
+});
+
+test('default visual-parity source-url follows nested fixture entrypoint', () => {
+  const step = visualParityCompareStep({
+    fixture: { id: 'liquid-bonsai', entrypoint: 'saveweb2zip-com-liquidbonsai-com/index.html' },
+    sourceBaseUrl: '/wp-content/uploads/static-site-importer-fixture-matrix',
+  });
+
+  assert.ok(
+    step.args.includes('source-url=/wp-content/uploads/static-site-importer-fixture-matrix/liquid-bonsai/source/saveweb2zip-com-liquidbonsai-com/index.html'),
+  );
 });
 
 test('stageFixtureSource copies the raw fixture source into the served source/ subdir', () => {

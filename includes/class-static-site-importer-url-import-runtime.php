@@ -13,6 +13,10 @@ if ( ! class_exists( 'Static_Site_Importer_Transformer_Adapter' ) ) {
 	require_once __DIR__ . '/class-static-site-importer-transformer-adapter.php';
 }
 
+if ( ! class_exists( 'Static_Site_Importer_URL_Fetcher' ) ) {
+	require_once __DIR__ . '/class-static-site-importer-url-fetcher.php';
+}
+
 /**
  * Imports a source URL through a provider that returns a website artifact.
  */
@@ -25,13 +29,30 @@ class Static_Site_Importer_URL_Import_Runtime {
 	 * @return array<string,mixed>|WP_Error
 	 */
 	public static function import_url( array $input ) {
-		$url = isset( $input['url'] ) ? trim( (string) $input['url'] ) : '';
+		$runtime = self::website_artifact_from_url( $input );
+		if ( is_wp_error( $runtime ) ) {
+			return $runtime;
+		}
+
+		$args = self::import_args( $input, $runtime );
+		return Static_Site_Importer_Theme_Generator::import_website_artifact( $runtime['artifact'], $args );
+	}
+
+	/**
+	 * Resolve a URL into a website artifact without importing it.
+	 *
+	 * @param array<string,mixed> $input Ability-style input.
+	 * @return array<string,mixed>|WP_Error Runtime output containing artifact/source_metadata/provider.
+	 */
+	public static function website_artifact_from_url( array $input ) {
+		$url = isset( $input['url'] ) ? Static_Site_Importer_URL_Fetcher::normalize_url( (string) $input['url'] ) : '';
 		if ( '' === $url ) {
 			return new WP_Error( 'static_site_importer_missing_url', 'The url input is required.' );
 		}
 
-		$request = self::provider_request( $url, $input );
-		$runtime = self::resolve_provider( $request );
+		$input['url'] = $url;
+		$request      = self::provider_request( $url, $input );
+		$runtime      = self::resolve_provider( $request );
 		if ( is_wp_error( $runtime ) ) {
 			return $runtime;
 		}
@@ -41,8 +62,9 @@ class Static_Site_Importer_URL_Import_Runtime {
 			return new WP_Error( 'static_site_importer_url_provider_missing_artifact', 'The URL import provider did not return a website artifact.' );
 		}
 
-		$args = self::import_args( $input, $runtime );
-		return Static_Site_Importer_Theme_Generator::import_website_artifact( $artifact, $args );
+		$runtime['artifact'] = $artifact;
+
+		return $runtime;
 	}
 
 	/**

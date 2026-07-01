@@ -34,7 +34,8 @@ class Static_Site_Importer_URL_Fetcher {
 	public static function fetch_to_work_dir( string $url, string $work_dir, array $args = array() ) {
 		$timeout   = max( self::CONNECT_TIMEOUT_FLOOR, (int) ( $args['timeout'] ?? self::DEFAULT_TIMEOUT ) );
 		$max_bytes = max( 1, (int) ( $args['max_bytes'] ?? self::DEFAULT_MAX_BYTES ) );
-		$current   = trim( $url );
+		$initial   = self::normalize_url( $url );
+		$current   = $initial;
 		$started   = gmdate( 'c' );
 		$redirects = array();
 
@@ -87,6 +88,18 @@ class Static_Site_Importer_URL_Fetcher {
 				return new WP_Error( 'static_site_importer_url_empty_body', 'The URL returned an empty HTML response.' );
 			}
 
+			$source_diagnostic = self::html_source_diagnostic( $response['body'] );
+			if ( ! empty( $source_diagnostic ) && 'error' === ( $source_diagnostic['severity'] ?? '' ) ) {
+				return new WP_Error(
+					'static_site_importer_url_client_rendered_app',
+					'This URL appears to be a JavaScript-rendered application shell. Static Site Importer can import server-rendered HTML, but this page needs a browser-rendered capture before it can produce WordPress blocks.',
+					array(
+						'status'     => 422,
+						'diagnostic' => $source_diagnostic,
+					)
+				);
+			}
+
 			wp_mkdir_p( $work_dir );
 			$html_path = trailingslashit( $work_dir ) . 'index.html';
 			$written   = file_put_contents( $html_path, $response['body'] ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Writes fetched static HTML to the importer source fixture.
@@ -98,7 +111,7 @@ class Static_Site_Importer_URL_Fetcher {
 				'html_path' => $html_path,
 				'metadata'  => array(
 					'source_type'     => 'url',
-					'source_url'      => $url,
+					'source_url'      => $initial,
 					'final_url'       => $current,
 					'status_code'     => $status,
 					'content_type'    => $content_type,
@@ -114,12 +127,66 @@ class Static_Site_Importer_URL_Fetcher {
 	}
 
 	/**
+	 * Normalize operator-entered public URLs before validation.
+	 *
+	 * @param string $url URL or bare host/path such as example.com/about.
+	 * @return string
+	 */
+	public static function normalize_url( string $url ): string {
+		$url = trim( $url );
+		if ( '' === $url || preg_match( '/^[a-z][a-z0-9+.-]*:/i', $url ) ) {
+			return $url;
+		}
+
+		if ( preg_match( '/^[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?::\d+)?(?:[\/?#]|$)/', $url ) ) {
+			return 'https://' . $url;
+		}
+
+		return $url;
+	}
+
+	/**
+	 * Detect source HTML that is present but not statically importable.
+	 *
+	 * @param string $html Source HTML.
+	 * @return array<string,mixed>
+	 */
+	public static function html_source_diagnostic( string $html ): array {
+		$markup_bytes = strlen( $html );
+		$script_count = preg_match_all( '#<script\b#i', $html );
+		$app_shell    = preg_match( '#\bid=(?:"|\')(?:root|app|__next|gatsby-focus-wrapper|mount)(?:"|\')#i', $html );
+		$text_html    = preg_replace( '#<script\b[^>]*>.*?</script>#is', ' ', $html );
+		$text_html    = preg_replace( '#<style\b[^>]*>.*?</style>#is', ' ', (string) $text_html );
+		$text_html    = preg_replace( '#<template\b[^>]*>.*?</template>#is', ' ', (string) $text_html );
+		$stripped     = function_exists( 'wp_strip_all_tags' ) ? wp_strip_all_tags( (string) $text_html ) : strip_tags( (string) $text_html );
+		$text         = html_entity_decode( trim( preg_replace( '/\s+/', ' ', $stripped ) ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		$text_chars   = strlen( $text );
+		$text_ratio   = $markup_bytes > 0 ? $text_chars / $markup_bytes : 0;
+
+		if ( ( $script_count >= 20 && $text_chars < 1000 && $text_ratio < 0.02 ) || ( $script_count >= 3 && $text_chars < 200 && $app_shell ) ) {
+			return array(
+				'type'          => 'client_rendered_app_shell',
+				'severity'      => 'error',
+				'message'       => 'Fetched HTML is dominated by JavaScript with little server-visible page content.',
+				'script_count'  => $script_count,
+				'text_chars'    => $text_chars,
+				'markup_bytes'  => $markup_bytes,
+				'text_ratio'    => $text_ratio,
+				'repair_bucket' => 'browser_rendered_capture_required',
+			);
+		}
+
+		return array();
+	}
+
+	/**
 	 * Validate a URL before connecting.
 	 *
 	 * @param string $url URL.
 	 * @return array{url:string,scheme:string,host:string,port:int,path:string,ips:array<int,string>}|WP_Error
 	 */
 	public static function validate_url( string $url ) {
+		$url   = self::normalize_url( $url );
 		$parts = wp_parse_url( $url );
 		if ( ! is_array( $parts ) ) {
 			return new WP_Error( 'static_site_importer_url_invalid', 'Enter a valid URL.' );
