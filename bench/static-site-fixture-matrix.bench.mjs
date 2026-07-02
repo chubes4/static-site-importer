@@ -42,8 +42,9 @@ async function main() {
   }
 }
 
-export default async function runFixtureMatrixBench() {
-  const options = { ...optionsFromEnv(), ...parseArgs(process.argv.slice(2)) };
+export default async function runFixtureMatrixBench(context = {}) {
+  const args = Array.isArray(context.args) ? context.args : process.argv.slice(2);
+  const options = { ...optionsFromEnv(), ...parseArgs(args) };
   // Per-fixture / per-batch failures (PHP OOM in collect_artifacts, capture
   // failures, child timeouts) are already isolated inside `runFixtureMatrix`:
   // each failing batch is recorded as failed fixtures and folded into the
