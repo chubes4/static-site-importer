@@ -3000,6 +3000,86 @@ test('visual-explanation.json is merged into collected visual parity artifacts g
   assert.equal(result.fixtures[0].visual_parity_artifacts.visual_explanation.property_diagnostics[0].property, 'background-color');
 });
 
+test('WP Codebox recipe browserEvidence visual refs are preserved with fixture identity', () => {
+  const outputDirectory = mkdtempSync(path.join(tmpdir(), 'ssi-codebox-browser-evidence-'));
+  const matrix = createFixtureMatrix({ fixture_root: fixtureRoot, id: 'codebox-browser-evidence-test' });
+  const codeboxOutput = {
+    schema: 'wp-codebox/recipe-run/v1',
+    executions: [
+      {
+        command: 'wordpress.wp-cli',
+        args: ['command=static-site-importer validate-artifact --artifact=/artifacts/simple-site/artifact.json --slug=simple-site --allow-failure'],
+        recipePhase: 'steps',
+        recipeStepIndex: 1,
+        exitCode: 0,
+      },
+      {
+        command: 'wordpress.visual-compare',
+        args: ['source-label=simple-site-source', 'candidate-label=simple-site-candidate'],
+        recipePhase: 'steps',
+        recipeStepIndex: 2,
+        exitCode: 0,
+      },
+    ],
+    browserEvidence: [
+      {
+        schema: 'wp-codebox/recipe-browser-evidence/v1',
+        phase: 'steps',
+        index: 2,
+        command: 'wordpress.visual-compare',
+        status: 'completed',
+        files: {
+          sourceScreenshot: { path: 'files/browser/visual-compare/source.png', kind: 'browser-visual-source-screenshot' },
+          candidateScreenshot: { path: 'files/browser/visual-compare/candidate.png', kind: 'browser-visual-candidate-screenshot' },
+          diffScreenshot: { path: 'files/browser/visual-compare/diff.png', kind: 'browser-visual-diff-screenshot' },
+          visualDiff: { path: 'files/browser/visual-compare/visual-diff.json', kind: 'browser-visual-diff' },
+          visualExplanation: { path: 'files/browser/visual-compare/visual-explanation.json', kind: 'browser-visual-explanation' },
+          summary: { path: 'files/browser/visual-compare/summary.json', kind: 'browser-summary' },
+        },
+        summary: {
+          visualCompare: {
+            mismatchPixels: 357562,
+            totalPixels: 2048000,
+            mismatchRatio: 357562 / 2048000,
+            overlapMismatchPixels: 357562,
+            overlapPixels: 2048000,
+            dimensionMismatch: false,
+            captureDiagnostics: [{ phase: 'candidate', message: 'captured imported viewport' }],
+          },
+          visualExplanation: {
+            schema: 'wp-codebox/visual-explanation/v1',
+            selector_diagnostic_count: 1,
+            layout_diagnostic_count: 1,
+            capture_diagnostic_count: 1,
+            selector_deltas: [{ selector: '.hero', reason: 'text shifted' }],
+            layout_drift: [{ selector: '.hero', delta: { y: 12 }, message: 'hero moved down' }],
+          },
+        },
+      },
+    ],
+  };
+
+  const result = collectFixtureMatrixRunResults({ matrix, outputDirectory, codeboxOutput, visualParity: { threshold: 0.1, gate: true } });
+  const fixture = result.fixtures[0];
+  const artifacts = fixture.visual_parity_artifacts.artifacts;
+  const finding = result.findings.find((item) => item.kind === VISUAL_PARITY_MISMATCH_KIND);
+
+  assert.equal(fixture.fixture_id, 'simple-site');
+  assert.equal(fixture.visual_parity_artifacts.metrics.mismatch_pixels, 357562);
+  assert.equal(artifacts.source_screenshot.status, 'captured');
+  assert.equal(artifacts.source_screenshot.ref.path, 'files/browser/visual-compare/source.png');
+  assert.equal(artifacts.imported_screenshot.ref.path, 'files/browser/visual-compare/candidate.png');
+  assert.equal(artifacts.diff_screenshot.ref.path, 'files/browser/visual-compare/diff.png');
+  assert.equal(artifacts.visual_diff.ref.path, 'files/browser/visual-compare/visual-diff.json');
+  assert.equal(artifacts.visual_explanation.ref.path, 'files/browser/visual-compare/visual-explanation.json');
+  assert.equal(fixture.visual_parity_artifacts.visual_explanation.selector_diagnostics[0].selector, '.hero');
+  assert.equal(fixture.visual_parity_artifacts.visual_explanation.layout_diagnostics[0].selector, '.hero');
+  assert.ok(finding, 'expected a visual parity finding from WP Codebox browserEvidence');
+  assert.equal(finding.visual_selector_diagnostics[0].selector, '.hero');
+  assert.equal(finding.visual_layout_diagnostics[0].message, 'hero moved down');
+  assert.equal(finding.visual_capture_diagnostics[0].phase, 'candidate');
+});
+
 // #554: at lane scale (~30+ fixtures) the aggregate result used to retain each
 // fixture's raw serialized `post_content`/block markup (via `raw: input` and the
 // #552 block-composition path) plus uncapped finding snippets, so JSON.stringify
