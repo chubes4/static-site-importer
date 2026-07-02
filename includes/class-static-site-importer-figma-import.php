@@ -694,16 +694,19 @@ class Static_Site_Importer_Figma_Import {
 		$source_metadata = isset( $artifact['provenance'] ) && is_array( $artifact['provenance'] ) ? $artifact['provenance'] : self::provenance( $input );
 
 		return array(
-			'artifact'                  => $artifact,
-			'slug'                      => isset( $input['slug'] ) ? (string) $input['slug'] : '',
-			'name'                      => isset( $input['name'] ) ? (string) $input['name'] : $title,
-			'site_title'                => $title,
-			'activate'                  => array_key_exists( 'activate', $input ) ? ! empty( $input['activate'] ) : true,
-			'overwrite'                 => array_key_exists( 'overwrite', $input ) ? ! empty( $input['overwrite'] ) : true,
-			'fail_on_quality'           => ! empty( $input['fail_on_quality'] ),
-			'allow_missing_woocommerce' => ! empty( $input['allow_missing_woocommerce'] ),
-			'compiler_options'          => isset( $input['compiler_options'] ) && is_array( $input['compiler_options'] ) ? $input['compiler_options'] : array(),
-			'source_metadata'           => $source_metadata,
+			'artifact'                     => $artifact,
+			'slug'                         => isset( $input['slug'] ) ? (string) $input['slug'] : '',
+			'name'                         => isset( $input['name'] ) ? (string) $input['name'] : $title,
+			'site_title'                   => $title,
+			'activate'                     => array_key_exists( 'activate', $input ) ? ! empty( $input['activate'] ) : true,
+			'overwrite'                    => array_key_exists( 'overwrite', $input ) ? ! empty( $input['overwrite'] ) : true,
+			'fail_on_quality'              => ! empty( $input['fail_on_quality'] ),
+			'allow_missing_woocommerce'    => ! empty( $input['allow_missing_woocommerce'] ),
+			'allow_missing_translatepress' => ! empty( $input['allow_missing_translatepress'] ),
+			'translation_context'          => isset( $input['translation_context'] ) && is_array( $input['translation_context'] ) ? $input['translation_context'] : array(),
+			'languages'                    => isset( $input['languages'] ) && is_array( $input['languages'] ) ? $input['languages'] : array(),
+			'compiler_options'             => isset( $input['compiler_options'] ) && is_array( $input['compiler_options'] ) ? $input['compiler_options'] : array(),
+			'source_metadata'              => $source_metadata,
 		);
 	}
 

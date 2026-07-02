@@ -93,6 +93,12 @@ if ( ! function_exists( 'static_site_importer_register_abilities' ) ) {
 						'fail_on_quality'              => array( 'type' => 'boolean' ),
 						'allow_missing_woocommerce'    => array( 'type' => 'boolean' ),
 						'allow_missing_jetpack'        => array( 'type' => 'boolean' ),
+						'allow_missing_translatepress' => array( 'type' => 'boolean' ),
+						'translation_context'          => array( 'type' => 'object' ),
+						'languages'                    => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
 						'report'                       => array( 'type' => 'string' ),
 						'write_theme_report_artifacts' => array( 'type' => 'boolean' ),
 						'asset_materialization_policy' => array(
@@ -133,6 +139,12 @@ if ( ! function_exists( 'static_site_importer_register_abilities' ) ) {
 						'fail_on_quality'              => array( 'type' => 'boolean' ),
 						'allow_missing_woocommerce'    => array( 'type' => 'boolean' ),
 						'allow_missing_jetpack'        => array( 'type' => 'boolean' ),
+						'allow_missing_translatepress' => array( 'type' => 'boolean' ),
+						'translation_context'          => array( 'type' => 'object' ),
+						'languages'                    => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
 						'report'                       => array( 'type' => 'string' ),
 						'write_theme_report_artifacts' => array( 'type' => 'boolean' ),
 						'asset_materialization_policy' => array(
@@ -162,23 +174,29 @@ if ( ! function_exists( 'static_site_importer_register_abilities' ) ) {
 				'input_schema'        => array(
 					'type'       => 'object',
 					'properties' => array(
-						'artifact_bundle'           => array( 'type' => 'object' ),
-						'figma'                     => array( 'type' => 'object' ),
-						'scenegraph'                => array( 'type' => 'object' ),
-						'source'                    => array( 'type' => 'object' ),
-						'goal'                      => array( 'type' => 'string' ),
-						'slug'                      => array( 'type' => 'string' ),
-						'name'                      => array( 'type' => 'string' ),
-						'activate'                  => array( 'type' => 'boolean' ),
-						'overwrite'                 => array( 'type' => 'boolean' ),
-						'fail_on_quality'           => array( 'type' => 'boolean' ),
-						'allow_missing_woocommerce' => array( 'type' => 'boolean' ),
-						'allow_missing_jetpack'     => array( 'type' => 'boolean' ),
-						'compiler_options'          => array( 'type' => 'object' ),
-						'transform_options'         => array( 'type' => 'object' ),
-						'validation'                => array( 'type' => 'object' ),
-						'validation_artifacts'      => array( 'type' => 'object' ),
-						'frame_id'                  => array( 'type' => 'string' ),
+						'artifact_bundle'              => array( 'type' => 'object' ),
+						'figma'                        => array( 'type' => 'object' ),
+						'scenegraph'                   => array( 'type' => 'object' ),
+						'source'                       => array( 'type' => 'object' ),
+						'goal'                         => array( 'type' => 'string' ),
+						'slug'                         => array( 'type' => 'string' ),
+						'name'                         => array( 'type' => 'string' ),
+						'activate'                     => array( 'type' => 'boolean' ),
+						'overwrite'                    => array( 'type' => 'boolean' ),
+						'fail_on_quality'              => array( 'type' => 'boolean' ),
+						'allow_missing_woocommerce'    => array( 'type' => 'boolean' ),
+						'allow_missing_jetpack'        => array( 'type' => 'boolean' ),
+						'allow_missing_translatepress' => array( 'type' => 'boolean' ),
+						'translation_context'          => array( 'type' => 'object' ),
+						'languages'                    => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+						'compiler_options'             => array( 'type' => 'object' ),
+						'transform_options'            => array( 'type' => 'object' ),
+						'validation'                   => array( 'type' => 'object' ),
+						'validation_artifacts'         => array( 'type' => 'object' ),
+						'frame_id'                     => array( 'type' => 'string' ),
 					),
 				),
 				'output_schema'       => array( 'type' => 'object' ),
@@ -207,6 +225,12 @@ if ( ! function_exists( 'static_site_importer_register_abilities' ) ) {
 						'fail_on_quality'              => array( 'type' => 'boolean' ),
 						'allow_missing_woocommerce'    => array( 'type' => 'boolean' ),
 						'allow_missing_jetpack'        => array( 'type' => 'boolean' ),
+						'allow_missing_translatepress' => array( 'type' => 'boolean' ),
+						'translation_context'          => array( 'type' => 'object' ),
+						'languages'                    => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
 						'asset_materialization_policy' => array(
 							'type' => 'string',
 							'enum' => array( 'copy_to_theme', 'use_map' ),
@@ -345,6 +369,9 @@ if ( ! function_exists( 'static_site_importer_ability_import_website_artifact' )
 			'fail_on_quality'              => ! empty( $input['fail_on_quality'] ),
 			'allow_missing_woocommerce'    => ! empty( $input['allow_missing_woocommerce'] ),
 			'allow_missing_jetpack'        => ! empty( $input['allow_missing_jetpack'] ),
+			'allow_missing_translatepress' => ! empty( $input['allow_missing_translatepress'] ),
+			'translation_context'          => isset( $input['translation_context'] ) && is_array( $input['translation_context'] ) ? $input['translation_context'] : array(),
+			'languages'                    => isset( $input['languages'] ) && is_array( $input['languages'] ) ? $input['languages'] : array(),
 			'materialize_dependencies'     => array_key_exists( 'materialize_dependencies', $input ) ? (bool) $input['materialize_dependencies'] : true,
 			'report'                       => isset( $input['report'] ) ? (string) $input['report'] : '',
 			'write_theme_report_artifacts' => ! empty( $input['write_theme_report_artifacts'] ),
@@ -390,7 +417,9 @@ if ( ! function_exists( 'static_site_importer_ability_import_success' ) ) {
 		 * @param array<string,mixed> $result   The raw import result.
 		 * @param array<string,mixed> $input    The original ability input.
 		 */
-		do_action( 'static_site_importer_import_completed', $contract, $result, $input );
+		if ( function_exists( 'do_action' ) ) {
+			do_action( 'static_site_importer_import_completed', $contract, $result, $input );
+		}
 
 		return array(
 			'success'             => true,

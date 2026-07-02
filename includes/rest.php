@@ -1427,6 +1427,9 @@ function static_site_importer_rest_import_args( array $params ): array {
 		'overwrite'                    => ! empty( $params['overwrite'] ),
 		'fail_on_quality'              => ! empty( $params['fail_on_quality'] ),
 		'allow_missing_woocommerce'    => ! empty( $params['allow_missing_woocommerce'] ),
+		'allow_missing_translatepress' => ! empty( $params['allow_missing_translatepress'] ),
+		'translation_context'          => isset( $params['translation_context'] ) && is_array( $params['translation_context'] ) ? $params['translation_context'] : array(),
+		'languages'                    => isset( $params['languages'] ) && is_array( $params['languages'] ) ? $params['languages'] : array(),
 		'write_theme_report_artifacts' => ! empty( $params['write_theme_report_artifacts'] ),
 		'source_metadata'              => array(
 			'source' => 'static_site_importer_block',

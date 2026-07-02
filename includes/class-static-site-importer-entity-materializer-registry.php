@@ -26,6 +26,11 @@ class Static_Site_Importer_Entity_Materializer_Registry {
 	 */
 	public static function capabilities(): array {
 		return array(
+			'translation' => array(
+				'default_provider' => 'translatepress',
+				'option'           => 'static_site_importer_translation_plugin',
+				'filter'           => 'ssi_translation_plugin',
+			),
 			'form' => array(
 				'default_provider' => 'jetpack',
 				'option'           => 'static_site_importer_form_plugin',
@@ -130,6 +135,15 @@ class Static_Site_Importer_Entity_Materializer_Registry {
 	public static function product_adapter(): array {
 		$adapter = self::adapter_for_capability( 'shop' );
 		return ! empty( $adapter ) ? $adapter : self::adapter( 'woocommerce_simple_product' );
+	}
+
+	/**
+	 * Return the adapter that handles multilingual runtime requirements.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function translation_adapter(): array {
+		return self::adapter_for_capability( 'translation' );
 	}
 
 	/**
@@ -460,7 +474,28 @@ class Static_Site_Importer_Entity_Materializer_Registry {
 	 */
 	private static function adapters(): array {
 		$adapters = array(
-			'woocommerce_simple_product' => array(
+			'translatepress_multilingual' => array(
+				'id'              => 'translatepress_multilingual',
+				'entity_type'     => 'translation',
+				'capability'      => 'translation',
+				'provider'        => 'translatepress',
+				'label'           => 'TranslatePress multilingual site',
+				'report_key'      => 'translation_materialization',
+				'waiver_arg'      => 'allow_missing_translatepress',
+				'validator'       => null,
+				'materializer'    => null,
+				'report_callback' => null,
+				'dependencies'    => array(
+					array(
+						'type'                  => 'wp_org_plugin',
+						'slug'                  => 'translatepress-multilingual',
+						'plugin_file'           => 'translatepress-multilingual/index.php',
+						'availability_callback' => array( self::class, 'translatepress_available' ),
+						'missing_apis'          => array( 'TRP_Translate_Press', 'trp_settings' ),
+					),
+				),
+			),
+			'woocommerce_simple_product'  => array(
 				'id'              => 'woocommerce_simple_product',
 				'entity_type'     => 'product',
 				'capability'      => 'shop',
@@ -512,6 +547,19 @@ class Static_Site_Importer_Entity_Materializer_Registry {
 		/** @var mixed $filtered */
 		$filtered = function_exists( 'apply_filters' ) ? apply_filters( 'static_site_importer_entity_materializers', $adapters ) : $adapters;
 		return is_array( $filtered ) ? $filtered : $adapters;
+	}
+
+	/**
+	 * Determine whether TranslatePress is available for multilingual imports.
+	 *
+	 * @return bool
+	 */
+	public static function translatepress_available(): bool {
+		if ( class_exists( 'TRP_Translate_Press' ) ) {
+			return true;
+		}
+
+		return function_exists( 'is_plugin_active' ) && is_plugin_active( 'translatepress-multilingual/index.php' );
 	}
 
 	/**

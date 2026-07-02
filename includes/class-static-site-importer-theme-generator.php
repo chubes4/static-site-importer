@@ -87,6 +87,7 @@ class Static_Site_Importer_Theme_Generator {
 		if ( empty( $args['source_artifact_reference'] ) ) {
 			$args['source_artifact_reference'] = self::source_artifact_reference_from_artifact( $artifact, $args );
 		}
+		$args['source_artifact'] = $artifact;
 
 		$compiler_options = isset( $args['compiler_options'] ) && is_array( $args['compiler_options'] ) ? $args['compiler_options'] : array();
 		$compiled         = ( new Static_Site_Importer_Transformer_Adapter() )->compile_website_artifact( $artifact, array_merge( array( 'include_conversion_report' => true ), $compiler_options ) );
@@ -223,6 +224,7 @@ class Static_Site_Importer_Theme_Generator {
 		self::materialize_required_plugins( $args );
 		self::record_product_seeding_report( $args );
 		self::record_commerce_dependency_check( $args );
+		self::record_translation_dependency_check( $args );
 		self::record_form_materialization( $args );
 		self::record_product_materialization( $args );
 		$source_of_truth_manifest                    = self::source_of_truth_manifest( $import_run_id, $source_artifact_reference, $theme_dir, $theme_slug, $page_targets, $page_ids, $permalinks, $writes, $materialized, $write_theme_report_artifacts );
@@ -2920,14 +2922,9 @@ class Static_Site_Importer_Theme_Generator {
 			'plugins' => array(),
 		);
 
-		$intent  = self::commerce_dependency_intent();
-		$adapter = Static_Site_Importer_Entity_Materializer_Registry::product_adapter();
-		if ( ! $intent['present'] ) {
+		$requirements = self::plugin_dependency_requirements( $args );
+		if ( empty( $requirements ) ) {
 			self::$conversion_report['plugin_materialization']['reason'] = 'no_plugin_backed_intent';
-			return;
-		}
-		if ( ! empty( $args[ (string) ( $adapter['waiver_arg'] ?? 'allow_missing_woocommerce' ) ] ) ) {
-			self::$conversion_report['plugin_materialization']['reason'] = 'woocommerce_requirement_waived';
 			return;
 		}
 		if ( array_key_exists( 'materialize_dependencies', $args ) && false === (bool) $args['materialize_dependencies'] ) {
@@ -2935,11 +2932,34 @@ class Static_Site_Importer_Theme_Generator {
 			return;
 		}
 
-		$reports = Static_Site_Importer_Entity_Materializer_Registry::materialize_plugin_dependencies( $adapter );
+		$reports = array();
+		$waived  = array();
+		foreach ( $requirements as $requirement ) {
+			$adapter    = isset( $requirement['adapter'] ) && is_array( $requirement['adapter'] ) ? $requirement['adapter'] : array();
+			$waiver_arg = (string) ( $adapter['waiver_arg'] ?? '' );
+			if ( '' !== $waiver_arg && ! empty( $args[ $waiver_arg ] ) ) {
+				$waived[] = (string) ( $requirement['capability'] ?? $waiver_arg );
+				continue;
+			}
+
+			$reports = array_merge( $reports, Static_Site_Importer_Entity_Materializer_Registry::materialize_plugin_dependencies( $adapter ) );
+		}
+
+		if ( empty( $reports ) ) {
+			self::$conversion_report['plugin_materialization']['reason'] = ! empty( $waived ) ? 'requirements_waived' : 'no_unwaived_plugin_backed_intent';
+			if ( ! empty( $waived ) ) {
+				self::$conversion_report['plugin_materialization']['waived'] = $waived;
+			}
+			return;
+		}
+
 		self::$conversion_report['plugin_materialization'] = array(
 			'status'  => self::plugin_materialization_status( $reports ),
 			'plugins' => $reports,
 		);
+		if ( ! empty( $waived ) ) {
+			self::$conversion_report['plugin_materialization']['waived'] = $waived;
+		}
 	}
 
 	/**
@@ -3034,6 +3054,60 @@ class Static_Site_Importer_Theme_Generator {
 	}
 
 	/**
+	 * Record TranslatePress dependency status for multilingual imports.
+	 *
+	 * @param array<string, mixed> $args Import args.
+	 * @return void
+	 */
+	private static function record_translation_dependency_check( array $args ): void {
+		$intent = self::translation_dependency_intent( $args );
+		if ( ! $intent['present'] ) {
+			return;
+		}
+
+		$adapter      = Static_Site_Importer_Entity_Materializer_Registry::translation_adapter();
+		$waived       = ! empty( $args[ (string) ( $adapter['waiver_arg'] ?? 'allow_missing_translatepress' ) ] );
+		$dependencies = Static_Site_Importer_Entity_Materializer_Registry::dependency_rows( $adapter, $intent, $waived );
+		$active       = Static_Site_Importer_Entity_Materializer_Registry::dependencies_available( $adapter );
+
+		if ( ! isset( self::$conversion_report['translation'] ) || ! is_array( self::$conversion_report['translation'] ) ) {
+			self::$conversion_report['translation'] = array();
+		}
+		self::$conversion_report['translation']['intent']       = $intent;
+		self::$conversion_report['translation']['dependencies'] = $dependencies;
+
+		if ( $active ) {
+			self::$conversion_report['diagnostics'][] = array(
+				'code'     => 'translatepress_present',
+				'severity' => 'info',
+				'source'   => 'translation.dependencies.translatepress-multilingual',
+				'message'  => 'TranslatePress is active; multilingual import requirements have a translation runtime.',
+				'sources'  => $intent['sources'],
+			);
+			return;
+		}
+
+		if ( $waived ) {
+			self::$conversion_report['diagnostics'][] = array(
+				'code'     => 'translatepress_waived',
+				'severity' => 'warning',
+				'source'   => 'translation.dependencies.translatepress-multilingual',
+				'message'  => 'Multilingual import proceeded without TranslatePress because allow_missing_translatepress was set.',
+				'sources'  => $intent['sources'],
+			);
+			return;
+		}
+
+		self::$conversion_report['diagnostics'][] = array(
+			'code'     => 'translatepress_missing',
+			'severity' => 'error',
+			'source'   => 'translation.dependencies.translatepress-multilingual',
+			'message'  => 'TranslatePress is required for this import. The source declared multilingual site behavior but TranslatePress is not active. Install and activate TranslatePress, or pass allow_missing_translatepress to import without provisioning translation runtime support.',
+			'sources'  => $intent['sources'],
+		);
+	}
+
+	/**
 	 * Materialize detected form runtime islands through the configured provider.
 	 *
 	 * Mirrors the commerce path: preserved <form> findings carry the source form
@@ -3083,6 +3157,133 @@ class Static_Site_Importer_Theme_Generator {
 		}
 
 		return 'completed';
+	}
+
+	/**
+	 * Collect plugin-backed requirements for the active import.
+	 *
+	 * @return array<int,array{capability:string,adapter:array<string,mixed>,intent:array<string,mixed>}>
+	 */
+	private static function plugin_dependency_requirements( array $args = array() ): array {
+		$requirements = array();
+		$commerce     = self::commerce_dependency_intent();
+		if ( ! empty( $commerce['present'] ) ) {
+			$requirements[] = array(
+				'capability' => 'shop',
+				'adapter'    => Static_Site_Importer_Entity_Materializer_Registry::product_adapter(),
+				'intent'     => $commerce,
+			);
+		}
+
+		$translation = self::translation_dependency_intent( $args );
+		if ( ! empty( $translation['present'] ) ) {
+			$requirements[] = array(
+				'capability' => 'translation',
+				'adapter'    => Static_Site_Importer_Entity_Materializer_Registry::translation_adapter(),
+				'intent'     => $translation,
+			);
+		}
+
+		return $requirements;
+	}
+
+	/**
+	 * Detect multilingual intent for the active import.
+	 *
+	 * @param array<string, mixed> $args Import args.
+	 * @return array{present:bool,sources:array<int,string>,product_count:int,languages:array<int,string>}
+	 */
+	private static function translation_dependency_intent( array $args = array() ): array {
+		$sources   = array();
+		$languages = array();
+
+		foreach ( self::translation_intent_candidates( $args ) as $candidate ) {
+			$source = (string) ( $candidate['source'] ?? 'translation_context' );
+			$value  = $candidate['value'] ?? null;
+			if ( true === $value || 'true' === $value || 'multilingual' === $value ) {
+				$sources[] = $source;
+				continue;
+			}
+
+			if ( ! is_array( $value ) ) {
+				continue;
+			}
+
+			$candidate_languages = self::translation_languages_from_value( $value );
+			if ( count( $candidate_languages ) > 1 || ! empty( $value['multilingual'] ) || ! empty( $value['required'] ) ) {
+				$sources[]  = $source;
+				$languages = array_merge( $languages, $candidate_languages );
+			}
+		}
+
+		$languages = array_values( array_unique( array_filter( array_map( 'strval', $languages ) ) ) );
+		$sources   = array_values( array_unique( array_filter( array_map( 'strval', $sources ) ) ) );
+
+		return array(
+			'present'       => ! empty( $sources ),
+			'sources'       => $sources,
+			'product_count' => 0,
+			'languages'     => $languages,
+		);
+	}
+
+	/**
+	 * Return metadata candidates that can declare multilingual requirements.
+	 *
+	 * @param array<string, mixed> $args Import args.
+	 * @return array<int,array{source:string,value:mixed}>
+	 */
+	private static function translation_intent_candidates( array $args ): array {
+		$candidates = array();
+		foreach ( array(
+			'import_args.translation_context' => $args['translation_context'] ?? null,
+			'import_args.languages'           => $args['languages'] ?? null,
+			'source_metadata.translation'      => isset( $args['source_metadata'] ) && is_array( $args['source_metadata'] ) ? ( $args['source_metadata']['translation'] ?? null ) : null,
+			'source_metadata.languages'        => isset( $args['source_metadata'] ) && is_array( $args['source_metadata'] ) ? ( $args['source_metadata']['languages'] ?? null ) : null,
+			'source_artifact.translation'      => isset( $args['source_artifact'] ) && is_array( $args['source_artifact'] ) ? ( $args['source_artifact']['translation'] ?? null ) : null,
+			'source_artifact.languages'        => isset( $args['source_artifact'] ) && is_array( $args['source_artifact'] ) ? ( $args['source_artifact']['languages'] ?? null ) : null,
+		) as $source => $value ) {
+			if ( null !== $value && array() !== $value ) {
+				$candidates[] = array(
+					'source' => $source,
+					'value'  => $value,
+				);
+			}
+		}
+
+		return $candidates;
+	}
+
+	/**
+	 * Extract language codes from a multilingual metadata value.
+	 *
+	 * @param array<int|string,mixed> $value Metadata value.
+	 * @return array<int,string>
+	 */
+	private static function translation_languages_from_value( array $value ): array {
+		if ( array_is_list( $value ) ) {
+			return array_values( array_filter( array_map( 'strval', $value ) ) );
+		}
+
+		foreach ( array( 'languages', 'locales' ) as $key ) {
+			if ( isset( $value[ $key ] ) && is_array( $value[ $key ] ) ) {
+				return self::translation_languages_from_value( $value[ $key ] );
+			}
+		}
+
+		$languages = array();
+		foreach ( array( 'default_language', 'default_locale', 'source_language', 'source_locale' ) as $key ) {
+			if ( isset( $value[ $key ] ) && is_scalar( $value[ $key ] ) ) {
+				$languages[] = (string) $value[ $key ];
+			}
+		}
+		foreach ( array( 'target_languages', 'target_locales' ) as $key ) {
+			if ( isset( $value[ $key ] ) && is_array( $value[ $key ] ) ) {
+				$languages = array_merge( $languages, self::translation_languages_from_value( $value[ $key ] ) );
+			}
+		}
+
+		return $languages;
 	}
 
 	/**

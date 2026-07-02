@@ -28,7 +28,10 @@ namespace {
 	}
 
 	require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-woo-product-seeder.php';
+	require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-diagnostic-loss-classes.php';
+	require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-report-diagnostics.php';
 	require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-entity-materializer-registry.php';
+	require_once dirname( __DIR__ ) . '/includes/class-static-site-importer-theme-generator.php';
 
 	$failures   = array();
 	$assertions = 0;
@@ -40,11 +43,54 @@ namespace {
 	};
 
 	$adapter = Static_Site_Importer_Entity_Materializer_Registry::product_adapter();
+	$translation_adapter = Static_Site_Importer_Entity_Materializer_Registry::translation_adapter();
 	$intent  = array(
 		'present'       => true,
 		'sources'       => array( 'products_manifest' ),
 		'product_count' => 1,
 	);
+	$translation_intent = array(
+		'present'       => true,
+		'sources'       => array( 'import_args.translation_context' ),
+		'product_count' => 0,
+		'languages'     => array( 'pt_BR', 'en_US' ),
+	);
+
+	$assert( 'translatepress' === Static_Site_Importer_Entity_Materializer_Registry::provider_for( 'translation' ), 'translation-default-provider-translatepress' );
+	$assert( 'translatepress_multilingual' === ( $translation_adapter['id'] ?? '' ), 'translation-adapter-resolves-translatepress' );
+	$assert( 'allow_missing_translatepress' === ( $translation_adapter['waiver_arg'] ?? '' ), 'translation-adapter-waiver' );
+	$translation_dependencies = Static_Site_Importer_Entity_Materializer_Registry::dependency_rows( $translation_adapter, $translation_intent, false );
+	$assert( isset( $translation_dependencies['translatepress-multilingual'] ), 'translatepress-dependency-row-key-preserved' );
+	$assert( false === ( $translation_dependencies['translatepress-multilingual']['active'] ?? true ), 'missing-translatepress-reports-inactive' );
+	$assert( array( 'TRP_Translate_Press', 'trp_settings' ) === ( $translation_dependencies['translatepress-multilingual']['missing_apis'] ?? array() ), 'missing-translatepress-api-list-preserved' );
+	$assert( array( 'import_args.translation_context' ) === ( $translation_dependencies['translatepress-multilingual']['sources'] ?? array() ), 'translatepress-dependency-sources-preserved' );
+	$assert( false === Static_Site_Importer_Entity_Materializer_Registry::dependencies_available( $translation_adapter ), 'translation-dependencies-not-available-without-translatepress' );
+
+	$translation_detector = new \ReflectionMethod( 'Static_Site_Importer_Theme_Generator', 'translation_dependency_intent' );
+	$translation_detected = $translation_detector->invoke(
+		null,
+		array(
+			'translation_context' => array(
+				'languages' => array( 'pt_BR', 'en_US' ),
+			),
+		)
+	);
+	$assert( true === ( $translation_detected['present'] ?? false ), 'translation-intent-detected-from-context' );
+	$assert( array( 'pt_BR', 'en_US' ) === ( $translation_detected['languages'] ?? array() ), 'translation-intent-languages-preserved' );
+	$translation_absent = $translation_detector->invoke( null, array( 'languages' => array( 'pt_BR' ) ) );
+	$assert( false === ( $translation_absent['present'] ?? true ), 'single-language-does-not-trigger-translatepress' );
+
+	$requirements_detector = new \ReflectionMethod( 'Static_Site_Importer_Theme_Generator', 'plugin_dependency_requirements' );
+	$requirements = $requirements_detector->invoke(
+		null,
+		array(
+			'source_artifact' => array(
+				'languages' => array( 'pt_BR', 'en_US' ),
+			),
+		)
+	);
+	$assert( 1 === count( $requirements ), 'translation-requirement-collected-without-commerce' );
+	$assert( 'translation' === ( $requirements[0]['capability'] ?? '' ), 'translation-requirement-capability' );
 
 	$dependencies = Static_Site_Importer_Entity_Materializer_Registry::dependency_rows( $adapter, $intent, false );
 	$assert( isset( $dependencies['woocommerce'] ), 'woocommerce-dependency-row-key-preserved' );
