@@ -175,6 +175,7 @@ if ( defined( 'WP_CLI' ) && WP_CLI && class_exists( 'WP_CLI' ) ) {
 				'overwrite'                    => isset( $assoc_args['overwrite'] ),
 				'fail_on_quality'              => isset( $assoc_args['fail-on-quality'] ),
 				'allow_missing_woocommerce'    => isset( $assoc_args['allow-missing-woocommerce'] ),
+				'allow_missing_translatepress' => isset( $assoc_args['allow-missing-translatepress'] ),
 				'materialize_dependencies'     => ! isset( $assoc_args['skip-dependency-materialization'] ),
 				'report'                       => isset( $assoc_args['report'] ) ? (string) $assoc_args['report'] : '',
 				'asset_materialization_policy' => isset( $assoc_args['asset-materialization-policy'] ) ? (string) $assoc_args['asset-materialization-policy'] : '',
@@ -197,12 +198,13 @@ if ( defined( 'WP_CLI' ) && WP_CLI && class_exists( 'WP_CLI' ) ) {
 			$halt_on_failure = ! isset( $assoc_args['allow-failure'] ) && false !== ( $assoc_args['error-on-fail'] ?? true ) && ! isset( $assoc_args['no-error-on-fail'] );
 
 			$input  = array(
-				'slug'                      => isset( $assoc_args['slug'] ) ? (string) $assoc_args['slug'] : '',
-				'name'                      => isset( $assoc_args['name'] ) ? (string) $assoc_args['name'] : '',
-				'activate'                  => ! isset( $assoc_args['no-activate'] ),
-				'overwrite'                 => ! isset( $assoc_args['no-overwrite'] ),
-				'fail_on_quality'           => isset( $assoc_args['fail-on-quality'] ),
-				'allow_missing_woocommerce' => isset( $assoc_args['allow-missing-woocommerce'] ),
+				'slug'                         => isset( $assoc_args['slug'] ) ? (string) $assoc_args['slug'] : '',
+				'name'                         => isset( $assoc_args['name'] ) ? (string) $assoc_args['name'] : '',
+				'activate'                     => ! isset( $assoc_args['no-activate'] ),
+				'overwrite'                    => ! isset( $assoc_args['no-overwrite'] ),
+				'fail_on_quality'              => isset( $assoc_args['fail-on-quality'] ),
+				'allow_missing_woocommerce'    => isset( $assoc_args['allow-missing-woocommerce'] ),
+				'allow_missing_translatepress' => isset( $assoc_args['allow-missing-translatepress'] ),
 			);
 			$output = isset( $assoc_args['output'] ) ? (string) $assoc_args['output'] : '';
 			if ( isset( $assoc_args['artifact-dir'] ) ) {

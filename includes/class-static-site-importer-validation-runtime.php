@@ -40,15 +40,18 @@ class Static_Site_Importer_Validation_Runtime {
 
 		$report_path = trailingslashit( $artifact_dir ) . 'import-report.json';
 		$import_args = array(
-			'slug'                      => $slug,
-			'name'                      => isset( $input['name'] ) ? sanitize_text_field( (string) $input['name'] ) : $slug,
-			'activate'                  => array_key_exists( 'activate', $input ) ? (bool) $input['activate'] : true,
-			'overwrite'                 => array_key_exists( 'overwrite', $input ) ? (bool) $input['overwrite'] : true,
-			'fail_on_quality'           => ! empty( $input['fail_on_quality'] ),
-			'allow_missing_woocommerce' => ! empty( $input['allow_missing_woocommerce'] ),
-			'allow_missing_jetpack'     => ! empty( $input['allow_missing_jetpack'] ),
-			'report'                    => $report_path,
-			'source_metadata'           => array_merge(
+			'slug'                         => $slug,
+			'name'                         => isset( $input['name'] ) ? sanitize_text_field( (string) $input['name'] ) : $slug,
+			'activate'                     => array_key_exists( 'activate', $input ) ? (bool) $input['activate'] : true,
+			'overwrite'                    => array_key_exists( 'overwrite', $input ) ? (bool) $input['overwrite'] : true,
+			'fail_on_quality'              => ! empty( $input['fail_on_quality'] ),
+			'allow_missing_woocommerce'    => ! empty( $input['allow_missing_woocommerce'] ),
+			'allow_missing_jetpack'        => ! empty( $input['allow_missing_jetpack'] ),
+			'allow_missing_translatepress' => ! empty( $input['allow_missing_translatepress'] ),
+			'translation_context'          => isset( $input['translation_context'] ) && is_array( $input['translation_context'] ) ? $input['translation_context'] : array(),
+			'languages'                    => isset( $input['languages'] ) && is_array( $input['languages'] ) ? $input['languages'] : array(),
+			'report'                       => $report_path,
+			'source_metadata'              => array_merge(
 				isset( $input['source_metadata'] ) && is_array( $input['source_metadata'] ) ? $input['source_metadata'] : array(),
 				array( 'validation_provider' => 'static-site-importer/current-runtime' )
 			),
